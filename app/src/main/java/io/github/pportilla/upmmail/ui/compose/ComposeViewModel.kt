@@ -225,7 +225,11 @@ class ComposeViewModel(
 
     private var loadJob: Job? = null
     private var autosaveJob: Job? = null
+    private var firstSaveStarted = false
     private var focusCounter = 0
+
+    /** Files picked while the draft was still loading (a picker result after process death). */
+    private val pendingPicked = mutableListOf<String>()
 
     private data class SuggestionRequest(val kind: RecipientKind, val query: String, val exclude: Set<String>, val generation: Int)
 
@@ -390,6 +394,11 @@ class ComposeViewModel(
             )
         }
         if (opened.applyPrefills) importAttachments(args.attachmentUris, fromPrefill = true)
+        if (pendingPicked.isNotEmpty()) {
+            val picked = pendingPicked.toList()
+            pendingPicked.clear()
+            importAttachments(picked, fromPrefill = false)
+        }
     }
 
     // ------------------------------------------------------------------ recipients
@@ -608,10 +617,16 @@ class ComposeViewModel(
 
     // ------------------------------------------------------------------ attachments
 
-    /** Files picked by the user: each one is copied into the app (a spinner chip shows meanwhile). */
+    /**
+     * Files picked by the user: each one is copied into the app (a spinner chip shows meanwhile).
+     * Files picked before the draft is ready are added once it is.
+     */
     fun addAttachments(uris: List<String>) {
-        if (!state.value.isReady) return
-        importAttachments(uris, fromPrefill = false)
+        when (state.value.status) {
+            ComposeStatus.Ready -> importAttachments(uris, fromPrefill = false)
+            ComposeStatus.Loading, is ComposeStatus.Failed -> pendingPicked += uris
+            ComposeStatus.Finished -> Unit
+        }
     }
 
     fun removeAttachment(attachment: OutgoingAttachment) {
@@ -787,6 +802,12 @@ class ComposeViewModel(
     }
 
     /**
+     * Id of the local draft row saved by this screen, 0 before the first save. Read by the screen
+     * when it stops, as its saved state is written before the UI state could deliver a new id.
+     */
+    val localDraftId: Long get() = savedDraftId
+
+    /**
      * The app goes to the background: store the draft on the server too, so it is not lost if
      * the process is killed and the user never comes back to this screen.
      */
@@ -806,10 +827,15 @@ class ComposeViewModel(
             state.update { it.copy(highlightInvalid = false) }
         }
         autosaveJob?.cancel()
+        // The first local copy is made at once: the screen keeps its id in its saved state, so
+        // that a screen restored after the process was killed reopens it. That id must be known
+        // before the user can leave the app, which may be well within the autosave delay.
+        val firstSave = savedDraftId == 0L && !firstSaveStarted
         autosaveJob = scope.launch {
-            delay(AUTOSAVE_DELAY_MILLIS)
+            if (!firstSave) delay(AUTOSAVE_DELAY_MILLIS)
             val content = currentContent()
             if (content == lastSavedLocal || decideClose(content) != CloseAction.SAVE) return@launch
+            if (firstSave) firstSaveStarted = true
             try {
                 persistAsync(content, upload = false).await()
             } catch (e: CancellationException) {

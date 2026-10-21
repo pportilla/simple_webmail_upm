@@ -45,6 +45,7 @@
     <string name="message_loading_body">Cargando mensaje…</string>
     <string name="message_body_error">No se ha podido cargar este mensaje</string>
     <string name="message_empty_body">Este mensaje no tiene texto.</string>
+    <string name="message_body_unformatted">Este mensaje no se puede mostrar con su formato. Este es su texto.</string>
     <string name="message_images_hidden">Imágenes ocultas</string>
     <string name="message_images_hidden_detail">Las imágenes remotas pueden avisar al remitente de que has abierto el mensaje.</string>
     <string name="message_show_images">Mostrar imágenes</string>

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,7 +29,9 @@ import io.github.pportilla.upmmail.ui.components.AppSnackbarController
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.navigation.AppNavHost
+import io.github.pportilla.upmmail.ui.navigation.ComposeArgsState
 import io.github.pportilla.upmmail.ui.navigation.LaunchRequest
+import io.github.pportilla.upmmail.ui.navigation.composeTextSpill
 import io.github.pportilla.upmmail.ui.settings.hasNotificationPermission
 import io.github.pportilla.upmmail.ui.settings.markNotificationPermissionAsked
 import io.github.pportilla.upmmail.ui.settings.needsNotificationPermission
@@ -40,6 +43,17 @@ import io.github.pportilla.upmmail.ui.theme.isDark
 private val LightNavigationScrim = Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
 private val DarkNavigationScrim = Color.argb(0x80, 0x1B, 0x1B, 0x1B)
 
+private const val TAG = "MainActivity"
+
+/** Saved state: a share or mailto: link still waiting for the first sign-in. */
+private const val STATE_PENDING_COMPOSE = "pendingCompose"
+
+/** Intent extras Navigation reads as explicit deep links (NavController.KEY_DEEP_LINK_*). */
+private const val NAVIGATION_EXTRA_PREFIX = "android-support-nav:"
+
+/** Scheme of the implicit deep links Navigation derives from routes. */
+private const val NAVIGATION_URI_SCHEME = "android-app"
+
 /**
  * The single activity. It hosts the Compose navigation graph, turns incoming intents (mailto:
  * links, shares, notification taps) into navigation requests, and tells the sync controller when
@@ -49,8 +63,8 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Navigation asked for by the latest intent, until the navigation host has acted on it.
-     * Plain (not saved) state on purpose: after a configuration change or process death the
-     * intent has already been handled and must not be handled again.
+     * After a configuration change or process death the intent has already been handled and must
+     * not be handled again; only a compose request still waiting for the first sign-in is saved.
      */
     private var pendingRequest by mutableStateOf<LaunchRequest?>(null)
 
@@ -62,8 +76,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null && !intent.isLaunchedFromHistory()) {
-            pendingRequest = LaunchRequest.fromIntent(intent, packageName)
+        intent?.removeNavigationDeepLink()
+        if (savedInstanceState == null) {
+            if (!intent.isLaunchedFromHistory()) pendingRequest = LaunchRequest.fromIntent(intent, packageName)
+        } else {
+            pendingRequest = savedInstanceState.getBundle(STATE_PENDING_COMPOSE)
+                ?.let { ComposeArgsState.fromBundle(it, composeTextSpill()) }
+                ?.let { LaunchRequest.Compose(it) }
         }
         val container = appContainer
 
@@ -103,9 +122,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        intent.removeNavigationDeepLink()
         setIntent(intent)
         // A plain launcher intent (app already running) keeps the current screen.
         LaunchRequest.fromIntent(intent, packageName)?.let { pendingRequest = it }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        (pendingRequest as? LaunchRequest.Compose)?.let { request ->
+            outState.putBundle(STATE_PENDING_COMPOSE, ComposeArgsState.toBundle(request.args, composeTextSpill()))
+        }
     }
 
     override fun onStart() {
@@ -122,6 +149,21 @@ class MainActivity : ComponentActivity() {
 
     private fun Intent?.isLaunchedFromHistory(): Boolean =
         this != null && (flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+
+    /**
+     * Navigation acts by itself on deep-link extras and route URIs in the launching intent, and
+     * before Navigation 2.10 it accepts them from any app. The app never uses them: remove them,
+     * so another app cannot open a screen with arguments of its choice (say, a prefilled forward).
+     */
+    private fun Intent.removeNavigationDeepLink() {
+        try {
+            extras?.keySet()?.filter { it.startsWith(NAVIGATION_EXTRA_PREFIX) }?.forEach(::removeExtra)
+        } catch (e: RuntimeException) {
+            // Unreadable extras: Navigation cannot read them either.
+            Log.w(TAG, "Unreadable intent extras", e)
+        }
+        if (data?.scheme.equals(NAVIGATION_URI_SCHEME, ignoreCase = true)) setDataAndType(null, type)
+    }
 }
 
 /**

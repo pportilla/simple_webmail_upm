@@ -63,12 +63,60 @@ class HelpersTest {
     }
 
     @Test
-    fun attachmentCacheCleanupRemovesOrphans() {
+    fun attachmentCacheCleanupRemovesOrphansButNotReferencedFiles() {
         val files = LocalFiles(temp.root)
         val alive = files.attachmentFile(1, 10, "a.pdf").apply { parentFile.mkdirs(); writeText("a") }
         val orphan = files.attachmentFile(2, 20, "b.pdf").apply { parentFile.mkdirs(); writeText("b") }
-        files.cleanupAttachments { ids -> ids.filter { it == 1L }.toSet() }
+        // Attached to a draft saved by an older version, which pointed into the cache.
+        val referenced = files.attachmentFile(3, 30, "c.pdf").apply { parentFile.mkdirs(); writeText("c") }
+        files.cleanupAttachments(setOf(LocalFiles.fileUri(referenced))) { ids -> ids.filter { it == 1L }.toSet() }
         assertTrue(alive.exists())
         assertFalse(orphan.exists())
+        assertTrue("a draft or queued message still needs it", referenced.exists())
+    }
+
+    @Test
+    fun attachmentCacheIsTrimmedLeastRecentlyUsedFirst() {
+        val files = LocalFiles(temp.root)
+        val now = 1_750_000_000_000L
+        val hour = 60 * 60_000L
+        fun cached(messageId: Long, name: String, size: Int, age: Long): File =
+            files.attachmentFile(messageId, messageId * 10, name).apply {
+                parentFile.mkdirs()
+                writeBytes(ByteArray(size))
+                setLastModified(now - age)
+            }
+        val oldest = cached(1, "oldest.pdf", 400, 10 * hour)
+        val referenced = cached(2, "referenced.pdf", 400, 9 * hour)
+        val older = cached(3, "older.pdf", 400, 8 * hour)
+        val recent = cached(4, "recent.pdf", 400, 2 * hour)
+        val open = cached(5, "open.pdf", 400, 1_000)
+
+        val deleted = files.trimAttachments(setOf(LocalFiles.fileUri(referenced)), maxBytes = 1_200, now = now, minAgeMillis = hour)
+        assertEquals(2, deleted)
+        assertFalse(oldest.exists())
+        assertFalse("empty directories go too", File(files.attachmentsDir, "1").exists())
+        assertTrue(referenced.exists())
+        assertFalse(older.exists())
+        assertTrue("the cache is small enough again", recent.exists())
+        // Over a lower limit, but the rest is referenced, or used lately and possibly open in a viewer.
+        files.touch(recent, now)
+        assertEquals(0, files.trimAttachments(setOf(LocalFiles.fileUri(referenced)), maxBytes = 1_000, now = now, minAgeMillis = hour))
+        assertTrue(recent.exists())
+        assertTrue(open.exists())
+        assertEquals("under the limit nothing goes", 0, files.trimAttachments(emptySet(), maxBytes = 10_000, now = now, minAgeMillis = 0))
+    }
+
+    @Test
+    fun composeCopiesOutliveTheCachedFile() {
+        val files = LocalFiles(temp.root)
+        val cachedFile = files.attachmentFile(7, 70, "acta.pdf").apply { parentFile.mkdirs(); writeText("contenido") }
+        val copy = files.newComposeCopy(cachedFile, "Acta: final.pdf")
+        assertTrue(files.isComposeFile(copy))
+        assertEquals("Acta_ final.pdf", copy.name)
+        files.deleteMessageFiles(listOf(7))
+        files.cleanupAttachments(emptySet()) { emptySet() }
+        assertFalse(cachedFile.exists())
+        assertEquals("contenido", copy.readText())
     }
 }

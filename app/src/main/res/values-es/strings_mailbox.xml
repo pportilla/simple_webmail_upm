@@ -126,6 +126,7 @@
     <string name="mailbox_outbox_sending">Enviando…</string>
     <string name="mailbox_outbox_failed">No enviado</string>
     <string name="mailbox_outbox_edit">Editar</string>
+    <string name="mailbox_outbox_edit_too_late">Demasiado tarde para editarlo: el mensaje ya se está enviando.</string>
     <string name="mailbox_outbox_deleted">Mensaje no enviado eliminado</string>
     <plurals name="mailbox_outbox_attempts">
         <item quantity="one">%1$d intento</item>

@@ -562,12 +562,12 @@ class MailboxViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /**
-     * Deletes [ids] now, or asks first (Trash/Spam always, elsewhere when the setting says so).
-     * Returns true if the deletion started.
+     * Deletes [ids] now, or asks first (Trash/Spam and drafts saved only on this device always,
+     * elsewhere when the setting says so). Returns true if the deletion started.
      */
     private fun requestDelete(ids: List<Long>, fromSelection: Boolean): Boolean {
         val state = uiState.value
-        val permanent = deletesPermanently(state.folder?.role)
+        val permanent = deletesPermanently(state.folder?.role, ids)
         if (permanent || state.settings.confirmDelete) {
             local.update { it.copy(dialog = MailboxDialog.ConfirmDelete(ids, permanent, fromSelection)) }
             return false
@@ -596,7 +596,10 @@ class MailboxViewModel(private val container: AppContainer) : ViewModel() {
                     onSuccess = { handle ->
                         when {
                             handle == null -> eventChannel.send(MailboxEvent.DeletedForever(ids.size))
-                            handle.count > 0 -> eventChannel.send(MailboxEvent.Undoable(UndoKind.TRASHED, ids.size, handle))
+                            // Local drafts among them were discarded for good; Undo restores the rest.
+                            handle.count > 0 -> eventChannel.send(
+                                MailboxEvent.Undoable(UndoKind.TRASHED, ids.count { !isLocalDraftRow(it) }, handle),
+                            )
                         }
                     },
                     onFailure = { eventChannel.send(MailboxEvent.Error(it)) },
@@ -678,21 +681,33 @@ class MailboxViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /**
-     * Moves a failed message back to the drafts and opens it in the composer. The draft is saved
-     * before the outbox entry is deleted, so its attachments are still referenced and kept.
+     * Moves an unsent message back to the drafts and opens it in the composer. A failed message is
+     * saved as a draft before its outbox entry is deleted, so its attachments are still referenced
+     * and kept. A queued one is taken back like "Undo" after sending, which only works until the
+     * sender picks it up.
      */
     fun editOutbox(item: OutboxItem) {
-        // Only failed messages: a queued one may be picked up by the sender at any moment.
         val current = outbox.value.firstOrNull { it.id == item.id } ?: return
-        if (current.state != OutboxState.FAILED) return
-        performThen(
-            action = {
+        val takeBack: suspend () -> Long? = when (current.state) {
+            OutboxState.FAILED -> suspend {
                 val draftId = compose.saveDraft(current.draft.copy(id = 0), upload = false)
                 compose.deleteOutboxItem(current.id)
                 draftId
-            },
+            }
+            OutboxState.QUEUED -> suspend {
+                compose.cancelSend(current.id)?.let { draft -> compose.saveDraft(draft, upload = false) }
+            }
+            // Being handed to the SMTP server right now.
+            OutboxState.SENDING -> return
+        }
+        performThen(
+            action = takeBack,
             onResult = { draftId ->
-                eventChannel.send(MailboxEvent.OpenCompose(ComposeArgs(accountId = current.accountId, draftId = draftId)))
+                if (draftId == null) {
+                    eventChannel.send(MailboxEvent.Info(R.string.mailbox_outbox_edit_too_late))
+                } else {
+                    eventChannel.send(MailboxEvent.OpenCompose(ComposeArgs(accountId = current.accountId, draftId = draftId)))
+                }
             },
         )
     }

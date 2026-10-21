@@ -44,19 +44,29 @@ class ContactDao internal constructor(private val store: MailStore) {
     }
 
     /**
-     * Candidates whose name or address contains the first word of [query] (accent- and
+     * Candidates whose name or address contains every word of [query] (accent- and
      * case-insensitive), most used first. Callers refine with a word-prefix match.
      */
     fun candidates(query: String, limit: Int): List<Contact> {
-        val first = SearchText.words(query).firstOrNull() ?: return emptyList()
+        val words = SearchText.words(query).distinct().take(MAX_QUERY_WORDS)
+        if (words.isEmpty()) return emptyList()
+        // Every word is filtered before the limit: the person typed in full is never crowded out
+        // by more frequent contacts that only match the first word.
+        val where = words.joinToString(" AND ") { "search_key LIKE ? ESCAPE '\\'" }
         return sql.query(
             """
-            SELECT * FROM contacts WHERE search_key LIKE ? ESCAPE '\'
+            SELECT * FROM contacts WHERE $where
             ORDER BY (times_contacted * 3 + times_seen) DESC, last_used DESC LIMIT ?
             """.trimIndent(),
-            listOf("%" + SearchText.escapeLike(first) + "%", limit),
+            words.map { "%" + SearchText.escapeLike(it) + "%" } + limit,
             ::map,
         )
+    }
+
+    /** Forgets every address (the last account was removed). */
+    fun clear() = store.tx {
+        sql.delete(Tables.CONTACTS, "1 = 1")
+        store.changed(Tables.CONTACTS)
     }
 
     fun get(email: String): Contact? =
@@ -71,6 +81,8 @@ class ContactDao internal constructor(private val store: MailStore) {
     )
 
     companion object {
+        private const val MAX_QUERY_WORDS = 5
+
         private val AUTOMATED_LOCAL_PARTS = listOf(
             "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "do_not_reply",
             "mailer-daemon", "postmaster", "bounce", "bounces", "notifications", "notification",

@@ -136,10 +136,10 @@ sealed interface LaunchRequest {
          * (and other apps cannot share them since Android 7 anyway), and URIs of our own
          * attachment provider would let another app make us send the user's cached mail.
          */
-        private fun isAcceptableAttachment(uri: Uri, ownPackage: String): Boolean {
+        internal fun isAcceptableAttachment(uri: Uri, ownPackage: String): Boolean {
             if (!uri.scheme.equals("content", ignoreCase = true)) return false
             val authority = uri.authority ?: return false
-            return !authority.startsWith(ownPackage)
+            return !ContentAuthorities.isOwn(authority, ownPackage)
         }
     }
 }

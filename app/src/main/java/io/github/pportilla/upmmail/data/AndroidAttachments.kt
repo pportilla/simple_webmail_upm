@@ -50,11 +50,15 @@ class AndroidAttachmentImporter(private val context: Context, private val files:
         }
     }
 
-    /** Only the app's own files (e.g. cached attachments of a forwarded message) are accepted. */
+    /**
+     * Only the app's own files are accepted. A downloaded attachment is copied into the compose
+     * area, as the attachment cache may be emptied before the message is sent.
+     */
     private fun describeOwnFile(uri: String): OutgoingAttachment? {
         val file = LocalFiles.fileOf(uri) ?: return null
         if (!files.isServable(file) || !file.isFile) return null
-        return OutgoingAttachment(LocalFiles.fileUri(file), file.name, mimeTypeOf(file.name, null), file.length())
+        val owned = if (files.isComposeFile(file)) file else runCatching { files.newComposeCopy(file) }.getOrNull() ?: return null
+        return OutgoingAttachment(LocalFiles.fileUri(owned), owned.name, mimeTypeOf(owned.name, null), owned.length())
     }
 
     private fun copyContent(uri: Uri): OutgoingAttachment? {

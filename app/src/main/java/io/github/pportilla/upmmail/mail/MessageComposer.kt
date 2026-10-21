@@ -26,6 +26,13 @@ object MessageComposer {
     private const val MAX_REFERENCES_LINE = 76
     private const val ATTACHMENT = "attachment"
 
+    /** Longest RFC 2231 file name segment, as Jakarta Mail splits plain parameter values. */
+    private const val FILE_NAME_SEGMENT = 60
+
+    /** Characters RFC 2231 parameter values must percent-encode, besides controls and non-ASCII. */
+    private const val RFC2231_SPECIALS = "*'%()<>@,;:\\\"[]/?="
+    private const val HEX = "0123456789ABCDEF"
+
     /**
      * Builds the MIME message for [draft] sent by [from]: multipart/alternative (text/plain +
      * generated text/html) wrapped in multipart/mixed when there are attachments, UTF-8
@@ -99,8 +106,7 @@ object MessageComposer {
             dataHandler = DataHandler(ReopeningDataSource(source, fileName, mimeType))
             // RFC 2231 in Content-Disposition (the standard); RFC 2047 in the Content-Type name
             // parameter for older mail clients that only look there.
-            val disposition = ContentDisposition(ATTACHMENT, ParameterList().apply { set("filename", fileName, CHARSET) })
-            setHeader("Content-Disposition", disposition.toString())
+            setHeader("Content-Disposition", attachmentDisposition(fileName))
             val contentType = ContentType(mimeType).apply {
                 parameterList = ParameterList().apply {
                     if (isAscii(fileName)) {
@@ -114,6 +120,55 @@ object MessageComposer {
             setHeader("Content-Type", contentType.toString())
             setHeader("Content-Transfer-Encoding", "base64")
         }
+    }
+
+    /**
+     * "attachment" with the [fileName] parameter. Jakarta Mail writes an RFC 2231 encoded value
+     * as one unbroken line, which a long non-ASCII name (each character becomes up to 12
+     * characters) can push past the 998 characters SMTP allows; such a name is written as
+     * numbered segments instead, each on a line of its own and never splitting a character.
+     */
+    private fun attachmentDisposition(fileName: String): String {
+        val chunks = if (isAscii(fileName)) emptyList() else percentEncodedCharacters(fileName)
+        val prefix = "$CHARSET''"
+        if (prefix.length + chunks.sumOf { it.length } <= FILE_NAME_SEGMENT) {
+            return ContentDisposition(ATTACHMENT, ParameterList().apply { set("filename", fileName, CHARSET) }).toString()
+        }
+        val segments = ArrayList<String>()
+        val current = StringBuilder(prefix)
+        for (chunk in chunks) {
+            if (current.length + chunk.length > FILE_NAME_SEGMENT) {
+                segments += current.toString()
+                current.setLength(0)
+            }
+            current.append(chunk)
+        }
+        segments += current.toString()
+        return buildString {
+            append(ATTACHMENT)
+            segments.forEachIndexed { index, segment -> append(";\r\n\tfilename*").append(index).append("*=").append(segment) }
+        }
+    }
+
+    /** The UTF-8 bytes of each character of [value], percent-encoded as RFC 2231 requires. */
+    private fun percentEncodedCharacters(value: String): List<String> {
+        val result = ArrayList<String>(value.length)
+        var index = 0
+        while (index < value.length) {
+            val end = index + Character.charCount(value.codePointAt(index))
+            val chunk = StringBuilder()
+            for (byte in value.substring(index, end).toByteArray(Charsets.UTF_8)) {
+                val code = byte.toInt() and 0xFF
+                if (code <= 0x20 || code >= 0x7F || code.toChar() in RFC2231_SPECIALS) {
+                    chunk.append('%').append(HEX[code shr 4]).append(HEX[code and 0xF])
+                } else {
+                    chunk.append(code.toChar())
+                }
+            }
+            result += chunk.toString()
+            index = end
+        }
+        return result
     }
 
     private fun setRecipients(message: MimeMessage, type: Message.RecipientType, addresses: List<EmailAddress>) {

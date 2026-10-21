@@ -1,9 +1,11 @@
 package io.github.pportilla.upmmail.ui.mailbox
 
+import io.github.pportilla.upmmail.data.repository.LocalDraftRows
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.model.ServerSettings
@@ -266,6 +268,17 @@ class MailboxLogicTest {
     }
 
     @Test
+    fun deletingALocalDraftIsPermanent() {
+        val localDraft = LocalDraftRows.rowId(7)
+        assertTrue(isLocalDraftRow(localDraft))
+        assertFalse(isLocalDraftRow(42))
+        assertFalse(deletesPermanently(FolderRole.DRAFTS, listOf(42L, 43L)))
+        assertTrue(deletesPermanently(FolderRole.DRAFTS, listOf(localDraft)))
+        assertTrue("a mixed selection is confirmed too", deletesPermanently(FolderRole.DRAFTS, listOf(42L, localDraft)))
+        assertTrue(deletesPermanently(FolderRole.TRASH, listOf(42L)))
+    }
+
+    @Test
     fun staleness() {
         val now = 10_000_000L
         assertTrue(isStale(folder(1, lastSyncedAt = null), now))
@@ -273,5 +286,16 @@ class MailboxLogicTest {
         assertFalse(isStale(folder(1, lastSyncedAt = now - 1_000), now))
         // A clock that went backwards counts as stale.
         assertTrue(isStale(folder(1, lastSyncedAt = now + 60_000), now))
+    }
+
+    @Test
+    fun `outbox errors are read back as error kinds`() {
+        assertNull(outboxErrorKind(null))
+        assertNull(outboxErrorKind(" "))
+        assertEquals(MailErrorKind.INVALID_RECIPIENT, outboxErrorKind("INVALID_RECIPIENT"))
+        assertEquals(MailErrorKind.NETWORK, outboxErrorKind("NETWORK"))
+        assertEquals(MailErrorKind.SEND_UNCERTAIN, outboxErrorKind("SEND_UNCERTAIN"))
+        // Anything else (e.g. a free-text message) is shown as an unknown error.
+        assertEquals(MailErrorKind.UNKNOWN, outboxErrorKind("550 5.1.1 User unknown"))
     }
 }

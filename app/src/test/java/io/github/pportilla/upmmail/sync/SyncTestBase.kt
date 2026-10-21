@@ -4,10 +4,13 @@ import com.icegreen.greenmail.util.GreenMail
 import com.icegreen.greenmail.util.ServerSetup
 import com.icegreen.greenmail.util.ServerSetupTest
 import io.github.pportilla.upmmail.data.db.FakeSettings
+import io.github.pportilla.upmmail.data.db.JdbcSqlDatabase
 import io.github.pportilla.upmmail.data.db.MailStore
+import io.github.pportilla.upmmail.data.db.SqlDatabase
+import io.github.pportilla.upmmail.data.db.SqlRow
+import io.github.pportilla.upmmail.data.db.TableObserver
 import io.github.pportilla.upmmail.data.db.TestClock
 import io.github.pportilla.upmmail.data.db.addTestAccount
-import io.github.pportilla.upmmail.data.db.newStore
 import io.github.pportilla.upmmail.data.files.FileAttachmentOpener
 import io.github.pportilla.upmmail.data.files.LocalFiles
 import io.github.pportilla.upmmail.data.repository.ComposeRepositoryImpl
@@ -66,6 +69,24 @@ abstract class SyncTestBase {
     protected val anaEmail = "ana@upm.es"
     protected val password = "secret"
 
+    /** Called before every query of [store] (outside its lock): lets a test act at a precise moment. */
+    @Volatile
+    protected var onQuery: ((sql: String) -> Unit)? = null
+
+    /** Called after every UPDATE or DELETE statement of [store] (inside its lock). */
+    @Volatile
+    protected var onUpdate: ((sql: String, args: List<Any?>) -> Unit)? = null
+
+    private inner class HookedDatabase(private val database: SqlDatabase) : SqlDatabase by database {
+        override fun <T> query(sql: String, args: List<Any?>, mapper: (SqlRow) -> T): List<T> {
+            onQuery?.invoke(sql)
+            return database.query(sql, args, mapper)
+        }
+
+        override fun executeUpdateDelete(sql: String, args: List<Any?>): Int =
+            database.executeUpdateDelete(sql, args).also { onUpdate?.invoke(sql, args) }
+    }
+
     class RecordingListener : SyncListener {
         val newMessages = CopyOnWriteArrayList<MessageSummary>()
         val failures = CopyOnWriteArrayList<OutboxItem>()
@@ -106,7 +127,7 @@ abstract class SyncTestBase {
         greenMail.start()
         greenMail.setUser(anaEmail, "ana", password)
         greenMail.setUser("bob@upm.es", "bob", password)
-        store = newStore(clock::now)
+        store = MailStore(HookedDatabase(JdbcSqlDatabase.inMemory()), TableObserver(), clock::now)
         account = store.addTestAccount(
             email = anaEmail,
             imap = ServerSettings("127.0.0.1", greenMail.imap.port, SecurityMode.NONE, "ana"),

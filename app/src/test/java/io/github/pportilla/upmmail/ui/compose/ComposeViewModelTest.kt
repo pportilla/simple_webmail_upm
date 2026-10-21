@@ -257,6 +257,25 @@ class ComposeViewModelTest {
         assertTrue(compose.saved.isEmpty())
     }
 
+    @Test
+    fun `files picked while the draft is still loading are added once it is ready`() = runTest {
+        val file = OutgoingAttachment("file:///compose/b.pdf", "b.pdf", "application/pdf", 2000)
+        compose.importable["content://b"] = file
+        // A picker result delivered to a ViewModel recreated after process death.
+        val container = FakeContainer(listOf(staff, student), compose, contacts, AppSettings(lastAccountId = 2), backgroundScope)
+        val vm = ComposeViewModel(container, ComposeArgs(), coroutineScope = backgroundScope)
+        assertEquals(ComposeStatus.Loading, vm.uiState.value.status)
+        vm.addAttachments(listOf("content://b"))
+        settle()
+        assertEquals(ComposeStatus.Ready, vm.uiState.value.status)
+        assertEquals(listOf(file), vm.uiState.value.attachments)
+        assertEquals(0, vm.uiState.value.importingAttachments)
+        // Picked by the user: an edit, so closing keeps a draft.
+        vm.close()
+        settle()
+        assertEquals(listOf(file), compose.saved.last().first.attachments)
+    }
+
     // ------------------------------------------------------------------ recipients
 
     @Test
@@ -335,19 +354,27 @@ class ComposeViewModelTest {
     }
 
     @Test
-    fun `autosave after two seconds, then closing uploads the same draft`() = runTest {
+    fun `first edit is saved at once, later ones after two seconds, then closing uploads the same draft`() = runTest {
         val vm = viewModel()
         val events = vm.collectEvents(this)
-        vm.setBody("Hello\n\n-- \nAna\nETSI")
-        advanceTimeBy(1_500)
+        vm.setBody("H\n\n-- \nAna\nETSI")
         runCurrent()
-        assertTrue(compose.saved.isEmpty())
-        advanceTimeBy(600)
-        runCurrent()
+        // The screen needs the draft id before the user can leave the app.
         assertEquals(1, compose.saved.size)
         assertFalse(compose.saved[0].second)
         val id = compose.saved[0].first.id
         assertEquals(id, vm.uiState.value.savedDraftId)
+        assertEquals(id, vm.localDraftId)
+
+        vm.setBody("Hello\n\n-- \nAna\nETSI")
+        advanceTimeBy(1_500)
+        runCurrent()
+        assertEquals(1, compose.saved.size)
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(2, compose.saved.size)
+        assertEquals(id to false, compose.saved[1].let { it.first.id to it.second })
+        assertEquals("Hello\n\n-- \nAna\nETSI", compose.saved[1].first.body)
 
         vm.close()
         settle()

@@ -55,5 +55,6 @@
     <string name="error_not_found">La carpeta o el mensaje ya no existe en el servidor.</string>
     <string name="error_invalid_recipient">El servidor ha rechazado uno o más destinatarios.</string>
     <string name="error_too_large">El mensaje es demasiado grande para el servidor.</string>
+    <string name="error_send_uncertain">El servidor no ha confirmado el mensaje, así que puede que se haya enviado. Revisa Enviados antes de volver a enviarlo.</string>
     <string name="error_unknown">Algo ha ido mal. Inténtalo de nuevo.</string>
 </resources>

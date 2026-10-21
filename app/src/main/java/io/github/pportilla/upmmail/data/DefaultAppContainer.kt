@@ -19,13 +19,16 @@ import io.github.pportilla.upmmail.data.repository.SyncController
 import io.github.pportilla.upmmail.data.security.KeystorePasswordStore
 import io.github.pportilla.upmmail.data.security.PasswordStore
 import io.github.pportilla.upmmail.data.settings.PrefsSettingsRepository
+import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.notifications.MailNotifier
 import io.github.pportilla.upmmail.sync.AndroidSyncController
+import io.github.pportilla.upmmail.sync.FlushResult
 import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
 import io.github.pportilla.upmmail.sync.PushController
 import io.github.pportilla.upmmail.sync.SyncEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,7 +86,30 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
                 // wait for the user (the next sync shows the error).
                 if (error.kind == MailErrorKind.NETWORK) androidSyncController.requestPendingOpsFlush()
             },
+            onFlushed = { _, result -> refreshTouchedFolders(result) },
         )
+    }
+
+    /**
+     * Folders that got messages from pushed operations (move targets, Drafts, Sent) are synced,
+     * so the moved or uploaded mail shows up there without a manual refresh. Only folders that
+     * are being synchronised already; never the INBOX, whose new mail would be notified.
+     */
+    private fun refreshTouchedFolders(result: FlushResult) {
+        if (result.touchedFolders.isEmpty()) return
+        applicationScope.launch(Dispatchers.IO) {
+            for (folderId in result.touchedFolders) {
+                try {
+                    val folder = store.folders.get(folderId) ?: continue
+                    if (folder.role == FolderRole.INBOX || folder.lastSyncedAt == null) continue
+                    engine.syncFolder(folderId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // The folder's next refresh brings the messages.
+                }
+            }
+        }
     }
 
     val androidSyncController: AndroidSyncController by lazy {
@@ -112,6 +138,7 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
             settings = settingsRepository,
             scope = applicationScope,
             onMessagesRead = { ids -> notifier.cancelForMessages(ids) },
+            discardLocalDraft = { draftId -> composeRepositoryImpl.discardLocalDraft(draftId) },
         )
     }
 
@@ -130,7 +157,9 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
         )
     }
 
-    override val composeRepository: ComposeRepository by lazy {
+    override val composeRepository: ComposeRepository get() = composeRepositoryImpl
+
+    val composeRepositoryImpl: ComposeRepositoryImpl by lazy {
         ComposeRepositoryImpl(
             store = store,
             engine = engine,
@@ -179,11 +208,17 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
         step("stale sends") { engine.failStaleSending() }
         step("outbox") { androidSyncController.requestOutboxSend() }
         step("pending operations") { store.pendingOps.accountsWithPending().forEach { flushScheduler.schedule(it) } }
-        step("attachment cache") { files.cleanupAttachments { ids -> store.messages.existingIds(ids) } }
+        // Drafts and queued messages own their files (see LocalFiles): never deleted here.
+        step("attachment cache") {
+            val referenced = store.drafts.attachmentUris() + store.outbox.attachmentUris()
+            files.cleanupAttachments(referenced) { ids -> store.messages.existingIds(ids) }
+            files.trimAttachments(referenced, ATTACHMENT_CACHE_MAX_BYTES, System.currentTimeMillis(), ATTACHMENT_MIN_AGE)
+        }
         step("compose files") {
             val referenced = store.drafts.attachmentUris() + store.outbox.attachmentUris()
             files.cleanupCompose(referenced, System.currentTimeMillis(), COMPOSE_FILE_MIN_AGE)
         }
+        step("cached bodies") { store.messages.dropOldBodies(BODIES_KEPT_PER_FOLDER) }
     }
 
     private suspend fun step(name: String, block: suspend () -> Unit) {
@@ -199,5 +234,14 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
         /** Unreferenced compose copies younger than this may belong to an unsaved compose screen. */
         const val COMPOSE_FILE_MIN_AGE = 24 * 60 * 60_000L
+
+        /** Size of the downloaded-attachment cache beyond which the least recently used files go. */
+        const val ATTACHMENT_CACHE_MAX_BYTES = 200L * 1024 * 1024
+
+        /** Downloads younger than this may be open in a viewer: never trimmed. */
+        const val ATTACHMENT_MIN_AGE = 60 * 60_000L
+
+        /** Downloaded bodies kept per folder (the newest messages); older ones are downloaded again when opened. */
+        const val BODIES_KEPT_PER_FOLDER = 1_000
     }
 }

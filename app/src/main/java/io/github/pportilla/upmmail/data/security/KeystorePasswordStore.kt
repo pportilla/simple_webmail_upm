@@ -2,9 +2,11 @@ package io.github.pportilla.upmmail.data.security
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Log
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -16,8 +18,9 @@ import javax.crypto.spec.GCMParameterSpec
  * ciphertext are kept Base64-encoded in a private SharedPreferences file (excluded from backups
  * by the manifest, and useless without the device-bound key anyway).
  *
- * Any decryption failure (for example a key invalidated after the lock screen was removed)
- * yields null, so the UI asks for the password again instead of crashing.
+ * Any decryption failure (for example a key that became unusable) yields null, so the UI asks
+ * for the password again instead of crashing. One key protects every account's password, so it
+ * is only replaced when it cannot be used any more, not on a single passing failure.
  */
 class KeystorePasswordStore(context: Context) : PasswordStore {
 
@@ -43,10 +46,24 @@ class KeystorePasswordStore(context: Context) : PasswordStore {
         val cipher = try {
             encryptCipher(orCreateKey())
         } catch (e: Exception) {
-            // The key may have been invalidated (e.g. security settings changed): start over.
-            Log.w(TAG, "Recreating the password key", e)
-            deleteKey()
-            encryptCipher(orCreateKey())
+            if (isKeyUnusable(e)) {
+                // The key itself is broken, so no stored password can be decrypted any more: start over.
+                Log.w(TAG, "Recreating the password key", e)
+                newKeyCipher()
+            } else {
+                // Possibly a passing Keystore failure: the key still protects the other accounts'
+                // passwords, so it is tried once more before giving up on it.
+                Log.w(TAG, "Keystore failure, trying again", e)
+                try {
+                    encryptCipher(orCreateKey())
+                } catch (again: Exception) {
+                    // Failing again, the key is most likely broken in a way not reported as such
+                    // (e.g. a corrupt key blob after an update or a restore), and then it cannot
+                    // decrypt the other passwords either. Last resort: start over.
+                    Log.w(TAG, "Recreating the password key", again)
+                    newKeyCipher()
+                }
+            }
         }
         val ciphertext = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
         val encoded = Base64.getEncoder().encodeToString(cipher.iv) + SEPARATOR + Base64.getEncoder().encodeToString(ciphertext)
@@ -59,6 +76,12 @@ class KeystorePasswordStore(context: Context) : PasswordStore {
 
     private fun encryptCipher(key: SecretKey): Cipher =
         Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key) }
+
+    /** Replaces the key with a new one; the passwords stored with the old key are lost. */
+    private fun newKeyCipher(): Cipher {
+        deleteKey()
+        return encryptCipher(orCreateKey())
+    }
 
     private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
@@ -76,6 +99,12 @@ class KeystorePasswordStore(context: Context) : PasswordStore {
         generator.generateKey()
     }
 
+    /** True if [error] says the key can never be used again (not a passing Keystore failure). */
+    private fun isKeyUnusable(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.take(MAX_CAUSES).any {
+            it is KeyPermanentlyInvalidatedException || it is UnrecoverableKeyException
+        }
+
     private fun deleteKey() {
         runCatching { keyStore().deleteEntry(KEY_ALIAS) }
     }
@@ -91,5 +120,6 @@ class KeystorePasswordStore(context: Context) : PasswordStore {
         const val KEY_BITS = 256
         const val TAG_BITS = 128
         const val SEPARATOR = ':'
+        const val MAX_CAUSES = 8
     }
 }

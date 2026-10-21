@@ -34,9 +34,10 @@ import io.github.pportilla.upmmail.ui.navigation.DeepLinks
  * New-mail and send-failure notifications, with framework APIs only.
  *
  * Each new message gets its own notification (sender, subject, preview, "Mark as read" and
- * "Archive"/"Delete" actions), grouped per account under an InboxStyle summary. New-mail
- * notifications are only posted while the app is in the background, notifications are enabled
- * in the app settings and for the account, and (Android 13+) the permission is granted.
+ * "Archive"/"Delete" actions, which on Android 12+ ask to unlock the phone first), grouped per
+ * account under an InboxStyle summary. New-mail notifications are only posted while the app is
+ * in the background, notifications are enabled in the app settings and for the account, and
+ * (Android 13+) the permission is granted. Send failures only need the permission.
  *
  * Methods may query the database: call them off the main thread.
  */
@@ -260,8 +261,12 @@ class MailNotifier(
 
     // ------------------------------------------------------------------ send failures
 
+    /**
+     * Posted whatever the new-mail setting says: that switch is about incoming mail, while a
+     * message that was not sent always needs the user (the channel can still be muted).
+     */
     override fun onSendFailed(item: OutboxItem) {
-        if (!settings.settings.value.notificationsEnabled || !hasPermission()) return
+        if (!hasPermission()) return
         val subject = item.draft.subject.ifBlank { context.getString(R.string.no_subject) }
         val reason = item.lastError
             ?.let { error -> MailErrorKind.entries.firstOrNull { it.name == error } }
@@ -369,6 +374,10 @@ class MailNotifier(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_notification), context.getString(label), pending)
+            .apply {
+                // Both actions change mail: never from a locked phone without unlocking it first.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setAuthenticationRequired(true)
+            }
             .build()
     }
 

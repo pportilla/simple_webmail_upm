@@ -49,8 +49,19 @@ internal object HeaderValues {
         return cleanDecodedSubject(decoded)
     }
 
-    /** A subject Jakarta Mail already decoded, with line breaks and tabs collapsed. */
-    fun cleanDecodedSubject(value: String): String = value.replace(LINE_BREAKS, " ").trim()
+    /** A subject Jakarta Mail already decoded, with line breaks and tabs collapsed and raw UTF-8 repaired. */
+    fun cleanDecodedSubject(value: String): String = repairUtf8(value).replace(LINE_BREAKS, " ").trim()
+
+    /**
+     * Header text whose raw 8-bit UTF-8 bytes were read one byte per character (as Jakarta Mail
+     * reads IMAP strings and unencoded headers), e.g. "ReuniÃ³n", decoded as UTF-8 ("Reunión").
+     * Anything else is returned unchanged: real Latin-1 text such as "Año" is not valid UTF-8.
+     */
+    fun repairUtf8(value: String): String {
+        if (value.none { it.code >= 0x80 } || value.any { it.code > 0xFF }) return value
+        val bytes = value.toByteArray(Charsets.ISO_8859_1)
+        return if (MimeParser.isValidUtf8(bytes)) String(bytes, Charsets.UTF_8) else value
+    }
 
     /** Converts Jakarta addresses (groups expanded, unparseable entries dropped). */
     fun addresses(values: Array<out Address>?): List<EmailAddress> {
@@ -75,7 +86,7 @@ internal object HeaderValues {
     private fun toEmailAddress(address: InternetAddress): EmailAddress? {
         val email = address.address?.trim()?.takeIf { it.isNotEmpty() && !it.endsWith(":;") } ?: return null
         val personal = address.personal
-            ?.let { if ("=?" in it) subject(it) else it }
+            ?.let { if ("=?" in it) subject(it) else repairUtf8(it) }
             ?.replace(WHITESPACE, " ")
             ?.trim()
             ?.trim('"', '\'')

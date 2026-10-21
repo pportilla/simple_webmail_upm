@@ -29,8 +29,9 @@ import java.util.Locale
  * message/rfc822 parts are listed as attachments and never descended into.
  *
  * Only text/plain and text/html body parts are downloaded by [parse]; attachments are described
- * from the structure. Each body field is capped at [MAX_BODY_CHARS] characters so that a
- * pathological message cannot exhaust memory or the SQLite cursor window.
+ * from the structure. Each body field is capped at [MAX_BODY_CHARS] characters, and no more
+ * text than both fields can hold is read, so that a pathological message cannot exhaust memory
+ * or the SQLite cursor window.
  */
 internal object MimeParser {
     const val MAX_BODY_CHARS = 700_000
@@ -38,6 +39,12 @@ internal object MimeParser {
     private const val MAX_DEPTH = 24
     private const val MAX_PARTS = 400
     private const val COPY_BUFFER = 64 * 1024
+
+    /** Text read for one message at most: enough to fill both the HTML and the text body. */
+    private const val TEXT_BUDGET_CHARS = 2 * MAX_BODY_CHARS
+
+    /** Upper bound of the bytes that decode to one character in any charset (UTF-32). */
+    private const val MAX_BYTES_PER_CHAR = 4
 
     private val WINDOWS_1252: Charset = Charset.forName("windows-1252")
     private val SIGNATURE_TYPES = setOf(
@@ -50,6 +57,12 @@ internal object MimeParser {
     private val CID_REFERENCE = Regex("""(?i)cid:([^"'\s)>]+)""")
     private val UNSAFE_FILE_NAME_CHARS = Regex("""[\\/:*?"<>|\u0000-\u001F\u007F]""")
 
+    /**
+     * Invisible format characters, above all the bidi controls (U+202E shows "x\u202Efdp.apk"
+     * as "xkpa.pdf"). Zero-width (non-)joiners are kept: some scripts and emoji need them.
+     */
+    private val INVISIBLE_FILE_NAME_CHARS = Regex("""(?![\u200C\u200D])\p{Cf}""")
+
     private enum class SegmentKind { HTML, TEXT, ALTERNATIVE_TEXT }
 
     private class Segment(val kind: SegmentKind, val content: String)
@@ -58,6 +71,9 @@ internal object MimeParser {
         val segments = ArrayList<Segment>()
         val attachments = ArrayList<ParsedAttachment>()
         var visitedParts = 0
+
+        /** Characters of body text still worth reading; the rest would be cut off anyway. */
+        var textBudget = TEXT_BUDGET_CHARS
     }
 
     private class PartInfo(
@@ -174,15 +190,20 @@ internal object MimeParser {
     fun isPlainEncapsulatedMessage(part: Part): Boolean =
         mimeTypeOf(part) == "message/rfc822" && encodingOf(part) == null
 
-    /** Decoded text of a text part, honouring its charset with sensible fallbacks. */
-    fun readText(part: Part): String {
-        val bytes = try {
-            openDecoded(part).use { readUpTo(it, MAX_TEXT_PART_BYTES) }
+    /**
+     * Decoded text of a text part, honouring its charset with sensible fallbacks. At most
+     * [maxBytes] bytes of the content are read.
+     */
+    fun readText(part: Part, maxBytes: Int = MAX_TEXT_PART_BYTES): String {
+        val read = try {
+            openDecoded(part).use { readUpTo(it, maxBytes) }
         } catch (e: Exception) {
             if (MailErrors.isConnectionDrop(e) || MailErrors.isTimeout(e) || e is MessageRemovedException) throw e
             // The transfer encoding is broken beyond repair: show the content as it came.
-            rawStream(part)?.use { readUpTo(it, MAX_TEXT_PART_BYTES) } ?: throw e
+            rawStream(part)?.use { readUpTo(it, maxBytes) } ?: throw e
         }
+        // A UTF-8 sequence cut in half at the limit must not make the text look like another charset.
+        val bytes = if (read.size >= maxBytes) withoutCutUtf8Sequence(read) else read
         val mimeType = mimeTypeOf(part)
         val declared = charsetOf(part) ?: if (mimeType == "text/html") sniffHtmlCharset(bytes) else null
         return decodeBytes(bytes, declared)
@@ -260,8 +281,8 @@ internal object MimeParser {
                 index == htmlIndex || index == fallbackIndex -> walk(child, childPath, inRelated, collector, depth + 1)
                 index == textIndex -> if (htmlIndex < 0) {
                     walk(child, childPath, inRelated, collector, depth + 1)
-                } else if (collector.readContent) {
-                    collector.segments += Segment(SegmentKind.ALTERNATIVE_TEXT, normalizeNewlines(readText(child)))
+                } else {
+                    collectText(child, SegmentKind.ALTERNATIVE_TEXT, collector)
                 }
                 // Other renderings that are not plain/html (e.g. text/calendar invitations) are
                 // useful as attachments; further plain/html renderings are redundant.
@@ -293,11 +314,7 @@ internal object MimeParser {
         val isBodyType = info.mimeType == "text/plain" || info.mimeType == "text/html"
         val isBody = isBodyType && info.disposition != Part.ATTACHMENT && info.fileName == null
         if (isBody) {
-            if (collector.readContent) {
-                val kind = if (info.mimeType == "text/html") SegmentKind.HTML else SegmentKind.TEXT
-                val text = readText(part)
-                collector.segments += Segment(kind, if (kind == SegmentKind.TEXT) normalizeNewlines(text) else text)
-            }
+            collectText(part, if (info.mimeType == "text/html") SegmentKind.HTML else SegmentKind.TEXT, collector)
             return
         }
         // Inside multipart/related a Content-ID makes the part inline whatever its disposition
@@ -311,6 +328,19 @@ internal object MimeParser {
             contentId = info.contentId,
             isInline = isInline,
         )
+    }
+
+    /**
+     * Reads the body text of [part] into a segment: no more than one body field holds, nor than
+     * what is left of the text budget.
+     */
+    private fun collectText(part: Part, kind: SegmentKind, collector: Collector) {
+        if (!collector.readContent || collector.textBudget <= 0) return
+        val maxChars = minOf(collector.textBudget, MAX_BODY_CHARS)
+        val raw = readText(part, minOf(MAX_TEXT_PART_BYTES, maxChars * MAX_BYTES_PER_CHAR))
+        val text = cut(if (kind == SegmentKind.HTML) raw else normalizeNewlines(raw), maxChars)
+        collector.textBudget -= text.length
+        collector.segments += Segment(kind, text)
     }
 
     private fun containsHtml(part: Part, depth: Int): Boolean {
@@ -369,7 +399,7 @@ internal object MimeParser {
             part.fileName
         } catch (_: Exception) {
             null
-        }?.let(::decodeIfEncoded)?.trim()?.takeIf { it.isNotEmpty() }
+        }?.let(::decodeIfEncoded)?.let(HeaderValues::repairUtf8)?.trim()?.takeIf { it.isNotEmpty() }
         val contentId = try {
             (part as? MimePart)?.contentID
         } catch (_: Exception) {
@@ -405,15 +435,19 @@ internal object MimeParser {
     }
 
     private fun nestedSubject(part: Part): String? = try {
-        (part.content as? Message)?.subject?.trim()?.takeIf { it.isNotEmpty() }
+        (part.content as? Message)?.subject?.let(HeaderValues::repairUtf8)?.trim()?.takeIf { it.isNotEmpty() }
     } catch (e: Exception) {
         if (MailErrors.isConnectionDrop(e)) throw e
         null
     }
 
-    /** A file name safe for every file system: no separators, control or reserved characters. */
+    /**
+     * A file name safe for every file system and honest on screen: no separators, control,
+     * reserved or invisible formatting characters.
+     */
     fun sanitizeFileName(name: String): String? {
         val cleaned = name
+            .replace(INVISIBLE_FILE_NAME_CHARS, "")
             .replace(UNSAFE_FILE_NAME_CHARS, "_")
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -547,7 +581,23 @@ internal object MimeParser {
         }
     }
 
-    private fun isValidUtf8(bytes: ByteArray): Boolean {
+    /** [bytes] without a trailing UTF-8 multi-byte sequence that lacks its last bytes. */
+    private fun withoutCutUtf8Sequence(bytes: ByteArray): ByteArray {
+        var lead = bytes.size - 1
+        while (lead >= 0 && bytes.size - lead <= 3 && (bytes[lead].toInt() and 0xC0) == 0x80) lead--
+        if (lead < 0) return bytes
+        val first = bytes[lead].toInt() and 0xFF
+        val length = when {
+            first >= 0xF0 -> 4
+            first >= 0xE0 -> 3
+            first >= 0xC0 -> 2
+            else -> 1
+        }
+        return if (bytes.size - lead < length) bytes.copyOf(lead) else bytes
+    }
+
+    /** True when [bytes] decode as UTF-8 without a single malformed sequence. */
+    fun isValidUtf8(bytes: ByteArray): Boolean {
         if (bytes.all { it >= 0 }) return true
         return try {
             Charsets.UTF_8.newDecoder()
@@ -562,10 +612,13 @@ internal object MimeParser {
 
     private fun normalizeNewlines(text: String): String = text.replace("\r\n", "\n").replace('\r', '\n')
 
-    private fun capBody(text: String): String {
-        if (text.length <= MAX_BODY_CHARS) return text
-        var end = MAX_BODY_CHARS
-        if (Character.isHighSurrogate(text[end - 1])) end--
+    private fun capBody(text: String): String = cut(text, MAX_BODY_CHARS)
+
+    /** The first [max] characters of [text], without splitting a surrogate pair. */
+    private fun cut(text: String, max: Int): String {
+        if (text.length <= max) return text
+        var end = max
+        if (end > 0 && Character.isHighSurrogate(text[end - 1])) end--
         return text.substring(0, end)
     }
 

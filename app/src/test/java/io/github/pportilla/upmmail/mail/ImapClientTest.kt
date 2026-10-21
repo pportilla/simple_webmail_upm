@@ -434,6 +434,55 @@ class ImapClientTest : GreenMailTestBase() {
     }
 
     @Test
+    fun rawUtf8HeadersAreReadAsUtf8() {
+        // Some web forms and bulk mailers put UTF-8 straight into headers instead of encoding it.
+        val raw = (
+            "From: Ana Pérez <ana@upm.es>\r\nTo: b@upm.es\r\nSubject: Reunión de departamento\r\n" +
+                "MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n" +
+                "--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHola\r\n" +
+                "--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"Presentación.pdf\"\r\n\r\n" +
+                "JVBERi0x\r\n--b--\r\n"
+            ).toByteArray(Charsets.UTF_8)
+        append("INBOX", jakarta.mail.internet.MimeMessage(session(), java.io.ByteArrayInputStream(raw)))
+
+        client { client ->
+            val remote = client.fetchNewest("INBOX", 1).messages.single()
+            assertEquals("Reunión de departamento", remote.subject)
+            assertEquals("Ana Pérez", remote.from?.name)
+            assertEquals(listOf("Presentación.pdf"), client.fetchBody("INBOX", remote.uid).attachments.map { it.fileName })
+        }
+    }
+
+    @Test
+    fun messageWithoutUsableStructureIsParsedFromATemporaryFile() {
+        val pdf = Random(5).nextBytes(300_000)
+        val message = plainMessage("Sin estructura")
+        val mixed = MimeMultipart("mixed")
+        mixed.addBodyPart(MimeBodyPart().apply { setText("Ver adjunto", "UTF-8") })
+        mixed.addBodyPart(attachment("informe año.pdf", "application/pdf", pdf))
+        message.setContent(mixed)
+        message.saveChanges()
+        append("INBOX", message)
+        val tempDir = java.io.File(System.getProperty("java.io.tmpdir"))
+        fun leftovers() = tempDir.list { _, name -> name.startsWith("upm-mime-") }.orEmpty().toSet()
+        val before = leftovers()
+
+        client { client ->
+            client.trustServerStructure = false
+            val uid = client.fetchNewest("INBOX", 1).messages.single().uid
+            val body = client.fetchBody("INBOX", uid)
+            assertEquals("Ver adjunto", body.text)
+            assertEquals(listOf("2"), body.attachments.map { it.partPath })
+            assertEquals("informe año.pdf", body.attachments.single().fileName)
+
+            val target = temp.root.resolve("informe.pdf")
+            client.downloadPart("INBOX", uid, "2", target)
+            assertArrayEquals(pdf, target.readBytes())
+        }
+        assertEquals("temporary copies are deleted", before, leftovers())
+    }
+
+    @Test
     fun fetchBodyOfRelatedMessageMarksInlineImages() {
         val png = Random(2).nextBytes(2_000)
         val message = plainMessage("Con imagen")

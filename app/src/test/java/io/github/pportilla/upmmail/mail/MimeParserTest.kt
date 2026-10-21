@@ -1,7 +1,9 @@
 package io.github.pportilla.upmmail.mail
 
 import jakarta.mail.Session
+import jakarta.mail.internet.MimeBodyPart
 import jakarta.mail.internet.MimeMessage
+import jakarta.mail.internet.MimeMultipart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -11,6 +13,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.Properties
 
 class MimeParserTest {
@@ -304,5 +307,73 @@ Contenido interno
         assertNull(MimeParser.sanitizeFileName(" .. "))
         assertEquals(120, MimeParser.sanitizeFileName("x".repeat(300) + ".pdf")!!.length)
         assertTrue(MimeParser.sanitizeFileName("x".repeat(300) + ".pdf")!!.endsWith(".pdf"))
+    }
+
+    @Test
+    fun sanitizingRemovesInvisibleFormattingCharacters() {
+        // U+202E (right-to-left override) would show this APK as "Factura_kpa.pdf".
+        assertEquals("Factura_fdp.apk", MimeParser.sanitizeFileName("Factura_\u202Efdp.apk"))
+        assertEquals("ab.txt", MimeParser.sanitizeFileName("a\u2066b\u2069\u200F.txt"))
+        assertEquals("informe.pdf", MimeParser.sanitizeFileName("\uFEFFinforme\u200B.pdf"))
+        assertNull(MimeParser.sanitizeFileName("\u202E\u202C"))
+        // Joiners belong to emoji sequences and some scripts.
+        assertEquals("\uD83D\uDC69\u200D\uD83D\uDCBB.png", MimeParser.sanitizeFileName("\uD83D\uDC69\u200D\uD83D\uDCBB.png"))
+    }
+
+    @Test
+    fun rawUtf8NamesAreRepaired() {
+        // Some mailers put UTF-8 straight into headers instead of encoding it.
+        val msg = message(
+            "From: a@upm.es\nTo: b@upm.es\nSubject: Reunión de departamento\nMIME-Version: 1.0\n",
+            "Content-Type: multipart/mixed; boundary=b\n\n--b\nContent-Type: text/plain; charset=utf-8\n\nHola\n",
+            "--b\nContent-Type: application/pdf\nContent-Disposition: attachment; filename=\"Presentación.pdf\"\n\nJVBERi0x\n--b--\n",
+        )
+        assertEquals("Reunión de departamento", HeaderValues.cleanDecodedSubject(msg.subject))
+        assertEquals("Presentación.pdf", MimeParser.parse(msg).attachments.single().fileName)
+    }
+
+    @Test
+    fun textBeyondWhatTheBodiesHoldIsNotRead() {
+        val read = ArrayList<String>()
+        fun textPart(name: String, content: String) = object : MimeBodyPart(
+            ByteArrayInputStream("Content-Type: text/plain; charset=utf-8\r\n\r\n$content".toByteArray()),
+        ) {
+            override fun getRawInputStream(): InputStream = super.getRawInputStream().also { read += name }
+        }
+        val huge = "x".repeat(MimeParser.MAX_BODY_CHARS * 2)
+        val msg = MimeMessage(Session.getInstance(Properties())).apply {
+            setContent(
+                MimeMultipart("mixed").apply {
+                    addBodyPart(textPart("first", huge))
+                    addBodyPart(textPart("second", huge))
+                    addBodyPart(textPart("third", "never shown"))
+                },
+            )
+            saveChanges()
+        }
+        val body = MimeParser.parse(msg)
+        assertEquals(listOf("first", "second"), read)
+        assertEquals(MimeParser.MAX_BODY_CHARS, body.text!!.length)
+    }
+
+    @Test
+    fun hugeTextAlternativeLeavesRoomForTheHtml() {
+        val msg = message(
+            headers,
+            "Content-Type: multipart/alternative; boundary=b\n\n--b\nContent-Type: text/plain; charset=utf-8\n\n",
+            "y".repeat(MimeParser.MAX_BODY_CHARS * 3),
+            "\n--b\nContent-Type: text/html; charset=utf-8\n\n<p>Hola</p>\n--b--\n",
+        )
+        val body = MimeParser.parse(msg)
+        assertTrue(body.html, body.html!!.contains("<p>Hola</p>"))
+        assertEquals(MimeParser.MAX_BODY_CHARS, body.text!!.length)
+    }
+
+    @Test
+    fun textCutInsideACharacterStaysUtf8() {
+        val part = MimeBodyPart(ByteArrayInputStream("Content-Type: text/plain\r\n\r\naaaañ".toByteArray(Charsets.UTF_8)))
+        assertEquals("aaaañ", MimeParser.readText(part))
+        // Without the half character, the rest is still recognised as UTF-8 (not windows-1252).
+        assertEquals("aaaa", MimeParser.readText(part, maxBytes = 5))
     }
 }

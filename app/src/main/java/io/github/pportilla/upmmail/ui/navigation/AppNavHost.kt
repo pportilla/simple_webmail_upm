@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.ui.navigation
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -24,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -266,14 +268,31 @@ private fun rememberEntryNavigator(
  * kept in the entry's saved state, so they survive configuration changes and process death.
  */
 @Composable
-private fun rememberComposeArgs(entry: NavBackStackEntry): ComposeArgs = remember(entry.id) {
-    val handle = entry.savedStateHandle
-    val fresh = entry.arguments?.getString(Routes.ARG_KEY)?.let(ComposeArgsRegistry::take)
-    if (fresh != null) {
-        ComposeArgsState.write(handle, fresh)
-        fresh
-    } else {
-        ComposeArgsState.read(handle) ?: ComposeArgs()
+private fun rememberComposeArgs(entry: NavBackStackEntry): ComposeArgs {
+    val context = LocalContext.current
+    return remember(entry.id) {
+        val handle = entry.savedStateHandle
+        val spill = context.composeTextSpill()
+        val fresh = entry.arguments?.getString(Routes.ARG_KEY)?.let(ComposeArgsRegistry::take)
+        val forged = entry.arguments?.keySet()?.let(ComposeArgsCodec::containsOwnKeys) == true
+        when {
+            fresh != null -> {
+                ComposeArgsState.write(handle, fresh, spill)
+                fresh
+            }
+            // Deep-link arguments also seed the saved state: never trust it then.
+            forged -> ComposeArgs()
+            else -> ComposeArgsState.read(handle, spill)
+                ?.let { saved ->
+                    // Only shared content:// URIs of other apps ever get here.
+                    saved.copy(
+                        attachmentUris = saved.attachmentUris.filter {
+                            LaunchRequest.isAcceptableAttachment(Uri.parse(it), context.packageName)
+                        },
+                    )
+                }
+                ?: ComposeArgs()
+        }
     }
 }
 

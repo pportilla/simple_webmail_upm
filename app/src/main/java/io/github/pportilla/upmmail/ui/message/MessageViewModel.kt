@@ -2,6 +2,7 @@ package io.github.pportilla.upmmail.ui.message
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.pportilla.upmmail.data.repository.AppContainer
@@ -112,7 +113,6 @@ class MessageViewModel(
     private var markReadJob: Job? = null
     private var visible = false
     private var closed = false
-    private var pendingSaveId: Long? = null
 
     private val accountId: StateFlow<Long?> = thread
         .map { (it as? ThreadLoad.Loaded)?.messages?.firstOrNull()?.summary?.accountId }
@@ -530,25 +530,34 @@ class MessageViewModel(
     // ------------------------------------------------------------------ attachments
 
     fun openAttachment(attachment: Attachment) {
-        withDownloaded(attachment) { file -> sendEvent(MessageEvent.OpenAttachment(file, attachment)) }
+        withDownloaded(attachment.id) { file -> sendEvent(MessageEvent.OpenAttachment(file, attachment)) }
     }
 
     fun shareAttachment(attachment: Attachment) {
-        withDownloaded(attachment) { file -> sendEvent(MessageEvent.ShareAttachment(file, attachment)) }
+        withDownloaded(attachment.id) { file -> sendEvent(MessageEvent.ShareAttachment(file, attachment)) }
     }
 
-    /** Remembers which attachment the "save as" document picker is for. */
-    fun prepareSave(attachment: Attachment) {
-        pendingSaveId = attachment.id
-    }
-
-    /** Copies the pending attachment to [target] (a document the user created), or forgets it. */
-    fun saveAttachmentTo(target: Uri?, resolver: ContentResolver) {
-        val id = pendingSaveId ?: return
-        pendingSaveId = null
+    /**
+     * Copies attachment [attachmentId] to [target], the document the user created in the "save as"
+     * picker (null if cancelled). It works from the id alone: after the process was killed behind
+     * the picker, a new ViewModel gets the result before the conversation has loaded. When the
+     * attachment cannot be written, the empty document is deleted again.
+     */
+    fun saveAttachmentTo(attachmentId: Long?, fileName: String, target: Uri?, resolver: ContentResolver) {
         if (target == null) return
-        val attachment = loadedMessages().flatMap { it.attachments }.firstOrNull { it.id == id } ?: return
-        withDownloaded(attachment, scope = Scope.APP) { file ->
+        if (attachmentId == null) {
+            appScope.launch { deleteDocument(resolver, target) }
+            sendEvent(MessageEvent.AttachmentSaveFailed)
+            return
+        }
+        withDownloaded(
+            attachmentId,
+            scope = Scope.APP,
+            onFailure = { error ->
+                deleteDocument(resolver, target)
+                sendEvent(MessageEvent.Failure(error))
+            },
+        ) { file ->
             val saved = withContext(Dispatchers.IO) {
                 try {
                     resolver.openOutputStream(target)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } } != null
@@ -556,15 +565,35 @@ class MessageViewModel(
                     false
                 }
             }
-            sendEvent(if (saved) MessageEvent.AttachmentSaved(attachment.fileName) else MessageEvent.AttachmentSaveFailed)
+            if (!saved) deleteDocument(resolver, target)
+            sendEvent(if (saved) MessageEvent.AttachmentSaved(fileName) else MessageEvent.AttachmentSaveFailed)
+        }
+    }
+
+    /** Best effort: removes a document left empty by a failed save. */
+    private suspend fun deleteDocument(resolver: ContentResolver, document: Uri) {
+        withContext(Dispatchers.IO) {
+            try {
+                DocumentsContract.deleteDocument(resolver, document)
+            } catch (e: Exception) {
+                // Not deletable (or already gone): an empty file stays behind.
+            }
         }
     }
 
     private enum class Scope { SCREEN, APP }
 
-    private fun withDownloaded(attachment: Attachment, scope: Scope = Scope.SCREEN, action: suspend (File) -> Unit) {
-        val id = attachment.id
-        if (id in local.value.downloading) return
+    /**
+     * Downloads attachment [id] if needed and runs [action] with the local file. Opening and
+     * sharing ([Scope.SCREEN]) are skipped while the same attachment is already downloading.
+     */
+    private fun withDownloaded(
+        id: Long,
+        scope: Scope = Scope.SCREEN,
+        onFailure: suspend (Throwable) -> Unit = { sendEvent(MessageEvent.Failure(it)) },
+        action: suspend (File) -> Unit,
+    ) {
+        if (scope == Scope.SCREEN && id in local.value.downloading) return
         local.update { it.copy(downloading = it.downloading + id) }
         (if (scope == Scope.APP) appScope else viewModelScope).launch {
             val result = try {
@@ -578,7 +607,7 @@ class MessageViewModel(
             }
             result.fold(
                 onSuccess = { action(it) },
-                onFailure = { sendEvent(MessageEvent.Failure(it)) },
+                onFailure = { onFailure(it) },
             )
         }
     }

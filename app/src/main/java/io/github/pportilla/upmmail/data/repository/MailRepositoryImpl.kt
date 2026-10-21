@@ -6,6 +6,7 @@ import io.github.pportilla.upmmail.data.db.MessageRef
 import io.github.pportilla.upmmail.data.db.PendingOp
 import io.github.pportilla.upmmail.data.db.PendingOpType
 import io.github.pportilla.upmmail.mail.MessageFlag
+import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
@@ -22,6 +23,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -33,6 +37,8 @@ import java.io.File
  * server. Flag changes are pushed about a second later; moves and deletes hide the messages and
  * wait for the undo window ([FlushScheduler.UNDO_WINDOW]) first. With conversation view on,
  * list actions apply to the whole conversation in that folder (see [expand]).
+ *
+ * The Drafts folder also lists the drafts that are only on this device ([LocalDraftRows]).
  */
 class MailRepositoryImpl(
     private val store: MailStore,
@@ -42,6 +48,8 @@ class MailRepositoryImpl(
     private val scope: CoroutineScope,
     /** Messages became read locally (to dismiss their notifications). */
     private val onMessagesRead: (Collection<Long>) -> Unit = {},
+    /** Discards a local draft deleted from the Drafts folder list (ComposeRepositoryImpl.discardLocalDraft). */
+    private val discardLocalDraft: suspend (draftId: Long) -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : MailRepository {
@@ -53,8 +61,20 @@ class MailRepositoryImpl(
     override suspend fun findFolderByRole(accountId: Long, role: FolderRole): Folder? =
         db { store.folders.findByRole(accountId, role) }
 
-    override fun observeMessages(folderId: Long, limit: Int, conversations: Boolean): Flow<List<MessageSummary>> =
-        store.messages.observeList(folderId, limit, conversations)
+    override fun observeMessages(folderId: Long, limit: Int, conversations: Boolean): Flow<List<MessageSummary>> = flow {
+        val cached = store.messages.observeList(folderId, limit, conversations)
+        val folder = db { store.folders.get(folderId) }
+        if (folder?.role != FolderRole.DRAFTS) {
+            emitAll(cached)
+            return@flow
+        }
+        val from = db { store.accounts.get(folder.accountId) }?.let { EmailAddress(it.email, it.displayName.takeIf(String::isNotBlank)) }
+        emitAll(
+            combine(cached, store.drafts.observeUnsynced(folder)) { rows, local ->
+                LocalDraftRows.merge(rows, local, folder, from, limit)
+            },
+        )
+    }
 
     override fun observeMessage(messageId: Long): Flow<MessageDetail?> = store.messages.observeDetail(messageId)
 
@@ -171,7 +191,10 @@ class MailRepositoryImpl(
     }
 
     override suspend fun delete(messageIds: List<Long>): Result<UndoHandle?> = mailResult {
-        val ids = expand(messageIds)
+        // Drafts only on this device are discarded (there is no server copy to move to Trash).
+        val (listed, cached) = messageIds.partition { LocalDraftRows.draftId(it) != null }
+        listed.forEach { discardLocalDraft(LocalDraftRows.draftId(it) ?: return@forEach) }
+        val ids = expand(cached)
         val (moves, deletes) = db {
             store.tx {
                 val refs = store.messages.refs(ids).filter { !it.hidden }

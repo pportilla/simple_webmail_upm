@@ -55,5 +55,6 @@
     <string name="error_not_found">The folder or message no longer exists on the server.</string>
     <string name="error_invalid_recipient">The server rejected one or more recipients.</string>
     <string name="error_too_large">The message is too large for the server.</string>
+    <string name="error_send_uncertain">The server did not confirm the message, so it may have been sent. Check Sent before sending it again.</string>
     <string name="error_unknown">Something went wrong. Try again.</string>
 </resources>

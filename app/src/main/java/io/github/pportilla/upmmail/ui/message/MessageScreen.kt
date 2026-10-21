@@ -67,11 +67,13 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -103,8 +105,13 @@ import io.github.pportilla.upmmail.ui.components.folderDisplayName
 import io.github.pportilla.upmmail.ui.components.folderIcon
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 import io.github.pportilla.upmmail.ui.navigation.ComposeArgs
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
+
+/** How long a restored scroll position waits for the message bodies to load again. */
+private const val SCROLL_RESTORE_MILLIS = 5_000L
 
 /**
  * Conversation view of the thread containing [messageId]: every message as a card (sanitised
@@ -143,10 +150,19 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
     }
 
     var saveMimeType by rememberSaveable { mutableStateOf("application/octet-stream") }
+    // The attachment the "save as" picker is for. Saved state: the app may be killed meanwhile.
+    var pendingSaveId by rememberSaveable { mutableLongStateOf(-1L) }
+    var pendingSaveName by rememberSaveable { mutableStateOf("") }
     var saveRequest by remember { mutableStateOf<Attachment?>(null) }
     val saveContract = remember(saveMimeType) { ActivityResultContracts.CreateDocument(saveMimeType) }
     val saveLauncher = rememberLauncherForActivityResult(saveContract) { uri ->
-        viewModel.saveAttachmentTo(uri, context.applicationContext.contentResolver)
+        viewModel.saveAttachmentTo(
+            attachmentId = pendingSaveId.takeIf { it >= 0 },
+            fileName = pendingSaveName,
+            target = uri,
+            resolver = context.applicationContext.contentResolver,
+        )
+        pendingSaveId = -1L
     }
     LaunchedEffect(saveRequest) {
         val request = saveRequest ?: return@LaunchedEffect
@@ -154,7 +170,7 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
         try {
             saveLauncher.launch(request.fileName)
         } catch (e: ActivityNotFoundException) {
-            viewModel.saveAttachmentTo(null, context.applicationContext.contentResolver)
+            pendingSaveId = -1L
             snackbar.show(context.getString(R.string.message_attachment_save_failed))
         }
     }
@@ -289,7 +305,8 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
             onOpenAttachment = viewModel::openAttachment,
             onShareAttachment = viewModel::shareAttachment,
             onSaveAttachment = { attachment ->
-                viewModel.prepareSave(attachment)
+                pendingSaveId = attachment.id
+                pendingSaveName = attachment.fileName
                 saveMimeType = effectiveMimeType(attachment)
                 saveRequest = attachment
             },
@@ -298,6 +315,19 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val scrollState = rememberScrollState()
+    // Coming back to this screen recreates the message bodies empty, and the first layout clamps
+    // the restored scroll position: return to it once they have grown back, unless the user scrolls.
+    val restoredScroll = remember { scrollState.value }
+    LaunchedEffect(Unit) {
+        if (restoredScroll <= 0) return@LaunchedEffect
+        val reachable = withTimeoutOrNull(SCROLL_RESTORE_MILLIS) {
+            // maxValue is Int.MAX_VALUE until the scrolling column has been laid out.
+            val (scrolling, _) = snapshotFlow { scrollState.isScrollInProgress to scrollState.maxValue }
+                .first { (scrolling, max) -> scrolling || (max != Int.MAX_VALUE && max >= restoredScroll) }
+            !scrolling
+        } ?: false
+        if (reachable && scrollState.value < restoredScroll) scrollState.scrollTo(restoredScroll)
+    }
     var headerHeight by remember { mutableIntStateOf(0) }
     val showTitle by remember { derivedStateOf { headerHeight > 0 && scrollState.value > headerHeight } }
     val ready = state.status == ThreadStatus.READY

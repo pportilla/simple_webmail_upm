@@ -1,9 +1,11 @@
 package io.github.pportilla.upmmail.ui.mailbox
 
+import io.github.pportilla.upmmail.data.repository.LocalDraftRows
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.SwipeAction
 import io.github.pportilla.upmmail.ui.navigation.DeepLinks
@@ -154,6 +156,17 @@ internal fun showsRecipients(role: FolderRole?): Boolean = role == FolderRole.SE
 /** Deleting in these folders removes messages permanently. */
 internal fun deletesPermanently(role: FolderRole?): Boolean = role == FolderRole.TRASH || role == FolderRole.JUNK
 
+/**
+ * Deleting [ids] in a folder with [role] removes something for good: everything in Trash/Spam,
+ * and a draft saved only on this device anywhere (it is discarded; there is nothing to put in
+ * Trash or to undo).
+ */
+internal fun deletesPermanently(role: FolderRole?, ids: Collection<Long>): Boolean =
+    deletesPermanently(role) || ids.any(::isLocalDraftRow)
+
+/** A Drafts row standing for a draft saved only on this device (see LocalDraftRows). */
+internal fun isLocalDraftRow(messageId: Long): Boolean = LocalDraftRows.draftId(messageId) != null
+
 /** Which toggles the contextual app bar offers for the current selection. */
 internal data class SelectionActions(
     /** True: "Mark as read" (something is unread); false: "Mark as unread". */
@@ -224,6 +237,15 @@ fun recipientNames(recipients: List<EmailAddress>, ownAddress: String?, meLabel:
             else -> address.address.substringBefore('@')
         }
     }
+}
+
+/**
+ * Why an outbox message was not sent, from its stored last error (the name of a MailErrorKind);
+ * null when it has none. Anything else counts as an unknown error.
+ */
+fun outboxErrorKind(lastError: String?): MailErrorKind? {
+    val name = lastError?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return MailErrorKind.entries.firstOrNull { it.name == name } ?: MailErrorKind.UNKNOWN
 }
 
 /**

@@ -360,7 +360,13 @@ class MessageDao internal constructor(private val store: MailStore) {
         }
     }
 
-    /** Stores a downloaded body, its preview text and its attachment list. */
+    /**
+     * Stores a downloaded body, its preview text and its attachment list. Returns false, storing
+     * nothing, if the message is gone or its body is stored already (two downloads of the same
+     * body raced; a message's body never changes). Attachment rows are matched by part path, so
+     * their ids (held by open screens) and downloaded files survive a body stored again after
+     * [dropOldBodies].
+     */
     fun storeBody(
         messageId: Long,
         html: String?,
@@ -368,11 +374,10 @@ class MessageDao internal constructor(private val store: MailStore) {
         snippet: String,
         attachments: List<ParsedAttachment>,
         searchableText: String,
-    ) = store.tx {
-        val previousPaths = sql.query(
-            "SELECT part_path, local_path FROM attachments WHERE message_id = ?",
-            listOf(messageId),
-        ) { it.stringOrEmpty("part_path") to it.string("local_path") }.toMap()
+    ): Boolean = store.tx {
+        val loaded = sql.query("SELECT body_loaded FROM messages WHERE id = ?", listOf(messageId)) { it.bool("body_loaded") }
+            .firstOrNull()
+        if (loaded != false) return@tx false
         sql.update(
             Tables.MESSAGES,
             mapOf(
@@ -385,27 +390,56 @@ class MessageDao internal constructor(private val store: MailStore) {
             "id = ?",
             listOf(messageId),
         )
-        sql.delete(Tables.ATTACHMENTS, "message_id = ?", listOf(messageId))
-        for (attachment in attachments.distinctBy { it.partPath }) {
-            sql.insert(
-                Tables.ATTACHMENTS,
-                mapOf(
-                    "message_id" to messageId,
-                    "part_path" to attachment.partPath,
-                    "file_name" to attachment.fileName,
-                    "mime_type" to attachment.mimeType,
-                    "size" to attachment.size,
-                    "content_id" to attachment.contentId,
-                    "is_inline" to attachment.isInline,
-                    "local_path" to previousPaths[attachment.partPath],
-                ),
+        val existing = sql.query("SELECT id, part_path FROM attachments WHERE message_id = ?", listOf(messageId)) {
+            it.stringOrEmpty("part_path") to it.longOr("id")
+        }.toMap()
+        val parts = attachments.distinctBy { it.partPath }
+        for (attachment in parts) {
+            val values = mapOf(
+                "file_name" to attachment.fileName,
+                "mime_type" to attachment.mimeType,
+                "size" to attachment.size,
+                "content_id" to attachment.contentId,
+                "is_inline" to attachment.isInline,
             )
+            val id = existing[attachment.partPath]
+            if (id != null) {
+                sql.update(Tables.ATTACHMENTS, values, "id = ?", listOf(id))
+            } else {
+                sql.insert(Tables.ATTACHMENTS, values + mapOf("message_id" to messageId, "part_path" to attachment.partPath))
+            }
         }
+        val gone = existing.filterKeys { path -> parts.none { it.partPath == path } }.values
+        for (chunk in gone.chunked(IN_CHUNK)) sql.delete(Tables.ATTACHMENTS, "id IN (${placeholders(chunk.size)})", chunk)
         sql.execSQL(
             "UPDATE messages_fts SET body = ? WHERE docid = ?",
             listOf(SearchText.fold(searchableText.take(MAX_INDEXED_BODY)), messageId),
         )
         store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
+        true
+    }
+
+    /**
+     * Drops the downloaded bodies of each folder's messages beyond its newest [keepPerFolder]:
+     * they are downloaded again when opened. The snippet, the attachment list and the search
+     * index entry stay. Returns how many bodies were dropped.
+     */
+    fun dropOldBodies(keepPerFolder: Int): Int = store.tx {
+        val folderIds = sql.query("SELECT id FROM folders", emptyList()) { it.longOr("id") }
+        var dropped = 0
+        for (folderId in folderIds) {
+            dropped += sql.executeUpdateDelete(
+                """
+                UPDATE messages SET body_html = NULL, body_text = NULL, body_loaded = 0
+                WHERE folder_id = ? AND body_loaded = 1 AND id NOT IN (
+                    SELECT id FROM messages WHERE folder_id = ? ORDER BY date DESC, id DESC LIMIT ?
+                )
+                """.trimIndent(),
+                listOf(folderId, folderId, keepPerFolder.coerceAtLeast(0)),
+            )
+        }
+        if (dropped > 0) store.changed(Tables.MESSAGES)
+        dropped
     }
 
     private fun insertFts(id: Long, subject: String, people: String, body: String) {

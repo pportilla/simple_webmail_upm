@@ -52,7 +52,10 @@ interface AccountRepository {
      */
     suspend fun updateAccount(account: Account, newPassword: String? = null, verify: Boolean = true): Result<Account>
 
-    /** Deletes the account, its cached mail, downloaded attachments and stored password. */
+    /**
+     * Deletes the account, its cached mail, downloaded attachments and stored password. With the
+     * last account, the address history and the recent searches go too.
+     */
     suspend fun removeAccount(id: Long)
 }
 
@@ -70,7 +73,9 @@ interface MailRepository {
     /**
      * Newest-first messages of a folder, at most [limit] rows. With [conversations] = true one row
      * is returned per thread (its newest message) and MessageSummary.threadCount is filled in.
-     * Messages hidden by a pending (undoable) move are excluded.
+     * Messages hidden by a pending (undoable) move are excluded. A Drafts folder also lists the
+     * drafts saved only on this device (not uploaded yet, or the upload failed), in place of the
+     * older server copy they replace; [ComposeRepository.draftFromServerMessage] opens such a row.
      */
     fun observeMessages(folderId: Long, limit: Int, conversations: Boolean): Flow<List<MessageSummary>>
 
@@ -109,7 +114,7 @@ interface MailRepository {
 
     /**
      * Moves to Trash. Messages already in Trash or Junk are deleted permanently instead and the
-     * returned handle is null (nothing to undo).
+     * returned handle is null (nothing to undo); so are listed drafts only on this device.
      */
     suspend fun delete(messageIds: List<Long>): Result<UndoHandle?>
 
@@ -153,7 +158,10 @@ interface ComposeRepository {
     /** A locally saved draft, or null if it no longer exists. */
     suspend fun loadDraft(draftId: Long): Draft?
 
-    /** Opens a message of the server Drafts folder for editing (mode EDIT_DRAFT). */
+    /**
+     * Opens a row of the Drafts folder for editing: a server draft (mode EDIT_DRAFT), or the local
+     * draft the row stands for. A server draft with a version saved on this device opens that one.
+     */
     suspend fun draftFromServerMessage(messageId: Long): Result<Draft>
 
     /**

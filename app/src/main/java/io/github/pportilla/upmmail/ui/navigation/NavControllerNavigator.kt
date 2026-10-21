@@ -1,9 +1,11 @@
 package io.github.pportilla.upmmail.ui.navigation
 
+import android.content.Context
+import android.os.Bundle
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.NavHostController
-import io.github.pportilla.upmmail.model.ComposeMode
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -55,56 +57,36 @@ internal object ComposeArgsRegistry {
     fun take(key: String): ComposeArgs? = pending.remove(key)
 }
 
-/** Stores ComposeArgs field by field in a SavedStateHandle (all bundle-friendly types). */
+/** Stores ComposeArgs field by field in a SavedStateHandle or a Bundle (see [ComposeArgsCodec]). */
 internal object ComposeArgsState {
-    private const val PREFIX = "upmmail.compose."
-    private const val SAVED = PREFIX + "saved"
-    private const val ACCOUNT = PREFIX + "accountId"
-    private const val MODE = PREFIX + "mode"
-    private const val SOURCE = PREFIX + "sourceMessageId"
-    private const val DRAFT = PREFIX + "draftId"
-    private const val SERVER_DRAFT = PREFIX + "serverDraftMessageId"
-    private const val TO = PREFIX + "to"
-    private const val CC = PREFIX + "cc"
-    private const val BCC = PREFIX + "bcc"
-    private const val SUBJECT = PREFIX + "subject"
-    private const val BODY = PREFIX + "body"
-    private const val ATTACHMENTS = PREFIX + "attachments"
-
-    fun write(handle: SavedStateHandle, args: ComposeArgs) {
-        handle[ACCOUNT] = args.accountId
-        handle[MODE] = args.mode.name
-        handle[SOURCE] = args.sourceMessageId
-        handle[DRAFT] = args.draftId
-        handle[SERVER_DRAFT] = args.serverDraftMessageId
-        handle[TO] = args.to
-        handle[CC] = args.cc
-        handle[BCC] = args.bcc
-        handle[SUBJECT] = args.subject
-        handle[BODY] = args.body
-        handle[ATTACHMENTS] = ArrayList(args.attachmentUris)
-        handle[SAVED] = true
+    fun write(handle: SavedStateHandle, args: ComposeArgs, spill: TextSpill?) {
+        ComposeArgsCodec.write(args, spill) { key, value -> handle[key] = value }
     }
 
-    fun read(handle: SavedStateHandle): ComposeArgs? {
-        if (handle.get<Boolean>(SAVED) != true) return null
-        val defaults = ComposeArgs()
-        return ComposeArgs(
-            accountId = handle.get<Long>(ACCOUNT) ?: defaults.accountId,
-            mode = handle.get<String>(MODE)?.let { name -> ComposeMode.entries.firstOrNull { it.name == name } }
-                ?: defaults.mode,
-            sourceMessageId = handle.get<Long>(SOURCE) ?: defaults.sourceMessageId,
-            draftId = handle.get<Long>(DRAFT) ?: defaults.draftId,
-            serverDraftMessageId = handle.get<Long>(SERVER_DRAFT) ?: defaults.serverDraftMessageId,
-            to = handle.get<String>(TO),
-            cc = handle.get<String>(CC),
-            bcc = handle.get<String>(BCC),
-            subject = handle.get<String>(SUBJECT),
-            body = handle.get<String>(BODY),
-            attachmentUris = handle.get<ArrayList<String>>(ATTACHMENTS)?.toList() ?: defaults.attachmentUris,
-        )
+    fun read(handle: SavedStateHandle, spill: TextSpill?): ComposeArgs? =
+        ComposeArgsCodec.read(spill) { key -> handle.get<Any>(key) }
+
+    fun toBundle(args: ComposeArgs, spill: TextSpill?): Bundle = Bundle().apply {
+        ComposeArgsCodec.write(args, spill) { key, value ->
+            when (value) {
+                null -> putString(key, null)
+                is Long -> putLong(key, value)
+                is Boolean -> putBoolean(key, value)
+                is String -> putString(key, value)
+                is List<*> -> putStringArrayList(key, ArrayList(value.filterIsInstance<String>()))
+            }
+        }
     }
+
+    fun fromBundle(bundle: Bundle, spill: TextSpill?): ComposeArgs? =
+        ComposeArgsCodec.read(spill) { key ->
+            @Suppress("DEPRECATION")
+            bundle.get(key)
+        }
 }
+
+/** Where compose bodies too long for saved state are kept (see [TextSpill]). */
+internal fun Context.composeTextSpill(): TextSpill = TextSpill(File(noBackupFilesDir, "compose_args"))
 
 /**
  * Swallows the second of two identical navigations in quick succession (a double tap on a list

@@ -25,15 +25,15 @@ class OutboxDao internal constructor(private val store: MailStore) {
 
     fun list(accountId: Long?): List<OutboxItem> {
         val rows = if (accountId == null) {
-            sql.query("SELECT * FROM outbox ORDER BY created_at, id", emptyList(), ::mapEntry)
+            sql.query("SELECT $COLUMNS FROM outbox ORDER BY created_at, id", emptyList(), ::mapEntry)
         } else {
-            sql.query("SELECT * FROM outbox WHERE account_id = ? ORDER BY created_at, id", listOf(accountId), ::mapEntry)
+            sql.query("SELECT $COLUMNS FROM outbox WHERE account_id = ? ORDER BY created_at, id", listOf(accountId), ::mapEntry)
         }
         return rows.map { withAttachments(it).item }
     }
 
     fun get(id: Long): OutboxEntry? =
-        sql.query("SELECT * FROM outbox WHERE id = ?", listOf(id), ::mapEntry).firstOrNull()?.let(::withAttachments)
+        sql.query("SELECT $COLUMNS FROM outbox WHERE id = ?", listOf(id), ::mapEntry).firstOrNull()?.let(::withAttachments)
 
     /** Queues [draft] (its attachments included) to be sent at [sendAt]; returns the outbox id. */
     fun enqueue(draft: Draft, serverCopy: ServerCopy?, sendAt: Long): Long = store.tx {
@@ -61,13 +61,13 @@ class OutboxDao internal constructor(private val store: MailStore) {
     fun due(accountId: Long?, now: Long): List<OutboxEntry> {
         val rows = if (accountId == null) {
             sql.query(
-                "SELECT * FROM outbox WHERE state = ? AND send_at <= ? ORDER BY send_at, id",
+                "SELECT $COLUMNS FROM outbox WHERE state = ? AND send_at <= ? ORDER BY send_at, id",
                 listOf(OutboxState.QUEUED, now),
                 ::mapEntry,
             )
         } else {
             sql.query(
-                "SELECT * FROM outbox WHERE account_id = ? AND state = ? AND send_at <= ? ORDER BY send_at, id",
+                "SELECT $COLUMNS FROM outbox WHERE account_id = ? AND state = ? AND send_at <= ? ORDER BY send_at, id",
                 listOf(accountId, OutboxState.QUEUED, now),
                 ::mapEntry,
             )
@@ -161,7 +161,7 @@ class OutboxDao internal constructor(private val store: MailStore) {
      */
     fun failStaleSending(olderThan: Long, inProgress: Set<Long>, error: String): List<OutboxItem> = store.tx {
         val stale = sql.query(
-            "SELECT * FROM outbox WHERE state = ? AND state_changed_at < ?",
+            "SELECT $COLUMNS FROM outbox WHERE state = ? AND state_changed_at < ?",
             listOf(OutboxState.SENDING, olderThan),
             ::mapEntry,
         ).filter { it.item.id !in inProgress }
@@ -187,7 +187,7 @@ class OutboxDao internal constructor(private val store: MailStore) {
 
     private fun mapEntry(row: SqlRow): OutboxEntry {
         // The draft id of an outbox item is meaningless (the local draft is gone); keep it 0.
-        val draft = DraftColumns.mapDraft(row, updatedColumn = "created_at").copy(id = 0)
+        val draft = DraftColumns.mapDraft(row, sql, Tables.OUTBOX, updatedColumn = "created_at").copy(id = 0)
         val item = OutboxItem(
             id = row.longOr("id"),
             accountId = row.longOr("account_id"),
@@ -199,5 +199,9 @@ class OutboxDao internal constructor(private val store: MailStore) {
             createdAt = row.longOr("created_at"),
         )
         return OutboxEntry(item, DraftColumns.mapServerCopy(row), row.longOr("state_changed_at"))
+    }
+
+    private companion object {
+        const val COLUMNS = "${DraftColumns.CONTENT}, state, attempts, last_error, send_at, created_at, state_changed_at"
     }
 }

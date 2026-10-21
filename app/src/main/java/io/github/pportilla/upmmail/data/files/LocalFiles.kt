@@ -5,14 +5,22 @@ import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.URI
+import java.nio.file.Files
 import java.util.UUID
 
 /**
- * Layout of the app's private files:
+ * Layout of the app's private files, and who owns them:
  *
- * - `attachments/<messageId>/<attachmentId>/<name>`: downloaded attachments (a cache).
- * - `compose/<uuid>/<name>`: copies of files attached while composing, so a queued message can
- *   still be sent after a restart even if the original content URI is gone.
+ * - `attachments/<messageId>/<attachmentId>/<name>`: downloaded attachments. A cache: any file
+ *   may go at any time ([cleanupAttachments], [trimAttachments]), as it is downloaded again when
+ *   needed. Drafts and queued messages never point here; the only exception is drafts and queued
+ *   messages saved by older versions, whose files are kept while referenced.
+ * - `compose/<uuid>/<name>`: the files of local drafts and outbox messages: everything attached
+ *   while composing, including the attachments of a forwarded message or an edited server draft
+ *   ([newComposeCopy]). Kept while a draft or outbox message refers to them ([cleanupCompose]),
+ *   so a queued message can still be sent after a restart and after its source mail is gone.
+ * - `sent/`: sent messages waiting for their copy in the Sent folder, owned by their pending
+ *   operation (see the sync engine).
  */
 class LocalFiles(val filesDir: File) {
     val attachmentsDir: File get() = File(filesDir, ATTACHMENTS)
@@ -28,6 +36,25 @@ class LocalFiles(val filesDir: File) {
         return File(dir, sanitizeFileName(fileName))
     }
 
+    /**
+     * A compose-area copy of [source] (e.g. a cached attachment), owned by a draft from now on. A
+     * hard link where the filesystem allows one, so the data is not stored twice.
+     */
+    fun newComposeCopy(source: File, fileName: String = source.name): File {
+        val target = newComposeFile(fileName)
+        try {
+            try {
+                Files.createLink(target.toPath(), source.toPath())
+            } catch (_: Exception) {
+                source.copyTo(target, overwrite = true)
+            }
+        } catch (e: Exception) {
+            target.parentFile?.deleteRecursively()
+            throw e
+        }
+        return target
+    }
+
     fun isComposeFile(file: File): Boolean = isInside(file, composeDir)
 
     /** True if [file] is inside the attachment cache or the compose area. */
@@ -40,7 +67,7 @@ class LocalFiles(val filesDir: File) {
 
     /**
      * Deletes compose copies among [uris] that are not in [stillReferenced]. Files outside the
-     * compose area (e.g. cached attachments of a forwarded message) are never touched.
+     * compose area (e.g. cached attachments referenced by an old draft) are never touched.
      */
     fun deleteComposeFiles(uris: Collection<String>, stillReferenced: Set<String>) {
         for (uri in uris) {
@@ -53,13 +80,54 @@ class LocalFiles(val filesDir: File) {
         }
     }
 
-    /** Removes cached attachments of messages that no longer exist; [existing] filters ids. */
-    fun cleanupAttachments(existing: (Collection<Long>) -> Set<Long>) {
+    /**
+     * Removes cached attachments of messages that no longer exist ([existing] filters ids), except
+     * directories holding a file that a draft or outbox message still points to ([referenced]
+     * URIs).
+     */
+    fun cleanupAttachments(referenced: Set<String>, existing: (Collection<Long>) -> Set<Long>) {
         val dirs = attachmentsDir.listFiles()?.filter { it.isDirectory } ?: return
-        val ids = dirs.mapNotNull { dir -> dir.name.toLongOrNull()?.let { it to dir } }
+        val kept = canonicalFiles(referenced)
+        val removable = dirs.filter { dir -> kept.none { isInside(it, dir) } }
+        val ids = removable.mapNotNull { dir -> dir.name.toLongOrNull()?.let { it to dir } }
         val alive = existing(ids.map { it.first })
         ids.filter { it.first !in alive }.forEach { it.second.deleteRecursively() }
-        dirs.filter { it.name.toLongOrNull() == null }.forEach { it.deleteRecursively() }
+        removable.filter { it.name.toLongOrNull() == null }.forEach { it.deleteRecursively() }
+    }
+
+    /**
+     * Keeps the attachment cache under [maxBytes]: the least recently used files go first (a file
+     * is "used" when it is downloaded or opened again, see [touch]). Files younger than
+     * [minAgeMillis] (possibly open in a viewer right now) and files in [referenced] stay.
+     * Returns how many files were deleted.
+     */
+    fun trimAttachments(referenced: Set<String>, maxBytes: Long, now: Long, minAgeMillis: Long): Int {
+        val all = attachmentsDir.walkTopDown().filter { it.isFile }.toList()
+        var total = all.sumOf { it.length() }
+        if (total <= maxBytes) return 0
+        val kept = canonicalFiles(referenced)
+        var deleted = 0
+        for (file in all.sortedBy { it.lastModified() }) {
+            if (total <= maxBytes) break
+            if (now - file.lastModified() < minAgeMillis || file.canonicalFile in kept) continue
+            val size = file.length()
+            if (file.delete()) {
+                total -= size
+                deleted++
+                // Empty <attachmentId> and <messageId> directories go as well.
+                var dir = file.parentFile
+                while (dir != null && dir != attachmentsDir && dir.list().isNullOrEmpty()) {
+                    dir.delete()
+                    dir = dir.parentFile
+                }
+            }
+        }
+        return deleted
+    }
+
+    /** Marks a cached file as just used, for [trimAttachments]. */
+    fun touch(file: File, now: Long) {
+        file.setLastModified(now)
     }
 
     /**
@@ -67,13 +135,16 @@ class LocalFiles(val filesDir: File) {
      * than [minAgeMillis] (younger ones may belong to a compose screen not saved yet).
      */
     fun cleanupCompose(referenced: Set<String>, now: Long, minAgeMillis: Long) {
-        val referencedFiles = referenced.mapNotNull { fileOf(it)?.canonicalFile }.toSet()
+        val referencedFiles = canonicalFiles(referenced)
         composeDir.listFiles()?.forEach { dir ->
             if (now - dir.lastModified() < minAgeMillis) return@forEach
             val files = dir.listFiles()?.toList().orEmpty()
             if (files.none { it.canonicalFile in referencedFiles }) dir.deleteRecursively()
         }
     }
+
+    private fun canonicalFiles(uris: Collection<String>): Set<File> =
+        uris.mapNotNullTo(HashSet()) { uri -> fileOf(uri)?.let { runCatching { it.canonicalFile }.getOrNull() } }
 
     private fun isInside(file: File, dir: File): Boolean {
         val path = runCatching { file.canonicalPath }.getOrNull() ?: return false

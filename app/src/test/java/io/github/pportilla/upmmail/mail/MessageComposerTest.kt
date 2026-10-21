@@ -144,6 +144,30 @@ class MessageComposerTest {
     }
 
     @Test
+    fun longNonAsciiAttachmentNamesKeepLinesShort() {
+        // 115 CJK characters: 1035 characters once percent-encoded, beyond SMTP's 998 per line.
+        val name = "\u4F1A\u8BAE\u8BB0\u5F55".repeat(29).take(115) + ".pdf"
+        val emoji = "Informe \uD83D\uDCCA ".repeat(8).trim() + ".xlsx"
+        val composed = MessageComposer.build(
+            from,
+            Draft(accountId = 1, to = listOf(EmailAddress("b@upm.es")), subject = "Adjunto", body = "Ver adjunto"),
+            listOf(Source(name, "application/pdf", byteArrayOf(1, 2, 3)), Source(emoji, "application/octet-stream", byteArrayOf(4))),
+        )
+        val bytes = ByteArrayOutputStream().also { composed.mime.writeTo(it) }.toByteArray()
+        val raw = String(bytes, Charsets.ISO_8859_1)
+        val longest = raw.split("\r\n").maxByOrNull { it.length }!!
+        assertTrue(longest, longest.length <= 78)
+        assertTrue(raw, raw.contains("filename*0*=UTF-8''%E4%BC%9A"))
+        assertTrue(raw, raw.contains("filename*1*="))
+
+        val parsed = MimeMessage(Session.getInstance(Properties()), ByteArrayInputStream(bytes))
+        val mixed = parsed.content as Multipart
+        assertEquals(name, mixed.getBodyPart(1).fileName)
+        assertEquals(emoji, mixed.getBodyPart(2).fileName)
+        assertEquals(listOf(name, emoji), MimeParser.parse(parsed).attachments.map { it.fileName })
+    }
+
+    @Test
     fun messageIdDomainFallsBack() {
         assertTrue(MessageComposer.newMessageId("no-at-sign").endsWith("@localhost.localdomain>"))
         assertTrue(MessageComposer.newMessageId("x@UPM.ES").endsWith("@upm.es>"))

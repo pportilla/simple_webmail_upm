@@ -28,9 +28,16 @@ import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 
 object MailErrors {
+    // A bare 552 is not enough: to RCPT it means "mailbox full" (see isTemporarySmtpRefusal).
     private val TOO_LARGE_PATTERN = Regex(
-        """(?i)(\b552\b|\b5\.3\.4\b|\[TOOBIG]|message size|size limit|too (large|big)|exceeds?\b.*\bsize|size\b.*\bexceed)""",
+        """(?i)(\b5\.3\.4\b|\[TOOBIG]|message size|size limit|too (large|big)|exceeds?\b.*\bsize|size\b.*\bexceed)""",
     )
+
+    /** SMTP reply "452 4.5.3 Too many recipients": the same message would be refused again. */
+    private val TOO_MANY_RECIPIENTS_PATTERN = Regex("""(?i)((?<![\d.])4\.5\.3(?!\.?\d)|too many recipients)""")
+
+    /** An SMTP reply with a 4xx (transient negative) code, as AUTH failures report it. */
+    private val SMTP_TEMPORARY_REPLY = Regex("""^\s*4\d\d\b""")
 
     /** RFC 5530 codes of a passing failure, and wording like "Temporary authentication failure". */
     private val TEMPORARY_REFUSAL_PATTERN = Regex("""(?i)(\[(UNAVAILABLE|SERVERBUG|INUSE)]|\btempor)""")
@@ -39,8 +46,9 @@ object MailErrors {
     fun map(t: Throwable): MailException {
         if (t is MailException) return t
         val chain = causeChain(t)
-        val kind = kindOf(t, chain)
-        return MailException(kind, describe(t, chain), t)
+        val temporary = isTemporarySmtpRefusal(chain)
+        val kind = if (temporary) MailErrorKind.SERVER else kindOf(t, chain)
+        return MailException(kind, describe(t, chain), t, temporary)
     }
 
     /**
@@ -77,14 +85,41 @@ object MailErrors {
         it is AuthenticationFailedException && TEMPORARY_REFUSAL_PATTERN.containsMatchIn(it.message.orEmpty())
     }
 
+    /**
+     * True for an SMTP reply that refuses for a passing reason: a 4xx code to AUTH, MAIL FROM,
+     * RCPT, DATA or the end of the data, or a 552 to RCPT ("mailbox full", which RFC 5321 says to
+     * treat as 452). The server accepted nothing, so the message can be sent again later.
+     * "Too many recipients" is not temporary: the same message would be refused again.
+     */
+    private fun isTemporarySmtpRefusal(chain: List<Throwable>): Boolean {
+        if (chain.any { TOO_MANY_RECIPIENTS_PATTERN.containsMatchIn(it.message.orEmpty()) }) return false
+        val auth = chain.firstOrNull { it is AuthenticationFailedException }
+        if (auth != null) return SMTP_TEMPORARY_REPLY.containsMatchIn(auth.message.orEmpty())
+        val sendFailure = chain.firstOrNull { it is SendFailedException } as SendFailedException? ?: return false
+        if (!sendFailure.invalidAddresses.isNullOrEmpty()) return false
+        val commandCodes = chain.filterIsInstance<SMTPSendFailedException>().map { it.returnCode }
+        if (commandCodes.isNotEmpty()) return commandCodes.all { it in 400..499 }
+        val recipients = chain.filterIsInstance<SMTPAddressFailedException>()
+        return recipients.isNotEmpty() && recipients.all {
+            it.returnCode in 400..499 || (it.returnCode == 552 && !isTooLarge(listOf(it)))
+        }
+    }
+
     private fun kindOf(t: Throwable, chain: List<Throwable>): MailErrorKind {
-        if (chain.any { it is AuthenticationFailedException }) return MailErrorKind.AUTHENTICATION
+        val authIndex = chain.indexOfFirst { it is AuthenticationFailedException }
+        if (authIndex >= 0) {
+            // SMTP reports a connection lost (or a TLS failure) during AUTH as a refused login.
+            val causes = chain.subList(authIndex + 1, chain.size)
+            if (causes.none { it is IOException || isNetwork(it) }) return MailErrorKind.AUTHENTICATION
+        }
         if (isCertificateProblem(chain)) return MailErrorKind.CERTIFICATE
 
         val sendFailure = chain.firstOrNull { it is SendFailedException } as SendFailedException?
         if (sendFailure != null) {
+            // Only permanent (5xx) refusals mean a wrong address; 4xx and 552 recipients are
+            // valid but unsent (see isTemporarySmtpRefusal).
             val rejected = !sendFailure.invalidAddresses.isNullOrEmpty() ||
-                chain.any { it is SMTPAddressFailedException }
+                chain.any { it is SMTPAddressFailedException && it.returnCode in 500..599 && it.returnCode != 552 }
             if (isTooLarge(chain)) return MailErrorKind.TOO_LARGE
             if (rejected) return MailErrorKind.INVALID_RECIPIENT
             if (chain.any { it is SMTPSenderFailedException }) return MailErrorKind.SERVER

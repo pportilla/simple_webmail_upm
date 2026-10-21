@@ -59,8 +59,10 @@ suspend inline fun <T> mailResult(crossinline block: suspend () -> T): Result<T>
 /**
  * One cached [ImapClient] per account (it keeps its connection open between syncs); SMTP clients
  * are cheap and created per use. A client is replaced when the account's server settings change
- * and closed by [invalidate] when the account is removed or its password changes. Push
- * connections ([idler]) are not cached; their owner restarts them on [invalidated].
+ * and closed by [invalidate] when the account is removed or its password changes. Work that
+ * asked for a client while the account was being removed leaves one behind: it is closed as
+ * soon as the account is found missing ([account], [releaseIfRemoved]). Push connections
+ * ([idler]) are not cached; their owner restarts them on [invalidated].
  */
 class MailClientProvider(
     private val accountLookup: (Long) -> Account?,
@@ -80,7 +82,20 @@ class MailClientProvider(
     val invalidated: SharedFlow<Long> = invalidations.asSharedFlow()
 
     fun account(accountId: Long): Account =
-        accountLookup(accountId) ?: throw MailException(MailErrorKind.NOT_FOUND, "Account $accountId does not exist")
+        accountLookup(accountId) ?: run {
+            forget(accountId)
+            throw MailException(MailErrorKind.NOT_FOUND, "Account $accountId does not exist")
+        }
+
+    /** Closes the cached connection of [accountId] if the account no longer exists. */
+    fun releaseIfRemoved(accountId: Long) {
+        val exists = try {
+            accountLookup(accountId) != null
+        } catch (_: Exception) {
+            true
+        }
+        if (!exists) forget(accountId)
+    }
 
     fun imap(accountId: Long): ImapClient {
         val account = account(accountId)
@@ -107,9 +122,13 @@ class MailClientProvider(
 
     /** Closes and forgets the account's IMAP connection, and tells [invalidated] collectors. */
     fun invalidate(accountId: Long) {
+        forget(accountId)
+        invalidations.tryEmit(accountId)
+    }
+
+    private fun forget(accountId: Long) {
         val removed = synchronized(imapClients) { imapClients.remove(accountId) }
         removed?.client?.closeQuietly()
-        invalidations.tryEmit(accountId)
     }
 
     fun closeAll() {

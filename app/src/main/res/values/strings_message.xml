@@ -43,6 +43,7 @@
     <string name="message_loading_body">Loading message…</string>
     <string name="message_body_error">Couldn\'t load this message</string>
     <string name="message_empty_body">This message has no text.</string>
+    <string name="message_body_unformatted">This message can\'t be shown with its formatting. Here is its text.</string>
     <string name="message_images_hidden">Images are hidden</string>
     <string name="message_images_hidden_detail">Remote images can tell the sender that you opened the message.</string>
     <string name="message_show_images">Show images</string>

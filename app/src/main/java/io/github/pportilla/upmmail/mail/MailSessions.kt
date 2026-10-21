@@ -14,6 +14,9 @@ import org.eclipse.angus.mail.handlers.text_plain
 import org.eclipse.angus.mail.handlers.text_xml
 import java.util.Locale
 import java.util.Properties
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
 
 /**
@@ -30,6 +33,8 @@ import javax.net.SocketFactory
 internal object MailSessions {
     const val CONNECTION_TIMEOUT_MS = 20_000
     const val READ_TIMEOUT_MS = 60_000
+    const val WRITE_TIMEOUT_MS = 60_000
+    private const val ANDROID_11 = 30
     private const val IMAP_FETCH_SIZE = 262_144
 
     private val engineClassLoader: ClassLoader = MailSessions::class.java.classLoader
@@ -89,8 +94,7 @@ internal object MailSessions {
         props["mail.store.protocol"] = protocol
         props["$p.host"] = settings.host
         props["$p.port"] = settings.port.toString()
-        props["$p.connectiontimeout"] = CONNECTION_TIMEOUT_MS.toString()
-        props["$p.timeout"] = READ_TIMEOUT_MS.toString()
+        applyTimeouts(props, p)
         if (socketFactory != null) {
             props["$p.socketFactory"] = socketFactory
             props["$p.socketFactory.fallback"] = "false"
@@ -118,8 +122,7 @@ internal object MailSessions {
         props["mail.transport.protocol"] = protocol
         props["$p.host"] = settings.host
         props["$p.port"] = settings.port.toString()
-        props["$p.connectiontimeout"] = CONNECTION_TIMEOUT_MS.toString()
-        props["$p.timeout"] = READ_TIMEOUT_MS.toString()
+        applyTimeouts(props, p)
         props["$p.auth"] = "true"
         // Do not wait for the server's answer to QUIT once the message has been accepted.
         props["$p.quitwait"] = "false"
@@ -133,6 +136,46 @@ internal object MailSessions {
 
     /** Angus Mail's built-in SAN/CN matcher (pure Java, so it works on Android and the JVM). */
     private const val HOSTNAME_VERIFIER = "MailHostnameVerifier"
+
+    /**
+     * Connect and read timeouts, plus a write timeout: without it a write on a path that silently
+     * drops packets (SMTP DATA, IMAP APPEND) blocks until TCP gives up, many minutes later, while
+     * the client holds its lock. [prefix] is "mail.<protocol>".
+     */
+    private fun applyTimeouts(props: Properties, prefix: String) {
+        props["$prefix.connectiontimeout"] = CONNECTION_TIMEOUT_MS.toString()
+        props["$prefix.timeout"] = READ_TIMEOUT_MS.toString()
+        if (writeTimeoutApplies) {
+            props["$prefix.writetimeout"] = WRITE_TIMEOUT_MS.toString()
+            // Without a shared executor every connection would start a thread of its own.
+            props["$prefix.executor.writetimeout"] = writeTimeoutExecutor
+        }
+    }
+
+    /**
+     * The write timeout wraps the TCP socket. Up to Android 10, Conscrypt runs TLS straight on the
+     * socket's file descriptor, past that wrapper (found through a hidden API), so there it would
+     * not work and only add risk; engine-based TLS sockets, which write through the wrapper, are
+     * Conscrypt's default from Android 11.
+     */
+    private val writeTimeoutApplies: Boolean by lazy {
+        if (System.getProperty("java.vm.name") != "Dalvik") return@lazy true
+        val sdk = try {
+            Class.forName("android.os.Build\$VERSION").getField("SDK_INT").getInt(null)
+        } catch (_: Exception) {
+            0
+        }
+        sdk >= ANDROID_11
+    }
+
+    /** Closes the connection whose write has been blocked too long; one thread, only while in use. */
+    private val writeTimeoutExecutor: ScheduledExecutorService by lazy {
+        ScheduledThreadPoolExecutor(1) { task -> Thread(task, "mail-write-timeout").apply { isDaemon = true } }.apply {
+            removeOnCancelPolicy = true
+            setKeepAliveTime(30, TimeUnit.SECONDS)
+            allowCoreThreadTimeOut(true)
+        }
+    }
 
     fun imapProtocol(security: SecurityMode): String = if (security == SecurityMode.SSL_TLS) "imaps" else "imap"
 

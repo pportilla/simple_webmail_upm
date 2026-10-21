@@ -15,6 +15,7 @@ fun MailErrorKind.messageRes(): Int = when (this) {
     MailErrorKind.NOT_FOUND -> R.string.error_not_found
     MailErrorKind.INVALID_RECIPIENT -> R.string.error_invalid_recipient
     MailErrorKind.TOO_LARGE -> R.string.error_too_large
+    MailErrorKind.SEND_UNCERTAIN -> R.string.error_send_uncertain
     MailErrorKind.UNKNOWN -> R.string.error_unknown
 }
 

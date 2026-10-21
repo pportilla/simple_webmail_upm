@@ -19,7 +19,7 @@ class QuotingTest {
         assertEquals("RE: Horario", Quoting.replySubject("RE: Horario"))
         assertEquals("Re[2]: Horario", Quoting.replySubject("Re[2]: Horario"))
         assertEquals("AW: Termin", Quoting.replySubject("AW: Termin"))
-        assertEquals("RV: Horario", Quoting.replySubject("RV: Horario"))
+        assertEquals("Outlook's RV: is a forward", "Re: RV: Horario", Quoting.replySubject("RV: Horario"))
         assertEquals("Re: Fwd: Horario", Quoting.replySubject("Fwd: Horario"))
         assertEquals("Re: Revisión", Quoting.replySubject("Revisión"))
         assertEquals("Re:", Quoting.replySubject(""))

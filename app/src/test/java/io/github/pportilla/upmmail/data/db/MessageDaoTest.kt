@@ -191,6 +191,52 @@ class MessageDaoTest {
     }
 
     @Test
+    fun aBodyIsStoredOnceAndNeverForADeletedMessage() {
+        val ids = store.messages.upsertHeaders(accountId, inboxId, listOf(remoteMessage(1), remoteMessage(2)))
+        val parts = listOf(
+            ParsedAttachment("2", "logo.png", "image/png", 100, "logo", true),
+            ParsedAttachment("3", "acta.pdf", "application/pdf", 1234, null, false),
+        )
+        assertTrue(store.messages.storeBody(ids[0], "<p>Hola</p>", null, "Hola", parts, "Hola"))
+        val first = store.messages.attachmentsFor(listOf(ids[0])).getValue(ids[0]).map { it.id }
+
+        // A second download of the same body (prefetch and opening the message racing).
+        assertFalse(store.messages.storeBody(ids[0], "<p>Hola</p>", null, "Hola", parts, "Hola"))
+        assertEquals("attachment ids held by the screen stay valid", first, store.messages.attachmentsFor(listOf(ids[0])).getValue(ids[0]).map { it.id })
+
+        // Expunged or moved while its body was downloading: nothing to store, and no failure.
+        store.messages.deleteIds(listOf(ids[1]))
+        assertFalse(store.messages.storeBody(ids[1], "<p>Adiós</p>", null, "Adiós", parts, "Adiós"))
+        assertTrue(store.messages.attachmentsFor(listOf(ids[1])).isEmpty())
+    }
+
+    @Test
+    fun oldBodiesAreDroppedAndStoredAgainWithTheSameAttachments() {
+        val ids = store.messages.upsertHeaders(accountId, inboxId, (1L..5L).map { remoteMessage(it) })
+        val parts = listOf(ParsedAttachment("2", "acta.pdf", "application/pdf", 1234, null, false))
+        ids.forEach { store.messages.storeBody(it, "<p>Cuerpo $it</p>", "Cuerpo $it", "Cuerpo $it", parts, "convocatoria $it") }
+        val oldest = ids.first()
+        val attachment = store.messages.attachmentsFor(listOf(oldest)).getValue(oldest).single()
+        store.messages.setAttachmentLocalPath(attachment.id, "/tmp/acta.pdf")
+
+        assertEquals(2, store.messages.dropOldBodies(keepPerFolder = 3))
+        assertEquals(0, store.messages.dropOldBodies(keepPerFolder = 3))
+        val dropped = store.messages.detail(oldest)!!
+        assertFalse(dropped.bodyLoaded)
+        assertNull(dropped.bodyHtml)
+        assertEquals("the list keeps its preview", "Cuerpo $oldest", dropped.summary.snippet)
+        assertTrue(store.messages.detail(ids.last())!!.bodyLoaded)
+        assertEquals("still found by local search", 1, store.messages.search("convocatoria $oldest", SearchFilters(), 10).count { it.id == oldest })
+        assertEquals(listOf(ids[1], ids[0]), store.messages.needingBody(inboxId, 10, Long.MAX_VALUE).map { it.id })
+
+        assertTrue(store.messages.storeBody(oldest, "<p>Cuerpo</p>", null, "Cuerpo", parts, "Cuerpo"))
+        val again = store.messages.detail(oldest)!!
+        assertEquals("<p>Cuerpo</p>", again.bodyHtml)
+        assertEquals(listOf(attachment.id), again.attachments.map { it.id })
+        assertEquals("/tmp/acta.pdf", again.attachments.single().localPath)
+    }
+
+    @Test
     fun hugeBodiesAreReadBackCompletely() {
         val id = store.messages.upsertHeaders(accountId, inboxId, listOf(remoteMessage(1))).single()
         val html = buildString { repeat(40_000) { append("<p>Línea número $it ✓ 😀</p>") } }

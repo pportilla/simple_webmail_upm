@@ -187,6 +187,14 @@ class AccountRepositoryImpl(
             files.deleteMessageFiles(downloaded)
             files.deleteComposeFiles(composeUris, store.drafts.attachmentUris() + store.outbox.attachmentUris())
             passwords.remove(id)
+            // A sync or flush that ended meanwhile may have connected again before the account
+            // was gone: that connection is closed too.
+            clients.releaseIfRemoved(id)
+            // Address history and searches are not kept per account: they go with the last one.
+            if (store.accounts.getAll().isEmpty()) {
+                store.contacts.clear()
+                store.recentSearches.clear()
+            }
         }
         settings.update { current ->
             if (current.lastAccountId == id) current.copy(lastAccountId = -1, lastFolderId = -1) else current

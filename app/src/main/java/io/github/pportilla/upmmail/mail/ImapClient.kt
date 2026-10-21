@@ -23,6 +23,7 @@ import jakarta.mail.search.OrTerm
 import jakarta.mail.search.RecipientStringTerm
 import jakarta.mail.search.SearchTerm
 import jakarta.mail.search.SubjectTerm
+import jakarta.mail.util.SharedFileInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -38,7 +39,6 @@ import org.eclipse.angus.mail.imap.IMAPStore
 import org.eclipse.angus.mail.imap.protocol.IMAPResponse
 import org.eclipse.angus.mail.imap.protocol.SearchSequence
 import org.eclipse.angus.mail.imap.protocol.Status
-import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.Closeable
 import java.io.File
@@ -46,6 +46,7 @@ import java.io.FileOutputStream
 import java.io.FilterOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.io.SequenceInputStream
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -78,6 +79,9 @@ class ImapClient(
 
     /** Capabilities treated as absent (upper case), so tests can exercise the fallbacks. */
     internal var disabledCapabilities: Set<String> = emptySet()
+
+    /** False makes every message take the local parsing path, so tests can exercise it. */
+    internal var trustServerStructure = true
 
     init {
         MailSessions.ensureInitialized()
@@ -289,10 +293,11 @@ class ImapClient(
         val wanted = uids.filter { it > 0 }.distinct()
         if (wanted.isEmpty() || folder == destinationFolder) return
         execute(retryAfterMutation = false) { store ->
+            val canMove = hasCapability(store, "MOVE")
+            val uidPlus = hasCapability(store, "UIDPLUS")
             store.withFolder(folder, Folder.READ_WRITE) { open ->
                 requireWritable(open)
                 val destination = store.getFolder(destinationFolder)
-                val canMove = hasCapability(store, "MOVE")
                 for (chunk in wanted.chunked(UID_CHUNK)) {
                     checkCancelled()
                     val messages = open.getMessagesByUID(chunk.toLongArray()).filterNotNull().toTypedArray()
@@ -304,7 +309,7 @@ class ImapClient(
                         mutationStarted = true
                         open.copyMessages(messages, destination)
                         open.setFlags(messages, Flags(Flags.Flag.DELETED), true)
-                        expunge(store, open, messages)
+                        expunge(open, messages, uidPlus)
                     }
                 }
             }
@@ -315,6 +320,7 @@ class ImapClient(
         val wanted = uids.filter { it > 0 }.distinct()
         if (wanted.isEmpty()) return
         execute { store ->
+            val uidPlus = hasCapability(store, "UIDPLUS")
             store.withFolder(folder, Folder.READ_WRITE) { open ->
                 requireWritable(open)
                 for (chunk in wanted.chunked(UID_CHUNK)) {
@@ -322,7 +328,7 @@ class ImapClient(
                     val messages = open.getMessagesByUID(chunk.toLongArray()).filterNotNull().toTypedArray()
                     if (messages.isEmpty()) continue
                     open.setFlags(messages, Flags(Flags.Flag.DELETED), true)
-                    expunge(store, open, messages)
+                    expunge(open, messages, uidPlus)
                 }
             }
         }
@@ -537,11 +543,15 @@ class ImapClient(
     // ---------------------------------------------------------------------------------------
     // Helpers
 
+    /**
+     * Asks the store's connection. Call it before opening a folder: an open folder holds the
+     * only pooled connection, and the store would log in a second one to answer.
+     */
     private fun hasCapability(store: IMAPStore, capability: String): Boolean =
         capability.uppercase(Locale.ROOT) !in disabledCapabilities && store.hasCapability(capability)
 
-    private fun expunge(store: IMAPStore, folder: IMAPFolder, messages: Array<Message>) {
-        if (hasCapability(store, "UIDPLUS")) folder.expunge(messages) else folder.expunge()
+    private fun expunge(folder: IMAPFolder, messages: Array<Message>, uidPlus: Boolean) {
+        if (uidPlus) folder.expunge(messages) else folder.expunge()
     }
 
     private fun requireWritable(folder: IMAPFolder) {
@@ -578,11 +588,11 @@ class ImapClient(
 
     /**
      * Runs [block] on [message] using its BODYSTRUCTURE. If the server's BODYSTRUCTURE cannot be
-     * parsed, the whole message is downloaded and parsed locally instead; part paths are the
-     * same either way.
+     * parsed, the whole message is downloaded to a temporary file and parsed locally instead;
+     * part paths are the same either way.
      */
-    private fun <T> withStructure(message: IMAPMessage, block: (Part) -> T): T {
-        val structureLoaded = try {
+    private fun <T> Operation.withStructure(message: IMAPMessage, block: (Part) -> T): T {
+        val structureLoaded = trustServerStructure && try {
             message.folder.fetch(arrayOf(message), FetchProfile().apply { add(FetchProfile.Item.CONTENT_INFO) })
             message.contentType
             true
@@ -591,8 +601,41 @@ class ImapClient(
             false
         }
         if (structureLoaded) return block(message)
-        val local = BufferedInputStream(message.mimeStream).use { MimeMessage(MailSessions.mimeSession(), it) }
-        return block(local)
+        // Parsed from a file, the parts read their bytes from it instead of a copy of the whole
+        // message in memory.
+        val temp = try {
+            File.createTempFile("upm-mime-", ".eml")
+        } catch (e: IOException) {
+            throw MailException(MailErrorKind.UNKNOWN, "Cannot create a temporary file: ${e.message}", e)
+        }
+        try {
+            LocalFileOutputStream(BufferedOutputStream(FileOutputStream(temp), 64 * 1024), temp).use { out ->
+                MimeParser.copy(message.mimeStream, out) { checkCancelled() }
+            }
+            val input = TemporaryMimeFile(temp)
+            try {
+                return block(MimeMessage(MailSessions.mimeSession(), input))
+            } finally {
+                input.release()
+            }
+        } catch (e: LocalWriteException) {
+            throw MailException(MailErrorKind.UNKNOWN, e.message, e.cause)
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** The stream every part of a message parsed from [file] shares; [release] closes them all. */
+    private class TemporaryMimeFile(file: File) : SharedFileInputStream(file) {
+        private val shared: RandomAccessFile = `in`
+
+        fun release() {
+            try {
+                shared.close()
+            } catch (_: IOException) {
+                // Only being read: nothing is lost.
+            }
+        }
     }
 
     private fun Operation.fetchAndMap(folder: IMAPFolder, messages: List<Message>): List<RemoteMessage> {
@@ -726,6 +769,14 @@ class ImapClient(
                 write(out)
                 out.flush()
             }
+        } catch (e: Throwable) {
+            temp.delete()
+            // Anything else failed while reading from the server (connection lost, message
+            // expunged...): that is for the caller's error mapping and reconnection.
+            if (e is LocalWriteException) throw MailException(MailErrorKind.UNKNOWN, e.message, e.cause)
+            throw e
+        }
+        try {
             try {
                 Files.move(
                     temp.toPath(),
@@ -736,14 +787,9 @@ class ImapClient(
             } catch (_: AtomicMoveNotSupportedException) {
                 Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
-        } catch (e: Throwable) {
+        } catch (e: IOException) {
             temp.delete()
-            if (e is IOException && e !is LocalWriteException) {
-                // Failed while moving the finished file into place.
-                throw MailException(MailErrorKind.UNKNOWN, "Cannot save $target: ${e.message}", e)
-            }
-            if (e is LocalWriteException) throw MailException(MailErrorKind.UNKNOWN, e.message, e.cause)
-            throw e
+            throw MailException(MailErrorKind.UNKNOWN, "Cannot save $target: ${e.message}", e)
         }
     }
 

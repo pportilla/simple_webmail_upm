@@ -6,7 +6,9 @@ import jakarta.activation.CommandMap
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.ScheduledExecutorService
 
 class MailSessionsTest {
     private val imap = ServerSettings("correo.upm.es", 993, SecurityMode.SSL_TLS, "ana")
@@ -42,6 +44,25 @@ class MailSessionsTest {
         val plain = MailSessions.imapSession(imap.copy(port = 143, security = SecurityMode.NONE)).properties
         assertEquals("imap", plain.getProperty("mail.store.protocol"))
         assertEquals("false", plain.getProperty("mail.imap.starttls.enable"))
+    }
+
+    @Test
+    fun everyProtocolVerifiesTheHostNameAndTimesOutWrites() {
+        val sessions = mapOf(
+            "imaps" to MailSessions.imapSession(imap),
+            "imap" to MailSessions.imapSession(imap.copy(port = 143, security = SecurityMode.STARTTLS)),
+            "smtp" to MailSessions.smtpSession(smtp),
+            "smtps" to MailSessions.smtpSession(smtp.copy(port = 465, security = SecurityMode.SSL_TLS)),
+        )
+        for ((protocol, session) in sessions) {
+            val props = session.properties
+            // Android ignores checkserveridentity: without the verifier any valid certificate would do.
+            assertEquals(protocol, "MailHostnameVerifier", props.getProperty("mail.$protocol.ssl.hostnameverifier.class"))
+            assertEquals(protocol, "true", props.getProperty("mail.$protocol.ssl.checkserveridentity"))
+            assertEquals(protocol, "60000", props.getProperty("mail.$protocol.writetimeout"))
+            assertTrue(protocol, props["mail.$protocol.executor.writetimeout"] is ScheduledExecutorService)
+        }
+        assertEquals("true", sessions.getValue("imap").properties.getProperty("mail.imap.starttls.required"))
     }
 
     @Test

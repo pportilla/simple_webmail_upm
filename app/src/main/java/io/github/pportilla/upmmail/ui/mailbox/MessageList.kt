@@ -46,7 +46,6 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -61,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -288,16 +288,23 @@ private fun SwipeableMessageRow(
     val currentEnd by rememberUpdatedState(endToStart)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val guard = remember { SwipeGuard() }
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.Settled -> true
-                SwipeToDismissBoxValue.StartToEnd -> guard.decide { currentOnSwipe(currentMessage, currentStart) }
-                SwipeToDismissBoxValue.EndToStart -> guard.decide { currentOnSwipe(currentMessage, currentEnd) }
-            }
-        },
-        positionalThreshold = { distance -> distance * SWIPE_THRESHOLD },
-    )
+    // Not saveable on purpose: the list keeps saved item state under the message id, so a row
+    // brought back by Undo would come back dismissed (blank) instead of settled.
+    val density = LocalDensity.current
+    val dismissState = remember {
+        SwipeToDismissBoxState(
+            initialValue = SwipeToDismissBoxValue.Settled,
+            density = density,
+            confirmValueChange = { value ->
+                when (value) {
+                    SwipeToDismissBoxValue.Settled -> true
+                    SwipeToDismissBoxValue.StartToEnd -> guard.decide { currentOnSwipe(currentMessage, currentStart) }
+                    SwipeToDismissBoxValue.EndToStart -> guard.decide { currentOnSwipe(currentMessage, currentEnd) }
+                }
+            },
+            positionalThreshold = { distance -> distance * SWIPE_THRESHOLD },
+        )
+    }
     // A row still in the list a moment after being dismissed (the action failed, or the list has
     // not dropped it) slides back instead of staying blank.
     LaunchedEffect(dismissState.currentValue) {

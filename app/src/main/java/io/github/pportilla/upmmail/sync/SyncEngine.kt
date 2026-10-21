@@ -33,6 +33,9 @@ import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.OutboxItem
 import io.github.pportilla.upmmail.model.OutboxState
 import io.github.pportilla.upmmail.model.OutgoingAttachment
+import jakarta.mail.Session
+import jakarta.mail.internet.MimeMessage
+import jakarta.mail.util.SharedFileInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -47,6 +50,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.InputStream
+import java.util.Properties
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /** Outcome of [SyncEngine.flushPendingOps]. */
@@ -159,12 +164,18 @@ class SyncEngine(
 
     private suspend fun syncAccountOnIo(accountId: Long): List<MessageSummary> {
         syncFolderList(accountId)
-        try {
-            sendOutbox(accountId)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // Send failures are recorded on the outbox items themselves.
+        // A send in progress (maybe a long upload) must not hold up the refresh: that sender
+        // handles the due messages, and the controller plans the later ones.
+        if (outboxLock.tryLock()) {
+            try {
+                sendOutboxLocked(accountId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Send failures are recorded on the outbox items themselves.
+            } finally {
+                outboxLock.unlock()
+            }
         }
         return syncFolder(inboxOf(accountId).id)
     }
@@ -237,15 +248,15 @@ class SyncEngine(
         }
         val own = db { store.accounts.ownAddresses() }
         val feedContacts = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK
-        val protectedUids = db { store.pendingOps.protectedUids(folder.accountId, folder.fullName) }
 
         if (state.uidValidity == 0L) {
             // First sync (or after a reset): the newest messages only, nothing to notify about.
             val result = imap.fetchNewest(folder.fullName, INITIAL_WINDOW)
-            db { store.messages.upsertHeaders(folder.accountId, folderId, result.messages, protectedUids.uids, feedContacts, own) }
+            db { storeHeaders(folder, result.messages, feedContacts, own) }
             val start = result.messages.minOfOrNull { it.uid } ?: status.uidNext.coerceAtLeast(1)
             val end = maxOf(result.messages.maxOfOrNull { it.uid } ?: 0L, status.uidNext - 1)
             db { store.folders.setWindow(folderId, start, end, result.truncated) }
+            db { store.folders.updateAfterSync(folderId, status.uidValidity, status.unreadCount, status.messageCount) }
         } else {
             val oldEnd = state.windowEndUid
             val result = imap.fetchNewer(folder.fullName, oldEnd, NEWER_LIMIT)
@@ -253,59 +264,80 @@ class SyncEngine(
                 // Too many new messages to fill the gap: restart the window at the newest ones.
                 val keep = result.messages.takeLast(INITIAL_WINDOW)
                 db {
-                    store.messages.deleteVisibleExcept(folderId, protectedUids.uids + keep.map { it.uid })
+                    store.tx {
+                        store.messages.deleteVisibleExcept(folderId, protectedNow(folder).uids + keep.map { it.uid })
+                    }
                 }
-                db { newMail += store.messages.upsertHeaders(folder.accountId, folderId, keep, protectedUids.uids, feedContacts, own) }
+                db { newMail += storeHeaders(folder, keep, feedContacts, own) }
                 val start = keep.minOfOrNull { it.uid } ?: oldEnd
                 val end = maxOf(keep.maxOfOrNull { it.uid } ?: oldEnd, status.uidNext - 1)
                 db { store.folders.setWindow(folderId, start, end, true) }
             } else {
-                db {
-                    newMail += store.messages.upsertHeaders(folder.accountId, folderId, result.messages, protectedUids.uids, feedContacts, own)
-                }
+                db { newMail += storeHeaders(folder, result.messages, feedContacts, own) }
                 val end = maxOf(oldEnd, result.messages.maxOfOrNull { it.uid } ?: 0L, status.uidNext - 1)
                 db { store.folders.setWindow(folderId, state.windowStartUid, end, state.moreAvailable) }
-                reconcileFlags(imap, state, oldEnd, protectedUids)
+                reconcileFlags(imap, state, oldEnd)
+            }
+            db {
+                store.tx {
+                    // The STATUS count predates read changes the user made during this sync (or
+                    // that are still waiting to be pushed): keep the local count then, plus the
+                    // new mail stored now.
+                    val unread = if (store.pendingOps.hasPendingReadChanges(folder.accountId, folder.fullName)) {
+                        val local = store.folders.get(folderId)?.unreadCount ?: 0
+                        local + store.messages.refs(newMail).count { !it.isRead && !it.hidden }
+                    } else {
+                        status.unreadCount
+                    }
+                    store.folders.updateAfterSync(folderId, status.uidValidity, unread, status.messageCount)
+                }
             }
         }
-        db { store.folders.updateAfterSync(folderId, status.uidValidity, status.unreadCount, status.messageCount) }
     }
 
     /** Server flags for the cached window, plus a few extra rows found by server searches. */
-    private suspend fun reconcileFlags(
-        imap: ImapClient,
-        state: FolderSyncState,
-        windowEnd: Long,
-        protectedUids: ProtectedUids,
-    ) {
+    private suspend fun reconcileFlags(imap: ImapClient, state: FolderSyncState, windowEnd: Long) {
         val folder = state.folder
         val start = state.windowStartUid.coerceAtLeast(1)
         if (windowEnd >= start && db { store.messages.uidBounds(folder.id) } != null) {
             val flags = imap.fetchFlags(folder.fullName, start, windowEnd)
-            db { applyFlags(folder.id, start..windowEnd, flags, protectedUids) }
+            db { applyFlags(folder, start..windowEnd, flags) }
         }
         val extras = db { store.messages.uidsBelow(folder.id, start) }
         if (extras.size > MAX_EXTRA_CHECKS) {
-            db { store.messages.deleteByUids(folder.id, extras.filter { it !in protectedUids }) }
+            db {
+                store.tx {
+                    val protectedUids = protectedNow(folder)
+                    store.messages.deleteByUids(folder.id, extras.filter { it !in protectedUids })
+                }
+            }
         } else {
             for (uid in extras) {
                 val flags = imap.fetchFlags(folder.fullName, uid, uid)
-                db { applyFlags(folder.id, uid..uid, flags, protectedUids) }
+                db { applyFlags(folder, uid..uid, flags) }
             }
         }
     }
 
-    private fun applyFlags(
-        folderId: Long,
-        range: LongRange,
-        flags: Map<Long, RemoteFlags>,
-        protectedUids: ProtectedUids,
-    ) {
-        val protectedSet = if (protectedUids.wholeFolder) range.toProtectedSet(flags.keys) else protectedUids.uids
-        store.messages.applyServerFlags(folderId, range, flags, protectedSet)
+    /**
+     * Uids of [folder] whose local flags must not get the server's yet. Read in the transaction
+     * that writes the server state: the user's read/star changes do not wait for the account
+     * lock, so one made while the server was being asked must still win over its older flags.
+     */
+    private fun protectedNow(folder: Folder): ProtectedUids = store.pendingOps.protectedUids(folder.accountId, folder.fullName)
+
+    private fun applyFlags(folder: Folder, range: LongRange, flags: Map<Long, RemoteFlags>) = store.tx {
+        val protectedUids = protectedNow(folder)
+        store.messages.applyServerFlags(folder.id, range, flags, flags.keys.filterTo(HashSet()) { it in protectedUids })
     }
 
-    private fun LongRange.toProtectedSet(uids: Set<Long>): Set<Long> = uids.filterTo(HashSet()) { it in this }
+    /** Stores fetched headers; returns the ids of the messages that were not cached yet. */
+    private fun storeHeaders(folder: Folder, messages: List<RemoteMessage>, feedContacts: Boolean, own: Set<String>): List<Long> =
+        store.tx {
+            val protectedUids = protectedNow(folder)
+            val keepFlags = messages.mapNotNullTo(HashSet()) { message -> message.uid.takeIf { it in protectedUids } }
+            store.messages.upsertHeaders(folder.accountId, folder.id, messages, keepFlags, feedContacts, own)
+        }
 
     private suspend fun dropFolderCache(state: FolderSyncState) {
         val folder = state.folder
@@ -348,9 +380,8 @@ class SyncEngine(
                     return@withAccountLock true
                 }
                 val own = db { store.accounts.ownAddresses() }
-                val protectedUids = db { store.pendingOps.protectedUids(folder.accountId, folder.fullName) }
                 val feedContacts = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK
-                db { store.messages.upsertHeaders(folder.accountId, folderId, result.messages, protectedUids.uids, feedContacts, own) }
+                db { storeHeaders(folder, result.messages, feedContacts, own) }
                 val newStart = result.messages.minOfOrNull { it.uid } ?: start
                 db { store.folders.setWindow(folderId, newStart, current.windowEndUid, result.truncated) }
                 result.truncated
@@ -403,6 +434,8 @@ class SyncEngine(
         }
         for (ref in candidates) {
             try {
+                // Opened (and downloaded) meanwhile, or gone.
+                if (db { store.messages.ref(ref.id) }?.bodyLoaded != false) continue
                 val body = clients.imap(folder.accountId).fetchBody(folder.fullName, ref.uid)
                 db { storeBody(ref.id, body) }
             } catch (e: CancellationException) {
@@ -421,7 +454,10 @@ class SyncEngine(
         val location = db { store.messages.attachment(attachmentId) }
             ?: throw MailException(MailErrorKind.NOT_FOUND, "Attachment $attachmentId")
         val attachment = location.attachment
-        attachment.localPath?.let { File(it) }?.takeIf { it.isFile && (it.length() > 0 || attachment.size == 0L) }?.let { return it }
+        attachment.localPath?.let { File(it) }?.takeIf { it.isFile && (it.length() > 0 || attachment.size == 0L) }?.let { cached ->
+            files.touch(cached, clock())
+            return cached
+        }
         val destination = files.attachmentFile(attachment.messageId, attachment.id, attachment.fileName)
         val partial = File(destination.parentFile, ".${destination.name}.${System.nanoTime()}.part")
         withContext(io) {
@@ -460,8 +496,7 @@ class SyncEngine(
         if (missing.isNotEmpty()) {
             val fetched = imap.fetchMessages(folder.fullName, missing)
             val own = db { store.accounts.ownAddresses() }
-            val protectedUids = db { store.pendingOps.protectedUids(accountId, folder.fullName) }
-            db { store.messages.upsertHeaders(accountId, folder.id, fetched, protectedUids.uids, feedContacts = false, ownAddresses = own) }
+            db { storeHeaders(folder, fetched, feedContacts = false, own = own) }
             prefetchSearchBodies(folder, fetched)
         }
         val ids = db { uids.mapNotNull { uid -> store.messages.findByUid(folder.id, uid)?.takeIf { !it.hidden }?.id } }
@@ -485,18 +520,35 @@ class SyncEngine(
         }
     }
 
-    /** Permanently deletes every message of the folder on the server and in the cache. */
+    /**
+     * Permanently deletes every message of the folder on the server and in the cache. Messages
+     * the user moved out of it whose move still waits for its undo window are moved first; if
+     * that is not possible now (offline, login problem), nothing is deleted and the error is
+     * thrown.
+     */
     suspend fun emptyFolder(folderId: Long): Unit = withContext(io) { emptyFolderOnIo(folderId) }
 
     private suspend fun emptyFolderOnIo(folderId: Long) {
         val folder = db { store.folders.get(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         withAccountLock(folder.accountId) {
+            // Until their move has run, such messages are still in this folder on the server.
+            // A completed move can still be undone (see takeCompletedMoves).
+            db { store.pendingOps.makeDue(folder.accountId, folder.fullName, MOVES_OUT) }
+            val flushed = flushLocked(folder.accountId)
+            val stranded = db { store.pendingOps.forAccount(folder.accountId) }
+                .any { it.folder == folder.fullName && it.type in MOVES_OUT }
+            if (stranded) {
+                throw flushed.blockedBy
+                    ?: MailException(MailErrorKind.UNKNOWN, "Messages moved out of ${folder.fullName} are not moved yet")
+            }
             clients.imap(folder.accountId).deleteAll(folder.fullName)
             db {
                 store.tx {
-                    store.pendingOps.deleteForFolder(folder.accountId, folder.fullName)
+                    store.pendingOps.deleteForEmptiedFolder(folder.accountId, folder.fullName)
                     store.messages.clearFolder(folderId)
-                    store.folders.adjustCounts(folderId, -folder.unreadCount, -folder.totalCount)
+                    store.folders.get(folderId)?.let { current ->
+                        store.folders.adjustCounts(folderId, -current.unreadCount, -current.totalCount)
+                    }
                 }
             }
         }
@@ -506,9 +558,15 @@ class SyncEngine(
 
     /**
      * Replays the account's pending operations in order. Operations still inside their undo
-     * window are skipped. Network, login and certificate problems stop the flush and keep the
-     * operation for later; any other error (e.g. NOT_FOUND) drops it and its local effect is
-     * reverted (hidden messages reappear; flags get corrected by the next sync).
+     * window are skipped. Network, login and certificate problems (and temporary refusals) stop
+     * the flush and keep the operation for later; any other error (e.g. NOT_FOUND) drops it and
+     * its local effect is reverted (hidden messages reappear; flags get corrected by the next
+     * sync; a draft upload is kept as failed, see [finishFailure]). Only a transient failure
+     * while the server otherwise answers counts against the operation itself: it is dropped
+     * after [MAX_OP_ATTEMPTS] of those, and only once it is older than [MAX_OP_AGE], so being
+     * offline or locked out never discards the user's changes. An upload ([UPLOADS]) failing that
+     * way does not stop the flush (nothing depends on its order): from its second such failure on
+     * it waits a while before it is uploaded again, and it gives up after [MAX_UPLOAD_ATTEMPTS].
      */
     suspend fun flushPendingOps(accountId: Long): FlushResult =
         withContext(io) { flushPendingOpsOnIo(accountId) }
@@ -538,8 +596,33 @@ class SyncEngine(
                 throw e
             } catch (e: Exception) {
                 val error = e.toMailException()
-                if (error.kind in BLOCKING_KINDS && op.attempts + 1 < MAX_OP_ATTEMPTS) {
-                    db { store.pendingOps.release(op.id, op.attempts + 1) }
+                val keep = when {
+                    error.kind in ACCOUNT_KINDS -> {
+                        db { store.pendingOps.release(op.id, op.attempts) }
+                        true
+                    }
+                    error.isTransient -> {
+                        val answers = serverAnswers(op.accountId)
+                        val attempts = if (answers) op.attempts + 1 else op.attempts
+                        if (answers && op.type in UPLOADS) {
+                            if (attempts < MAX_UPLOAD_ATTEMPTS) {
+                                // A first failure may have been the network coming back just now:
+                                // due again at once. After that, the message is not uploaded on
+                                // every flush.
+                                val notBefore = if (attempts > 1) clock() + retryDelay(attempts - 1) else null
+                                db { store.pendingOps.release(op.id, attempts, notBefore) }
+                            } else {
+                                db { finishFailure(op) }
+                            }
+                            continue
+                        }
+                        val retry = attempts < MAX_OP_ATTEMPTS || now - op.createdAt < MAX_OP_AGE
+                        if (retry) db { store.pendingOps.release(op.id, attempts) }
+                        retry
+                    }
+                    else -> false
+                }
+                if (keep) {
                     blockedBy = error
                     break
                 }
@@ -553,6 +636,17 @@ class SyncEngine(
         val nextDue = remaining.filter { !it.inFlight && it.notBefore > now }.minOfOrNull { it.notBefore }
         return FlushResult(nextDue, blockedBy, touched)
     }
+
+    /** Whether the account's server answers right now (after an operation failed with a network error). */
+    private suspend fun serverAnswers(accountId: Long): Boolean =
+        try {
+            clients.imap(accountId).status("INBOX")
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
 
     private suspend fun execute(op: PendingOp, touched: MutableSet<Long>) {
         val imap = clients.imap(op.accountId)
@@ -575,8 +669,9 @@ class SyncEngine(
                 db { store.folders.findByFullName(op.accountId, target) }?.let { touched += it.id }
             }
             PendingOpType.MARK_FOLDER_READ -> {
-                val status = imap.status(op.folder)
-                val last = if (status.uidNext > 1) status.uidNext - 1 else MAX_UID
+                // Up to the newest message known when the user asked: later mail stays unread.
+                val last = op.payload?.toLongOrNull()?.takeIf { it > 0 }
+                    ?: imap.status(op.folder).uidNext.let { next -> if (next > 1) next - 1 else MAX_UID }
                 val flags = imap.fetchFlags(op.folder, 1, last)
                 val unseen = flags.filter { !it.value.seen && !it.value.deleted }.keys.sorted()
                 unseen.chunked(FLAG_CHUNK).forEach { imap.setFlag(op.folder, it, MessageFlag.SEEN, true) }
@@ -584,21 +679,49 @@ class SyncEngine(
             PendingOpType.APPEND_DRAFT -> uploadDraft(op, imap, touched)
             PendingOpType.DELETE_SERVER_COPY ->
                 deleteServerCopy(op.accountId, imap, ServerCopy(op.folder, op.uids.firstOrNull(), op.payload))
+            PendingOpType.APPEND_SENT -> appendSentCopy(op, imap, touched)
         }
     }
 
+    /** Stores a saved sent message in the Sent folder, unless an earlier attempt already did. */
+    private suspend fun appendSentCopy(op: PendingOp, imap: ImapClient, touched: MutableSet<Long>) {
+        val file = op.payload?.let(::File)?.takeIf { isSentCopy(it) && withContext(io) { it.isFile } } ?: return
+        val input = readLocal { SharedFileInputStream(file) }
+        try {
+            val message = readLocal { MimeMessage(Session.getInstance(Properties()), input) }
+            // The previous attempt may have reached the server before its answer was lost.
+            val messageId = message.messageID
+            val stored = messageId != null && imap.findUidByMessageId(op.folder, messageId) != null
+            if (!stored) imap.append(op.folder, message, true, false)
+        } finally {
+            withContext(NonCancellable + io) { input.close() }
+        }
+        db { store.folders.findByFullName(op.accountId, op.folder) }?.let { touched += it.id }
+    }
+
+    /**
+     * Stores a local draft in the Drafts folder and deletes its previous copy there. The new copy
+     * is added to the cache at once, so the Drafts list never misses the draft. Failing for good
+     * (no Drafts folder, refused by the server, unreadable attachment) keeps the operation as
+     * failed (see [finishFailure]): the draft stays listed as being only on this device.
+     */
     private suspend fun uploadDraft(op: PendingOp, imap: ImapClient, touched: MutableSet<Long>) {
         val draftId = op.target?.toLongOrNull() ?: return
         val draft = db { store.drafts.get(draftId) } ?: return
         val account = clients.account(op.accountId)
-        val draftsFolder = db { store.folders.findByRole(op.accountId, FolderRole.DRAFTS) } ?: return
+        val draftsFolder = db { store.folders.findByRole(op.accountId, FolderRole.DRAFTS) }
+            ?: throw MailException(MailErrorKind.NOT_FOUND, "The account has no Drafts folder")
         val composed = compose(account, draft)
         val uid = imap.append(draftsFolder.fullName, composed.mime, true, true)
         touched += draftsFolder.id
-        val newCopy = ServerCopy(draftsFolder.fullName, uid, composed.messageId)
+        // From here on a failure must not fail the operation: running it again would store a
+        // second copy.
+        val stored = fetchUploadedDraft(imap, draftsFolder, uid, composed.messageId)
+        val newCopy = ServerCopy(draftsFolder.fullName, uid ?: stored?.uid, composed.messageId)
         val previous = db {
             store.tx {
                 if (!store.drafts.exists(draftId)) return@tx null
+                if (stored != null) storeHeaders(draftsFolder, listOf(stored), feedContacts = false, own = emptySet())
                 val old = store.drafts.serverCopy(draftId)
                 store.drafts.setServerCopy(draftId, newCopy)
                 old ?: NO_COPY
@@ -606,8 +729,31 @@ class SyncEngine(
         }
         when {
             // Sent or discarded while uploading: the copy just made must not linger.
-            previous == null -> ignoreNotFound { deleteServerCopy(op.accountId, imap, newCopy) }
-            previous !== NO_COPY -> ignoreNotFound { deleteServerCopy(op.accountId, imap, previous) }
+            previous == null -> deleteOrQueueServerCopy(op.accountId, imap, newCopy)
+            previous !== NO_COPY -> deleteOrQueueServerCopy(op.accountId, imap, previous)
+        }
+    }
+
+    /** Headers of a draft just appended (by [uid], else by Message-ID), or null if they cannot be had. */
+    private suspend fun fetchUploadedDraft(imap: ImapClient, folder: Folder, uid: Long?, messageId: String): RemoteMessage? =
+        try {
+            val found = uid ?: imap.findUidByMessageId(folder.fullName, messageId)
+            found?.let { imap.fetchMessages(folder.fullName, listOf(it)).firstOrNull() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The next sync of the folder brings it.
+            null
+        }
+
+    /** Deletes a superseded draft copy now or, if that fails, with the next flush. */
+    private suspend fun deleteOrQueueServerCopy(accountId: Long, imap: ImapClient, copy: ServerCopy) {
+        try {
+            ignoreNotFound { deleteServerCopy(accountId, imap, copy) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            db { store.drafts.queueServerCopyDeletion(accountId, copy, clock()) }
         }
     }
 
@@ -642,13 +788,47 @@ class SyncEngine(
             else -> Unit
         }
         store.pendingOps.delete(op.id)
+        discardSentCopy(op)
     }
 
     private fun finishFailure(op: PendingOp) = store.tx {
-        if (op.type == PendingOpType.MOVE || op.type == PendingOpType.DELETE || op.type == PendingOpType.DELETE_SERVER_COPY) {
-            store.messages.setHidden(op.messageIds, false)
+        when (op.type) {
+            PendingOpType.MOVE, PendingOpType.DELETE -> restoreHidden(op)
+            PendingOpType.DELETE_SERVER_COPY -> store.messages.setHidden(op.messageIds, false)
+            PendingOpType.APPEND_DRAFT -> {
+                // Kept as failed: the draft is then listed as only on this device, and saving it
+                // again tries the upload again.
+                val draftId = op.target?.toLongOrNull()
+                if (draftId != null && store.drafts.exists(draftId)) {
+                    store.pendingOps.markFailed(op.id)
+                    return@tx
+                }
+            }
+            else -> Unit
         }
         store.pendingOps.delete(op.id)
+        discardSentCopy(op)
+    }
+
+    /**
+     * Shows the messages of a failed move or delete again and takes back the counter changes
+     * made when it was recorded (as an undo does). Inside a transaction.
+     */
+    private fun restoreHidden(op: PendingOp) {
+        val rows = store.messages.refs(op.messageIds).filter { it.hidden }
+        if (rows.isEmpty()) return
+        store.messages.setHidden(rows.map { it.id }, false)
+        val unread = rows.count { !it.isRead }
+        store.folders.findByFullName(op.accountId, op.folder)?.let { store.folders.adjustCounts(it.id, unread, rows.size) }
+        op.target?.let { target ->
+            store.folders.findByFullName(op.accountId, target)?.let { store.folders.adjustCounts(it.id, -unread, -rows.size) }
+        }
+    }
+
+    /** The saved message of a finished [PendingOpType.APPEND_SENT] is not needed any more. */
+    private fun discardSentCopy(op: PendingOp) {
+        if (op.type != PendingOpType.APPEND_SENT) return
+        op.payload?.let { File(it) }?.takeIf { isSentCopy(it) }?.delete()
     }
 
     private fun rememberMove(group: Long, move: CompletedMove) {
@@ -681,7 +861,12 @@ class SyncEngine(
     suspend fun sendOutbox(accountId: Long? = null): OutboxResult =
         withContext(io) { sendOutboxOnIo(accountId) }
 
-    private suspend fun sendOutboxOnIo(accountId: Long?): OutboxResult = outboxLock.withLock {
+    /** True while messages are being sent (or their bookkeeping is being done) in this process. */
+    val isSending: Boolean get() = outboxLock.isLocked || sendingNow.isNotEmpty()
+
+    private suspend fun sendOutboxOnIo(accountId: Long?): OutboxResult = outboxLock.withLock { sendOutboxLocked(accountId) }
+
+    private suspend fun sendOutboxLocked(accountId: Long?): OutboxResult {
         failStaleSending()
         val due = db { store.outbox.due(accountId, clock()) }
         var sent = 0
@@ -692,7 +877,7 @@ class SyncEngine(
             when (val outcome = sendOne(entry)) {
                 is SendOutcome.Sent -> {
                     sent++
-                    afterSend(outcome.account, entry, outcome.message)?.let { sentFolders += it }
+                    afterSend(entry, outcome)?.let { sentFolders += it }
                 }
                 SendOutcome.Failed -> failed++
                 SendOutcome.Retry -> retrying++
@@ -708,11 +893,12 @@ class SyncEngine(
                 // The Sent copy shows up with the next refresh instead.
             }
         }
-        OutboxResult(sent, failed, retrying, db { store.outbox.nextSendAt() })
+        return OutboxResult(sent, failed, retrying, db { store.outbox.nextSendAt() })
     }
 
     private sealed interface SendOutcome {
-        data class Sent(val account: Account, val message: ComposedMessage) : SendOutcome
+        /** Delivered; [sentCopyQueued] when its Sent copy waits as an [PendingOpType.APPEND_SENT]. */
+        data class Sent(val account: Account, val message: ComposedMessage, val sentCopyQueued: Boolean) : SendOutcome
         data object Failed : SendOutcome
         data object Retry : SendOutcome
         data object Skipped : SendOutcome
@@ -739,9 +925,13 @@ class SyncEngine(
                 }
                 return@withContext markFailed(entry, attempts, error)
             }
+            // Saved before sending, so that only one transaction separates the delivery from
+            // the removal of the message from the outbox (see recordSent).
+            val sentCopy = saveSentCopy(account, composed)
             try {
                 clients.smtp(account.id).send(composed.mime)
             } catch (e: Exception) {
+                sentCopy?.let { withContext(io) { it.file.delete() } }
                 val error = e.toMailException()
                 if (error.isTransient && attempts < MAX_SEND_ATTEMPTS) {
                     db { store.outbox.requeue(item.id, attempts, error.kind.name, clock() + retryDelay(attempts)) }
@@ -749,10 +939,65 @@ class SyncEngine(
                 }
                 return@withContext markFailed(entry, attempts, error)
             }
-            db { store.outbox.delete(item.id) }
-            SendOutcome.Sent(account, composed)
+            SendOutcome.Sent(account, composed, recordSent(account, entry, sentCopy))
         } finally {
             sendingNow -= item.id
+        }
+    }
+
+    /**
+     * After a successful SMTP send: removes the message from the outbox and, in the same
+     * transaction, records what must still reach the server (the Sent copy saved in [copy],
+     * \Answered or $Forwarded on the original, the deletion of the server draft), so neither a
+     * failure nor the death of the process can lose it. Returns whether the Sent copy was queued.
+     */
+    private suspend fun recordSent(account: Account, entry: OutboxEntry, copy: SentCopy?): Boolean {
+        try {
+            db {
+                store.tx {
+                    store.outbox.delete(entry.item.id)
+                    if (copy != null) {
+                        store.pendingOps.insert(
+                            PendingOp(
+                                accountId = account.id,
+                                type = PendingOpType.APPEND_SENT,
+                                folder = copy.folder.fullName,
+                                payload = copy.file.absolutePath,
+                                notBefore = clock(),
+                            ),
+                        )
+                    }
+                    recordSourceFlag(entry.item.draft)
+                    recordServerDraftDeletion(account.id, entry)
+                }
+            }
+            return copy != null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Whatever else fails, a delivered message must leave the outbox.
+            db { store.outbox.delete(entry.item.id) }
+            copy?.let { withContext(io) { it.file.delete() } }
+            return false
+        }
+    }
+
+    /** A message saved for its copy in the account's Sent [folder]. */
+    private class SentCopy(val folder: Folder, val file: File)
+
+    /** Saves the message for its Sent copy; null without a Sent folder or if it cannot be written. */
+    private suspend fun saveSentCopy(account: Account, message: ComposedMessage): SentCopy? {
+        val sent = db { store.folders.findByRole(account.id, FolderRole.SENT) } ?: return null
+        return withContext(io) {
+            val file = File(sentCopiesDir, UUID.randomUUID().toString() + ".eml")
+            try {
+                sentCopiesDir.mkdirs()
+                file.outputStream().buffered().use { message.mime.writeTo(it) }
+                SentCopy(sent, file)
+            } catch (_: Exception) {
+                file.delete()
+                null
+            }
         }
     }
 
@@ -784,36 +1029,65 @@ class SyncEngine(
         recoveryLock.withLock {
             if (!recovered) {
                 db { store.pendingOps.resetInFlight() }
+                bestEffort { db { deleteOrphanSentCopies() } }
                 recovered = true
             }
         }
     }
 
     /**
-     * Best-effort bookkeeping after a successful send. Returns the Sent folder to refresh, if
-     * the copy was stored there and the folder is being synchronised.
+     * Saved sent messages no operation refers to any more (their account was removed). Young
+     * files are left alone: a send may be about to record its operation.
      */
-    private suspend fun afterSend(account: Account, entry: OutboxEntry, message: ComposedMessage): Long? {
+    private fun deleteOrphanSentCopies() {
+        val saved = sentCopiesDir.listFiles() ?: return
+        val referenced = store.pendingOps.payloads(PendingOpType.APPEND_SENT).toSet()
+        val cutoff = clock() - SENT_COPY_MIN_AGE
+        saved.filter { it.absolutePath !in referenced && it.lastModified() < cutoff }.forEach { it.delete() }
+    }
+
+    /** Where sent messages wait for their Sent copy ([PendingOpType.APPEND_SENT]). */
+    private val sentCopiesDir: File get() = File(files.filesDir, SENT_COPIES_DIR)
+
+    private fun isSentCopy(file: File): Boolean = file.parentFile?.absolutePath == sentCopiesDir.absolutePath
+
+    /**
+     * Bookkeeping after a successful send, after [recordSent]: contacts, compose files, and the
+     * pending operations (the Sent copy among them) pushed right away. A failure or cancellation
+     * here loses nothing: the operations wait for the next flush. Returns the Sent folder to
+     * refresh, if the copy was stored there and the folder is being synchronised.
+     */
+    private suspend fun afterSend(entry: OutboxEntry, outcome: SendOutcome.Sent): Long? {
+        val account = outcome.account
         val draft = entry.item.draft
-        bestEffort { db { store.contacts.recordContacted(draft.to + draft.cc + draft.bcc, clock()) } }
-        var refresh: Long? = null
-        bestEffort {
-            val sent = db { store.folders.findByRole(account.id, FolderRole.SENT) }
-            if (sent != null) {
-                clients.imap(account.id).append(sent.fullName, message.mime, true, false)
-                if (sent.lastSyncedAt != null) refresh = sent.id
+        withContext(NonCancellable) {
+            bestEffort { db { store.contacts.recordContacted(draft.to + draft.cc + draft.bcc, clock()) } }
+        }
+        var sent: Folder? = null
+        val touched = HashSet<Long>()
+        try {
+            val folder = db { store.folders.findByRole(account.id, FolderRole.SENT) }
+            sent = folder
+            if (!outcome.sentCopyQueued && folder != null) {
+                // Not saved for later (it could not be written): store the copy now, best effort.
+                bestEffort {
+                    clients.imap(account.id).append(folder.fullName, outcome.message.mime, true, false)
+                    touched += folder.id
+                }
+            }
+        } finally {
+            // Only after the copy above: building it again reads the compose files.
+            withContext(NonCancellable) {
+                bestEffort {
+                    db {
+                        val referenced = store.drafts.attachmentUris() + store.outbox.attachmentUris()
+                        files.deleteComposeFiles(draft.attachments.map { it.uri }, referenced)
+                    }
+                }
             }
         }
-        bestEffort { db { recordSourceFlag(draft) } }
-        bestEffort { db { recordServerDraftDeletion(account.id, entry) } }
-        bestEffort { flushPendingOps(account.id) }
-        bestEffort {
-            db {
-                val referenced = store.drafts.attachmentUris() + store.outbox.attachmentUris()
-                files.deleteComposeFiles(draft.attachments.map { it.uri }, referenced)
-            }
-        }
-        return refresh
+        bestEffort { touched += flushPendingOps(account.id).touchedFolders }
+        return sent?.takeIf { it.id in touched && it.lastSyncedAt != null }?.id
     }
 
     /** \Answered or $Forwarded on the message replied to or forwarded. */
@@ -878,7 +1152,7 @@ class SyncEngine(
     suspend fun failStaleSending(): Unit = withContext(io) { failStaleSendingOnIo() }
 
     private suspend fun failStaleSendingOnIo() {
-        val failed = db { store.outbox.failStaleSending(clock() - STALE_SENDING, sendingNow.toSet(), MailErrorKind.UNKNOWN.name) }
+        val failed = db { store.outbox.failStaleSending(clock() - STALE_SENDING, sendingNow.toSet(), MailErrorKind.SEND_UNCERTAIN.name) }
         failed.forEach { notifySendFailed(it) }
     }
 
@@ -907,7 +1181,14 @@ class SyncEngine(
     // ------------------------------------------------------------------ helpers
 
     private suspend fun <T> withAccountLock(accountId: Long, block: suspend () -> T): T =
-        accountLocks.getOrPut(accountId) { Mutex() }.withLock { block() }
+        accountLocks.getOrPut(accountId) { Mutex() }.withLock {
+            try {
+                block()
+            } finally {
+                // An account removed meanwhile may have got a new connection from this work.
+                clients.releaseIfRemoved(accountId)
+            }
+        }
 
     private suspend fun <T> markSyncing(folderId: Long, block: suspend () -> T): T {
         updateSyncing(folderId, +1)
@@ -938,6 +1219,16 @@ class SyncEngine(
         }
     }
 
+    /** Reads a local file: its failures are not network problems, so retrying would not help. */
+    private suspend fun <T> readLocal(block: () -> T): T =
+        try {
+            withContext(io) { block() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw MailException(MailErrorKind.UNKNOWN, e.message, e)
+        }
+
     private suspend inline fun ignoreNotFound(block: () -> Unit) {
         try {
             block()
@@ -965,13 +1256,24 @@ class SyncEngine(
         private const val FLAG_CHUNK = 500
         private const val MAX_UID = 4_294_967_295L
         private const val MAX_OP_ATTEMPTS = 50
+        private const val MAX_OP_AGE = 7 * 24 * 60 * 60_000L
+        private const val MAX_UPLOAD_ATTEMPTS = 10
+        private const val SENT_COPIES_DIR = "sent"
+        private const val SENT_COPY_MIN_AGE = 60 * 60_000L
         private const val IN_FLIGHT_WAIT = 15_000L
         private const val COMPLETED_MOVE_TTL = 5 * 60_000L
         private const val STALE_SENDING = 10 * 60_000L
         private const val FIRST_RETRY_DELAY = 30_000L
         private const val MAX_RETRY_DELAY = 15 * 60_000L
 
-        private val BLOCKING_KINDS = setOf(MailErrorKind.NETWORK, MailErrorKind.AUTHENTICATION, MailErrorKind.CERTIFICATE)
+        /** Failures that concern the whole account (its login), never a single operation. */
+        private val ACCOUNT_KINDS = setOf(MailErrorKind.AUTHENTICATION, MailErrorKind.CERTIFICATE)
+
+        /** Operations that store a whole message: retried apart from the rest (see [flushPendingOps]). */
+        private val UPLOADS = setOf(PendingOpType.APPEND_SENT, PendingOpType.APPEND_DRAFT)
+
+        /** Operations that take messages out of their folder. */
+        private val MOVES_OUT = setOf(PendingOpType.MOVE, PendingOpType.MOVE_BY_MESSAGE_ID)
 
         /** Marker: the draft had no previous server copy. */
         private val NO_COPY = ServerCopy("", null, null)

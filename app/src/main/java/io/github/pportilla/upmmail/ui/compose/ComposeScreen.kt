@@ -160,7 +160,11 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     }
 
     BackHandler(enabled = state.status != ComposeStatus.Finished) { viewModel.close() }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onStop() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        viewModel.onStop()
+        // The saved state is written right after this, before the UI state could deliver the id.
+        viewModel.localDraftId.takeIf { it > 0 }?.let { restoredDraftId = it }
+    }
 
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         viewModel.addAttachments(uris.map { it.toString() })
@@ -604,11 +608,17 @@ private class ExitReporter(
     }
 
     private fun reportSending(exit: ComposeExit.Sending) {
-        snackbar.show(
-            message = sending,
-            actionLabel = if (exit.undoSeconds > 0) undo else null,
-            onAction = { undoSend(exit) },
-        )
+        if (exit.undoSeconds > 0) {
+            // Undo stays available for the whole undo window, which may exceed SnackbarDuration.Long.
+            snackbar.show(
+                message = sending,
+                actionLabel = undo,
+                timeoutMillis = exit.undoSeconds * 1000L,
+                onAction = { undoSend(exit) },
+            )
+        } else {
+            snackbar.show(sending)
+        }
         container.applicationScope.launch {
             val result = awaitOrNull { exit.result.await() }
             if (result is SendResult.Queued) return@launch

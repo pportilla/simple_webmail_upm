@@ -65,4 +65,19 @@ class ContactsTest {
         assertEquals(2, repository.suggest("jos", limit = 2).size)
         assertTrue(repository.suggest("   ").isEmpty())
     }
+
+    @Test
+    fun aPersonTypedInFullIsFoundAmongManyFrequentFirstWordMatches() = runBlocking {
+        val now = clock.now()
+        // Plenty of busier contacts containing "ana" (Mariana, Juana, Susana...).
+        repeat(250) { i ->
+            val address = EmailAddress("contacto$i@upm.es", listOf("Mariana", "Juana", "Susana", "Ana")[i % 4] + " López $i")
+            repeat(5) { store.contacts.recordContacted(listOf(address), now) }
+        }
+        store.contacts.recordSeen(listOf(EmailAddress("ana.garcia@upm.es", "Ana García")), now, emptySet())
+
+        assertEquals("ana.garcia@upm.es", store.contacts.candidates("ana garcia", 200).single().email)
+        val repository = ContactRepositoryImpl(store, clock = clock::now)
+        assertEquals(listOf("ana.garcia@upm.es"), repository.suggest("ana garc").map { it.address.address })
+    }
 }

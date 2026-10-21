@@ -8,10 +8,10 @@ object Quoting {
 
     private const val MAX_REFERENCES = 20
 
-    // Reply prefixes in the languages UPM users are likely to meet: English, Spanish (RE/RV as
-    // used by Outlook), German, Nordic, Dutch, Italian, Portuguese, Polish, Turkish...
+    // Reply prefixes in the languages UPM users are likely to meet: English, Spanish (RE as used
+    // by Outlook; its RV is a forward), German, Nordic, Dutch, Italian, Portuguese, Polish, Turkish...
     private val REPLY_PREFIX = Regex(
-        """^\s*(re|rv|aw|sv|vs|antw|ref|rif|res|odp|ynt|atb)\s*(\[\d+]|\(\d+\))?\s*[:：]""",
+        """^\s*(re|aw|sv|vs|antw|ref|rif|res|odp|ynt|atb)\s*(\[\d+]|\(\d+\))?\s*[:：]""",
         RegexOption.IGNORE_CASE,
     )
     private val FORWARD_PREFIX = Regex(
@@ -19,7 +19,7 @@ object Quoting {
         RegexOption.IGNORE_CASE,
     )
 
-    /** "Re: " + subject unless it already starts with a reply prefix (Re:, RE:, Re[2]:, RV:, AW:...). */
+    /** "Re: " + subject unless it already starts with a reply prefix (Re:, RE:, Re[2]:, AW:...). */
     fun replySubject(subject: String): String {
         val trimmed = subject.trim()
         return if (REPLY_PREFIX.containsMatchIn(trimmed)) trimmed else "Re: $trimmed".trimEnd()

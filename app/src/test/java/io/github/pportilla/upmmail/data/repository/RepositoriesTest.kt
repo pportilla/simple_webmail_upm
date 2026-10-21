@@ -128,6 +128,24 @@ class RepositoriesTest {
         assertEquals(-1L, settings.settings.value.lastAccountId)
     }
 
+    @Test
+    fun theAddressHistoryAndSearchesGoWithTheLastAccount() = runBlocking {
+        val repository = accounts(FakeChecker("ana", "ana@upm.es"))
+        val first = repository.addAccount("ana@upm.es", "pw", "").getOrThrow()
+        val inbox = store.addTestFolder(first.id, "INBOX", FolderRole.INBOX)
+        store.messages.upsertHeaders(first.id, inbox.id, listOf(remoteMessage(1)))
+        store.recentSearches.add("tribunal")
+        val second = accounts(FakeChecker("bea", "bea@upm.es")).addAccount("bea@upm.es", "pw", "").getOrThrow()
+
+        repository.removeAccount(first.id)
+        assertTrue("still offered to the remaining account", store.contacts.get("bea@alumnos.upm.es") != null)
+        assertEquals(listOf("tribunal"), store.recentSearches.list())
+
+        repository.removeAccount(second.id)
+        assertNull(store.contacts.get("bea@alumnos.upm.es"))
+        assertTrue(store.recentSearches.list().isEmpty())
+    }
+
     private fun compose(): ComposeRepositoryImpl {
         val texts = object : ComposeTexts {
             override fun replyAttribution(date: Long, sender: String) = "El día, $sender escribió:"

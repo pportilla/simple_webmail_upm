@@ -12,7 +12,6 @@ import io.github.pportilla.upmmail.data.repository.SettingsRepository
 import io.github.pportilla.upmmail.data.repository.SyncController
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.FolderRole
-import io.github.pportilla.upmmail.model.MailErrorKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,8 +53,15 @@ class AndroidSyncController(
     private val jobScheduler: JobScheduler = checkNotNull(context.getSystemService(JobScheduler::class.java))
     private val outboxRunner = DelayedRunner(scope)
     private val lock = Any()
+    private val planLock = Any()
     private var pollJob: Job? = null
     private var scheduledOutboxAt: Long? = null
+
+    /**
+     * True while JobScheduler runs [JOB_OUTBOX] (between [jobStarted] and its end). Scheduling or
+     * cancelling that job id would stop it, possibly in the middle of a send.
+     */
+    private var outboxJobRunning = false
 
     /** True between onAppForeground and onAppBackground. */
     @Volatile
@@ -158,25 +164,36 @@ class AndroidSyncController(
         scope.launch(Dispatchers.IO) { planOutbox(minDelay = 0) }
     }
 
+    /**
+     * Plans the in-app timer and the outbox job for the earliest queued message. Serialised, so
+     * a plan made from an older view of the queue cannot undo a newer one.
+     */
     private fun planOutbox(minDelay: Long) {
-        val next = safely(null) { store.outbox.nextSendAt() }
-        if (next == null) {
-            outboxRunner.cancel(OUTBOX_KEY)
-            synchronized(lock) {
-                scheduledOutboxAt = null
-                runCatching { jobScheduler.cancel(JOB_OUTBOX) }
+        synchronized(planLock) {
+            val next = safely(null) { store.outbox.nextSendAt() }
+            if (next == null) {
+                outboxRunner.cancel(OUTBOX_KEY)
+                synchronized(lock) {
+                    // A running job finishes on its own (and re-plans). While this process
+                    // sends, the job stays as a safety net: once due it keeps the process
+                    // alive, and the sender re-plans when it is done.
+                    if (!outboxJobRunning && !engine.isSending) {
+                        scheduledOutboxAt = null
+                        runCatching { jobScheduler.cancel(JOB_OUTBOX) }
+                    }
+                }
+                return
             }
-            return
-        }
-        val at = maxOf(next, System.currentTimeMillis() + minDelay)
-        scheduleOutboxJob(at)
-        outboxRunner.schedule(OUTBOX_KEY, at) {
-            // Offline, the network-constrained job sends instead: trying now would only use up
-            // the message's retry attempts.
-            if (isOnline()) {
-                quietly { engine.sendOutbox(null) }
-                // A short pause before re-planning, so a message that keeps failing cannot spin.
-                planOutbox(minDelay = REPLAN_DELAY)
+            val at = maxOf(next, System.currentTimeMillis() + minDelay)
+            scheduleOutboxJob(at)
+            outboxRunner.schedule(OUTBOX_KEY, at) {
+                // Offline, the network-constrained job sends instead: trying now would only use
+                // up the message's retry attempts.
+                if (isOnline()) {
+                    quietly { engine.sendOutbox(null) }
+                    // A short pause before re-planning, so a message that keeps failing cannot spin.
+                    planOutbox(minDelay = REPLAN_DELAY)
+                }
             }
         }
     }
@@ -184,7 +201,8 @@ class AndroidSyncController(
     /** Safety net for when the process dies before the in-app timer fires. */
     private fun scheduleOutboxJob(at: Long) {
         synchronized(lock) {
-            if (scheduledOutboxAt == at) return
+            // Replacing a running job stops it; it re-plans when it ends (see afterJob).
+            if (outboxJobRunning || scheduledOutboxAt == at) return
             scheduledOutboxAt = at
             try {
                 val job = JobInfo.Builder(JOB_OUTBOX, ComponentName(context, SyncJobService::class.java))
@@ -243,7 +261,7 @@ class AndroidSyncController(
         for (accountId in safely(emptyList()) { store.pendingOps.accountsWithPending() }) {
             try {
                 val result = engine.flushPendingOps(accountId)
-                if (result.blockedBy?.kind == MailErrorKind.NETWORK) retry = true
+                if (result.blockedBy?.isTransient == true) retry = true
                 result.nextDueAt?.let { flushScheduler().schedule(accountId, it) }
             } catch (e: CancellationException) {
                 throw e
@@ -254,10 +272,28 @@ class AndroidSyncController(
         return retry
     }
 
+    /** Called by [SyncJobService] when JobScheduler starts a job. */
+    fun jobStarted(jobId: Int) {
+        if (jobId == JOB_OUTBOX) synchronized(lock) { outboxJobRunning = true }
+    }
+
+    /** Called when JobScheduler stopped a job (it reschedules it itself). */
+    fun jobStopped(jobId: Int) {
+        if (jobId == JOB_OUTBOX) {
+            synchronized(lock) {
+                outboxJobRunning = false
+                scheduledOutboxAt = null
+            }
+        }
+    }
+
     /** Called after a job finished, when rescheduling the same job id is safe again. */
     fun afterJob(jobId: Int) {
         if (jobId == JOB_OUTBOX) {
-            synchronized(lock) { scheduledOutboxAt = null }
+            synchronized(lock) {
+                outboxJobRunning = false
+                scheduledOutboxAt = null
+            }
             requestOutboxSend()
         }
     }

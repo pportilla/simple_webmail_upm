@@ -38,6 +38,7 @@ import io.github.pportilla.upmmail.model.OutboxItem
 import io.github.pportilla.upmmail.model.OutboxState
 import io.github.pportilla.upmmail.ui.components.SenderAvatar
 import io.github.pportilla.upmmail.ui.components.formatListDate
+import io.github.pportilla.upmmail.ui.components.messageRes
 
 /** Callbacks of the outbox list. */
 internal class OutboxActions(
@@ -146,6 +147,7 @@ private fun OutboxRow(item: OutboxItem, ownAddress: String?, actions: OutboxActi
                 }
                 OutboxState.QUEUED -> {
                     TextButton(onClick = { actions.onDelete(item) }) { Text(stringResource(R.string.action_delete)) }
+                    TextButton(onClick = { actions.onEdit(item) }) { Text(stringResource(R.string.mailbox_outbox_edit)) }
                 }
                 // Being handed to the SMTP server right now: nothing can be changed.
                 OutboxState.SENDING -> Spacer(Modifier.padding(vertical = 8.dp))
@@ -184,10 +186,10 @@ private fun OutboxStatus(item: OutboxItem) {
             color = if (item.state == OutboxState.FAILED) colors.error else colors.onSurfaceVariant,
         )
     }
-    val error = item.lastError?.takeIf { it.isNotBlank() }
+    val error = outboxErrorKind(item.lastError)
     if (error != null && item.state != OutboxState.SENDING) {
         Text(
-            text = error,
+            text = stringResource(error.messageRes()),
             modifier = Modifier.padding(top = 2.dp),
             style = MaterialTheme.typography.bodySmall,
             color = if (item.state == OutboxState.FAILED) colors.error else colors.onSurfaceVariant,

@@ -39,6 +39,18 @@ class OutboxDaoTest {
     )
 
     @Test
+    fun hugeDraftAndOutboxBodiesAreReadBackCompletely() {
+        // A reply quoting a huge message: more than Android's 2 MB CursorWindow holds in one row.
+        val body = buildString { repeat(120_000) { append("> 引用されたテキスト $it\n") } }
+        val id = store.drafts.save(draft().copy(body = body))
+        assertEquals(body, store.drafts.get(id)!!.body)
+        val outboxId = store.outbox.enqueue(draft().copy(body = body), null, clock.now())
+        assertEquals(body, store.outbox.get(outboxId)!!.item.draft.body)
+        assertEquals(body, store.outbox.due(null, clock.now()).single().item.draft.body)
+        assertEquals(body, store.outbox.list(accountId).single().draft.body)
+    }
+
+    @Test
     fun draftsRoundTripWithAttachments() {
         val id = store.drafts.save(draft())
         val loaded = store.drafts.get(id)!!

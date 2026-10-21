@@ -3,7 +3,6 @@ package io.github.pportilla.upmmail.data.repository
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.db.PendingOp
 import io.github.pportilla.upmmail.data.db.PendingOpType
-import io.github.pportilla.upmmail.data.db.ServerCopy
 import io.github.pportilla.upmmail.data.files.LocalFiles
 import io.github.pportilla.upmmail.mail.HtmlText
 import io.github.pportilla.upmmail.mail.Quoting
@@ -22,8 +21,10 @@ import io.github.pportilla.upmmail.sync.mailResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /** Localised texts placed in replies and forwards. */
 interface ComposeTexts {
@@ -136,17 +137,30 @@ class ComposeRepositoryImpl(
         )
     }
 
-    /** The original's regular attachments, downloaded and referenced as file:// URIs. */
-    private suspend fun downloadAttachments(source: MessageDetail): List<OutgoingAttachment> =
-        source.attachments.filter { !it.isInline }.map { attachment ->
-            val file = engine.downloadAttachment(attachment.id)
-            OutgoingAttachment(
-                uri = LocalFiles.fileUri(file),
-                fileName = attachment.fileName,
-                mimeType = attachment.mimeType,
-                size = file.length(),
-            )
+    /**
+     * The original's regular attachments, downloaded if needed and copied into the compose area:
+     * the draft owns them from now on, so they outlive the attachment cache and the original
+     * message (see LocalFiles).
+     */
+    private suspend fun downloadAttachments(source: MessageDetail): List<OutgoingAttachment> {
+        val copies = ArrayList<File>()
+        try {
+            return source.attachments.filter { !it.isInline }.map { attachment ->
+                val file = engine.downloadAttachment(attachment.id)
+                val copy = withContext(io) { files.newComposeCopy(file, attachment.fileName) }
+                copies += copy
+                OutgoingAttachment(
+                    uri = LocalFiles.fileUri(copy),
+                    fileName = attachment.fileName,
+                    mimeType = attachment.mimeType,
+                    size = withContext(io) { copy.length() },
+                )
+            }
+        } catch (e: Exception) {
+            withContext(NonCancellable + io) { copies.forEach { it.parentFile?.deleteRecursively() } }
+            throw e
         }
+    }
 
     /** Empty space to type in, then the signature, then the quoted or forwarded text. */
     private fun bodyWith(account: Account, quoted: String?): String {
@@ -169,6 +183,13 @@ class ComposeRepositoryImpl(
     }
 
     private suspend fun draftFromServerMessageInternal(messageId: Long): Draft {
+        // A draft only on this device, listed in the Drafts folder; or the version of this server
+        // draft saved on this device, at least as new (its upload may be waiting or have failed).
+        // The draft carries its list row id: the screen's saves go to that local draft (see continued).
+        val local = LocalDraftRows.draftId(messageId)
+            ?.let { draftId -> loadDraft(draftId) ?: throw MailException(MailErrorKind.NOT_FOUND, "Draft $draftId") }
+            ?: db { store.drafts.findForServerMessage(messageId)?.let { store.drafts.get(it) } }
+        if (local != null) return local.copy(serverDraftMessageId = LocalDraftRows.rowId(local.id))
         engine.loadBody(messageId, inlineImages = false)
         val source = db { store.messages.detail(messageId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Message $messageId")
         return Draft(
@@ -190,7 +211,7 @@ class ComposeRepositoryImpl(
     override suspend fun saveDraft(draft: Draft, upload: Boolean): Long {
         val id = db {
             store.tx {
-                val id = store.drafts.save(draft.copy(updatedAt = clock()))
+                val id = store.drafts.save(continued(draft).copy(updatedAt = clock()))
                 if (upload) {
                     // Only the newest version needs uploading.
                     store.pendingOps.deleteDraftUploads(id)
@@ -213,50 +234,49 @@ class ComposeRepositoryImpl(
     override suspend fun discardDraft(draft: Draft) {
         val serverCopy = db {
             store.tx {
-                val deleted = if (draft.id != 0L) store.drafts.delete(draft.id) else null
-                if (draft.id != 0L) store.pendingOps.deleteDraftUploads(draft.id)
-                val copy = deleted?.second ?: draft.serverDraftMessageId?.let { store.drafts.serverCopyOfMessage(it) }
-                if (copy != null) queueServerCopyDeletion(draft.accountId, copy)
+                val current = continued(draft)
+                val deleted = if (current.id != 0L) store.drafts.delete(current.id) else null
+                if (current.id != 0L) store.pendingOps.deleteDraftUploads(current.id)
+                val copy = deleted?.second ?: current.serverDraftMessageId?.let { store.drafts.serverCopyOfMessage(it) }
+                if (copy != null) store.drafts.queueServerCopyDeletion(current.accountId, copy, clock())
                 val referenced = store.drafts.attachmentUris() + store.outbox.attachmentUris()
-                files.deleteComposeFiles((deleted?.first?.attachments ?: draft.attachments).map { it.uri }, referenced)
+                val uris = (deleted?.first?.attachments.orEmpty() + draft.attachments).map { it.uri }.distinct()
+                files.deleteComposeFiles(uris, referenced)
                 copy
             }
         }
         if (serverCopy != null) flushScheduler.schedule(draft.accountId)
     }
 
-    /** Hides the cached copy and records its deletion on the server. Inside a transaction. */
-    private fun queueServerCopyDeletion(accountId: Long, copy: ServerCopy) {
-        val folder = store.folders.findByFullName(accountId, copy.folder)
-        val local = folder?.let { f ->
-            listOfNotNull(
-                copy.uid?.let { store.messages.findByUid(f.id, it) },
-                copy.messageIdHeader?.let { store.messages.findByMessageIdHeader(f.id, it) },
-            ).distinctBy { it.id }
-        }.orEmpty()
-        store.messages.setHidden(local.map { it.id }, true)
-        store.pendingOps.insert(
-            PendingOp(
-                accountId = accountId,
-                type = PendingOpType.DELETE_SERVER_COPY,
-                folder = copy.folder,
-                uids = listOfNotNull(copy.uid),
-                messageIds = local.map { it.id },
-                payload = copy.messageIdHeader,
-                notBefore = clock(),
-            ),
-        )
+    /** Discards a local draft deleted from the Drafts folder list (see [LocalDraftRows]). */
+    suspend fun discardLocalDraft(draftId: Long) {
+        val draft = loadDraft(draftId) ?: return
+        discardDraft(draft)
+    }
+
+    /**
+     * [draft] as the local draft it continues. A compose screen editing a local draft opened from
+     * the Drafts folder starts without a local id, and its draft carries the list row id of that
+     * local draft (see [draftFromServerMessage]): its saves go to that draft, so one draft never
+     * becomes two (with two diverging copies on the server). Inside a transaction.
+     */
+    private fun continued(draft: Draft): Draft {
+        val listed = draft.serverDraftMessageId?.let(LocalDraftRows::draftId) ?: return draft
+        val id = if (draft.id != 0L) draft.id else listed
+        // A row id is not a message: keep the server draft the local draft really edits.
+        return draft.copy(id = id, serverDraftMessageId = store.drafts.serverDraftMessageId(listed))
     }
 
     override suspend fun send(draft: Draft, delaySeconds: Int): Long {
         val outboxId = db {
             store.tx {
-                val copy = (if (draft.id != 0L) store.drafts.serverCopy(draft.id) else null)
-                    ?: draft.serverDraftMessageId?.let { store.drafts.serverCopyOfMessage(it) }
-                val id = store.outbox.enqueue(draft, copy, clock() + delaySeconds.coerceAtLeast(0) * 1000L)
-                if (draft.id != 0L) {
-                    store.pendingOps.deleteDraftUploads(draft.id)
-                    store.drafts.delete(draft.id)
+                val current = continued(draft)
+                val copy = (if (current.id != 0L) store.drafts.serverCopy(current.id) else null)
+                    ?: current.serverDraftMessageId?.let { store.drafts.serverCopyOfMessage(it) }
+                val id = store.outbox.enqueue(current, copy, clock() + delaySeconds.coerceAtLeast(0) * 1000L)
+                if (current.id != 0L) {
+                    store.pendingOps.deleteDraftUploads(current.id)
+                    store.drafts.delete(current.id)
                 }
                 id
             }
