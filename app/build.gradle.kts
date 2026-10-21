@@ -65,7 +65,6 @@ android {
 
     testOptions {
         unitTests {
-            isIncludeAndroidResources = true
             isReturnDefaultValues = true
         }
     }
@@ -99,5 +98,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.greenmail)
-    testImplementation(libs.robolectric)
+    testImplementation(libs.sqlite.jdbc)
 }

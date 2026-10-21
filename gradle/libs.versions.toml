@@ -11,7 +11,7 @@ angusMail = "2.0.5"
 jsoup = "1.21.2"
 junit = "4.13.2"
 greenmail = "2.1.5"
-robolectric = "4.16"
+sqliteJdbc = "3.50.3.0"
 
 [libraries]
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
@@ -33,7 +33,7 @@ angus-mail = { group = "org.eclipse.angus", name = "angus-mail", version.ref = "
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 greenmail = { group = "com.icegreen", name = "greenmail", version.ref = "greenmail" }
-robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqliteJdbc" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
