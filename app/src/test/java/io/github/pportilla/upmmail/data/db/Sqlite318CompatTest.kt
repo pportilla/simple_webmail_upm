@@ -34,7 +34,10 @@ class Sqlite318CompatTest {
         assumeTrue("-Dsqlite318.jar is not set", !jar.isNullOrBlank())
         assumeTrue("sqlite-jdbc 3.18.0 has no native library for this machine", hasNativeLibrary(File(jar)))
         // The platform loader as parent: the newer driver on the test classpath must not be seen.
-        URLClassLoader(arrayOf(File(jar).toURI().toURL()), ClassLoader.getPlatformClassLoader()).use { loader ->
+        // Called reflectively: AGP compiles unit tests against android.jar, whose ClassLoader
+        // lacks this Java 9 method (the tests themselves run on a full JDK).
+        val platformLoader = ClassLoader::class.java.getMethod("getPlatformClassLoader").invoke(null) as ClassLoader
+        URLClassLoader(arrayOf(File(jar).toURI().toURL()), platformLoader).use { loader ->
             val driver = Class.forName("org.sqlite.JDBC", true, loader).getDeclaredConstructor().newInstance() as Driver
             val db = JdbcSqlDatabase.wrap(driver.connect("jdbc:sqlite::memory:", Properties()))
             try {
