@@ -36,6 +36,15 @@ over IMAP and SMTP with TLS, so the mailbox is the same one you see in the UPM w
 - `mailto:` links and **share-to-email** from other apps.
 - Light/dark theme in UPM blue, optional Material You colours, English and Spanish UI.
 
+## Install
+
+Download the latest build on your phone and open it:
+**[upm-mail-debug.apk](https://github.com/pportilla/simple_webmail_upm/releases/download/latest-debug/upm-mail-debug.apk)**
+(see also the [latest-debug release page](https://github.com/pportilla/simple_webmail_upm/releases/tag/latest-debug)).
+Android will ask you to allow your browser to install unknown apps. Requires Android 8.0 or newer.
+Every push rebuilds this APK, and newer builds install over older ones without losing your
+accounts.
+
 ## UPM server settings
 
 | Account | Incoming (IMAP) | Outgoing (SMTP) |
