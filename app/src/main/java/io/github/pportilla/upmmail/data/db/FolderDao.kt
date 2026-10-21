@@ -1,8 +1,10 @@
 package io.github.pportilla.upmmail.data.db
 
+import io.github.pportilla.upmmail.mail.NOT_PERSONAL_ATTRIBUTE
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
 import kotlinx.coroutines.flow.Flow
+import java.util.Locale
 
 /** A folder as reported by the server, with its detected role. */
 data class FolderListEntry(
@@ -68,18 +70,47 @@ class FolderDao internal constructor(private val store: MailStore) {
             .firstOrNull()
 
     /**
+     * The folder's lower-case IMAP attributes as last listed by the server; null if unknown (no
+     * such folder, or not listed since the upgrade that added them).
+     */
+    fun attributesOf(folderId: Long): Set<String>? =
+        sql.query("SELECT attributes FROM folders WHERE id = ?", listOf(folderId)) { parseAttributes(it.string("attributes")) }
+            .firstOrNull()
+
+    /**
+     * Whether a folder of the account has not been listed by the server since the upgrade that
+     * added attributes: until it is, it is not indexed (it may be a virtual or shared folder).
+     */
+    fun hasUnlistedFolders(accountId: Long): Boolean =
+        sql.queryLong("SELECT 1 AS v FROM folders WHERE account_id = ? AND attributes IS NULL LIMIT 1", listOf(accountId)) != null
+
+    /** The folders of the account the header index covers (see [isIndexable]), in drawer order. */
+    fun indexableFolders(accountId: Long): List<Folder> =
+        sql.query("SELECT * FROM folders WHERE account_id = ?", listOf(accountId)) { row ->
+            Triple(map(row), separatorOf(row), parseAttributes(row.string("attributes")))
+        }
+            .filter { (folder, _, attributes) -> isIndexable(folder.role, folder.selectable, attributes) }
+            .map { it.first to it.second }
+            .sortedWith(folderOrder)
+            .map { it.first }
+
+    /**
      * Makes the cached folder list match the server's: new folders are inserted, known ones
      * updated in place (ids stay stable, so selections and pending work survive) and vanished
      * ones deleted together with their messages.
      *
      * When several folders claim the same special role, the one flagged with the SPECIAL-USE
      * attribute (else the shallowest) keeps it and the others become [FolderRole.OTHER].
+     *
+     * A known folder the header index no longer covers (it became Drafts, virtual, shared or
+     * unselectable) loses its index rows and state, so nothing stale of it is found or counted.
      */
     fun applyServerList(accountId: Long, entries: List<FolderListEntry>) = store.tx {
         val resolved = resolveRoles(normaliseDepth(entries.distinctBy { it.fullName }))
         val existing = sql.query("SELECT id, full_name FROM folders WHERE account_id = ?", listOf(accountId)) {
             it.stringOrEmpty("full_name") to it.longOr("id")
         }.toMap()
+        var unindexed = 0
         for (entry in resolved) {
             val values = mapOf(
                 "display_name" to entry.displayName,
@@ -87,10 +118,16 @@ class FolderDao internal constructor(private val store: MailStore) {
                 "role" to entry.role,
                 "depth" to entry.depth,
                 "selectable" to entry.selectable,
+                "attributes" to encodeAttributes(entry.attributes),
             )
             val id = existing[entry.fullName]
             if (id != null) {
                 sql.update(Tables.FOLDERS, values, "id = ?", listOf(id))
+                if (!isIndexable(entry.role, entry.selectable, parseAttributes(encodeAttributes(entry.attributes)))) {
+                    // The trigger removes the full-text rows.
+                    unindexed += sql.delete(Tables.HEADER_INDEX, "folder_id = ?", listOf(id)) +
+                        sql.delete(Tables.HEADER_INDEX_STATE, "folder_id = ?", listOf(id))
+                }
             } else {
                 sql.insert(Tables.FOLDERS, values + mapOf("account_id" to accountId, "full_name" to entry.fullName))
             }
@@ -99,7 +136,8 @@ class FolderDao internal constructor(private val store: MailStore) {
         val vanished = existing.filterKeys { it !in remoteNames }.values
         for (id in vanished) deleteInternal(id)
         store.changed(Tables.FOLDERS)
-        if (vanished.isNotEmpty()) store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
+        if (vanished.isNotEmpty()) store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS, *INDEX_TABLES)
+        if (unindexed > 0) store.changed(*INDEX_TABLES)
     }
 
     /** Inserts a folder unknown to the cache (e.g. created on demand); returns its id. */
@@ -114,6 +152,7 @@ class FolderDao internal constructor(private val store: MailStore) {
                 "role" to entry.role,
                 "depth" to entry.depth,
                 "selectable" to entry.selectable,
+                "attributes" to encodeAttributes(entry.attributes),
             ),
             Conflict.IGNORE,
         )
@@ -123,9 +162,10 @@ class FolderDao internal constructor(private val store: MailStore) {
 
     fun delete(id: Long) = store.tx {
         deleteInternal(id)
-        store.changed(Tables.FOLDERS, Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
+        store.changed(Tables.FOLDERS, Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS, *INDEX_TABLES)
     }
 
+    /** Index rows and state go with the folder through the foreign-key cascade and its trigger. */
     private fun deleteInternal(id: Long) {
         sql.execSQL("DELETE FROM messages_fts WHERE docid IN (SELECT id FROM messages WHERE folder_id = ?)", listOf(id))
         sql.delete(Tables.FOLDERS, "id = ?", listOf(id))
@@ -205,6 +245,34 @@ class FolderDao internal constructor(private val store: MailStore) {
 
     companion object {
         fun roleOf(value: String?): FolderRole = FolderRole.entries.firstOrNull { it.name == value } ?: FolderRole.OTHER
+
+        /**
+         * Attributes of folders the header index leaves out: virtual folders that only repeat
+         * mail kept elsewhere, folders that cannot be selected and folders outside the user's
+         * personal namespace.
+         */
+        val NON_INDEXABLE_ATTRIBUTES = setOf("\\all", "\\flagged", "\\noselect", "\\nonexistent", NOT_PERSONAL_ATTRIBUTE)
+
+        /**
+         * Whether the header index covers a folder. Drafts change too often to be worth it. A
+         * folder whose [attributes] are unknown (null: not listed since the upgrade that added
+         * them) is not covered until the server lists it.
+         */
+        fun isIndexable(role: FolderRole, selectable: Boolean, attributes: Set<String>?): Boolean =
+            attributes != null && selectable && role != FolderRole.DRAFTS && attributes.none { it in NON_INDEXABLE_ATTRIBUTES }
+
+        /** [isIndexable] for a row with the folder's `role`, `selectable` and `attributes` columns. */
+        internal fun isIndexable(row: SqlRow): Boolean =
+            isIndexable(roleOf(row.string("role")), row.bool("selectable"), parseAttributes(row.string("attributes")))
+
+        private val INDEX_TABLES = arrayOf(Tables.HEADER_INDEX, Tables.HEADER_INDEX_FTS, Tables.HEADER_INDEX_STATE)
+
+        internal fun encodeAttributes(attributes: Set<String>): String =
+            attributes.map { it.lowercase(Locale.ROOT) }.distinct().sorted().joinToString(" ")
+
+        /** The attributes stored by [encodeAttributes]; null (unknown) for a folder not listed since they were added. */
+        internal fun parseAttributes(value: String?): Set<String>? =
+            value?.split(' ')?.filterTo(LinkedHashSet()) { it.isNotEmpty() }
 
         private val ROLE_ORDER = listOf(
             FolderRole.INBOX,

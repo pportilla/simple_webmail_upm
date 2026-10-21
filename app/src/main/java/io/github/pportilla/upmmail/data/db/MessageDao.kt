@@ -9,6 +9,8 @@ import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MessageDetail
 import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.SearchFilters
+import io.github.pportilla.upmmail.model.SearchHit
+import io.github.pportilla.upmmail.model.SearchKey
 import kotlinx.coroutines.flow.Flow
 
 /** Identity and state of a cached message, as needed by actions and the sync engine. */
@@ -48,6 +50,9 @@ data class AttachmentLocation(
 /** Result of [MessageDao.applyServerFlags]. */
 data class FlagSyncResult(val updated: Int, val removed: Int)
 
+/** A detached row (outside the sync window): see [MessageDao.extras]. */
+data class ExtraRow(val id: Long, val uid: Long, val detachedAt: Long)
+
 class MessageDao internal constructor(private val store: MailStore) {
     private val sql get() = store.sql
 
@@ -61,6 +66,9 @@ class MessageDao internal constructor(private val store: MailStore) {
      * newest visible message, the number of visible messages, "read" only if all of them are
      * read, starred / with attachments if any of them is. Correlated subqueries rather than
      * window functions, which Android 8's SQLite lacks.
+     *
+     * Detached rows (outside the sync window: kept for search results and opened messages) are
+     * not listed and do not count in the thread aggregates, so the list never shows gaps.
      */
     fun list(folderId: Long, limit: Int, conversations: Boolean): List<MessageSummary> {
         val safeLimit = limit.coerceAtLeast(1)
@@ -68,14 +76,14 @@ class MessageDao internal constructor(private val store: MailStore) {
             return sql.query(
                 """
                 SELECT $SUMMARY_COLUMNS, 1 AS thread_count FROM messages m
-                WHERE m.folder_id = ? AND m.hidden = 0
+                WHERE m.folder_id = ? AND m.hidden = 0 AND m.detached_at IS NULL
                 ORDER BY m.date DESC, m.id DESC LIMIT ?
                 """.trimIndent(),
                 listOf(folderId, safeLimit),
                 ::mapSummary,
             )
         }
-        val sameThread = "t.folder_id = m.folder_id AND t.thread_id = m.thread_id AND t.hidden = 0"
+        val sameThread = "t.folder_id = m.folder_id AND t.thread_id = m.thread_id AND t.hidden = 0 AND t.detached_at IS NULL"
         return sql.query(
             """
             SELECT $SUMMARY_COLUMNS,
@@ -84,7 +92,7 @@ class MessageDao internal constructor(private val store: MailStore) {
                 (SELECT MAX(t.is_starred) FROM messages t WHERE $sameThread) AS thread_starred,
                 (SELECT MAX(t.has_attachments) FROM messages t WHERE $sameThread) AS thread_attachments
             FROM messages m
-            WHERE m.folder_id = ? AND m.hidden = 0
+            WHERE m.folder_id = ? AND m.hidden = 0 AND m.detached_at IS NULL
                 AND m.id = (
                     SELECT t.id FROM messages t WHERE $sameThread
                     ORDER BY t.date DESC, t.id DESC LIMIT 1
@@ -189,7 +197,7 @@ class MessageDao internal constructor(private val store: MailStore) {
             ::mapRef,
         ).firstOrNull()
 
-    /** Every visible message sharing folder and thread with one of [ids] (the ids included). */
+    /** Every listed message sharing folder and thread with one of [ids] (the ids included). */
     fun expandToThreads(ids: Collection<Long>): List<Long> {
         if (ids.isEmpty()) return emptyList()
         val result = LinkedHashSet<Long>(ids)
@@ -197,7 +205,7 @@ class MessageDao internal constructor(private val store: MailStore) {
             sql.query(
                 """
                 SELECT t.id AS id FROM messages t JOIN messages m ON t.folder_id = m.folder_id AND t.thread_id = m.thread_id
-                WHERE m.id IN (${placeholders(chunk.size)}) AND t.hidden = 0
+                WHERE m.id IN (${placeholders(chunk.size)}) AND t.hidden = 0 AND t.detached_at IS NULL
                 """.trimIndent(),
                 chunk,
             ) { it.longOr("id") }.forEach { result += it }
@@ -220,12 +228,12 @@ class MessageDao internal constructor(private val store: MailStore) {
             it.longOr("uid")
         }
 
-    /** Newest messages of the folder whose body is not cached and that are smaller than [maxSize]. */
+    /** Newest listed messages of the folder whose body is not cached and that are smaller than [maxSize]. */
     fun needingBody(folderId: Long, limit: Int, maxSize: Long): List<MessageRef> =
         sql.query(
             """
             SELECT $REF_COLUMNS FROM messages
-            WHERE folder_id = ? AND body_loaded = 0 AND hidden = 0 AND size < ?
+            WHERE folder_id = ? AND body_loaded = 0 AND hidden = 0 AND detached_at IS NULL AND size < ?
             ORDER BY date DESC, id DESC LIMIT ?
             """.trimIndent(),
             listOf(folderId, maxSize, limit),
@@ -239,6 +247,11 @@ class MessageDao internal constructor(private val store: MailStore) {
      * [protectedUids], which have local changes waiting to be pushed). Messages marked \Deleted
      * are skipped. New messages feed the contact history unless [feedContacts] is false.
      *
+     * [detachedAt] null stores the messages as part of the sync window: new rows are listed and
+     * known detached rows (protected ones too) are attached again. Otherwise new rows are
+     * detached at that time and known detached rows get it as their last use; rows inside the
+     * window are never detached here.
+     *
      * Returns the local ids of the newly inserted messages.
      */
     fun upsertHeaders(
@@ -248,11 +261,12 @@ class MessageDao internal constructor(private val store: MailStore) {
         protectedUids: Set<Long> = emptySet(),
         feedContacts: Boolean = true,
         ownAddresses: Set<String> = emptySet(),
+        detachedAt: Long? = null,
     ): List<Long> = store.tx {
         val inserted = ArrayList<Long>()
         for (message in messages) {
             if (message.flags.deleted) continue
-            val values = headerValues(accountId, folderId, message)
+            val values = headerValues(accountId, folderId, message) + ("detached_at" to detachedAt)
             val id = sql.insert(Tables.MESSAGES, values, Conflict.IGNORE)
             if (id > 0) {
                 inserted += id
@@ -261,8 +275,12 @@ class MessageDao internal constructor(private val store: MailStore) {
                     val people = listOfNotNull(message.from) + message.to + message.cc
                     store.contacts.recordSeen(people, values["date"] as Long, ownAddresses)
                 }
-            } else if (message.uid !in protectedUids) {
-                writeFlags(folderId, message.uid, message.flags)
+            } else {
+                sql.executeUpdateDelete(
+                    "UPDATE messages SET detached_at = ? WHERE folder_id = ? AND uid = ? AND detached_at IS NOT NULL",
+                    listOf(detachedAt, folderId, message.uid),
+                )
+                if (message.uid !in protectedUids) writeFlags(folderId, message.uid, message.flags)
             }
         }
         store.changed(Tables.MESSAGES, Tables.MESSAGES_FTS)
@@ -296,6 +314,36 @@ class MessageDao internal constructor(private val store: MailStore) {
             listOf(folderId, range.first, range.last),
             ::mapRef,
         )
+        reconcileWithServer(folderId, cached, serverFlags, protectedUids)
+    }
+
+    /**
+     * [applyServerFlags] for the rows of [uids] only (detached rows, whose flags are fetched for
+     * exactly their uids): rows absent from [serverFlags] or marked \Deleted are removed, the
+     * others get the server flags unless their uid is in [protectedUids].
+     */
+    fun applyServerFlagsFor(
+        folderId: Long,
+        uids: Collection<Long>,
+        serverFlags: Map<Long, RemoteFlags>,
+        protectedUids: Set<Long>,
+    ): FlagSyncResult = store.tx {
+        val cached = uids.distinct().chunked(IN_CHUNK).flatMap { chunk ->
+            sql.query(
+                "SELECT $REF_COLUMNS FROM messages WHERE folder_id = ? AND uid IN (${placeholders(chunk.size)})",
+                listOf<Any?>(folderId) + chunk,
+                ::mapRef,
+            )
+        }
+        reconcileWithServer(folderId, cached, serverFlags, protectedUids)
+    }
+
+    private fun reconcileWithServer(
+        folderId: Long,
+        cached: List<MessageRef>,
+        serverFlags: Map<Long, RemoteFlags>,
+        protectedUids: Set<Long>,
+    ): FlagSyncResult {
         var updated = 0
         val toDelete = ArrayList<Long>()
         for (row in cached) {
@@ -310,7 +358,7 @@ class MessageDao internal constructor(private val store: MailStore) {
         deleteIdsInternal(toDelete)
         if (updated > 0 || toDelete.isNotEmpty()) store.changed(Tables.MESSAGES)
         if (toDelete.isNotEmpty()) store.changed(Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
-        FlagSyncResult(updated, toDelete.size)
+        return FlagSyncResult(updated, toDelete.size)
     }
 
     private fun MessageRef.differsFrom(flags: RemoteFlags): Boolean =
@@ -324,11 +372,15 @@ class MessageDao internal constructor(private val store: MailStore) {
         store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
     }
 
-    /** Deletes the visible rows of a folder except [keepUids] (window reset after a long gap). */
-    fun deleteVisibleExcept(folderId: Long, keepUids: Set<Long>): Int = store.tx {
-        val ids = sql.query("SELECT id, uid FROM messages WHERE folder_id = ? AND hidden = 0", listOf(folderId)) {
-            it.longOr("id") to it.longOr("uid")
-        }.filter { it.second !in keepUids }.map { it.first }
+    /**
+     * Deletes the visible rows of a folder except [keepUids] (window reset after a long gap) and
+     * detached rows used at [spareDetachedSince] or later (a search result or message still open).
+     */
+    fun deleteVisibleExcept(folderId: Long, keepUids: Set<Long>, spareDetachedSince: Long = Long.MAX_VALUE): Int = store.tx {
+        val ids = sql.query("SELECT id, uid, detached_at FROM messages WHERE folder_id = ? AND hidden = 0", listOf(folderId)) { row ->
+            val spared = row.long("detached_at")?.let { it >= spareDetachedSince } ?: false
+            if (spared || row.longOr("uid") in keepUids) null else row.longOr("id")
+        }.filterNotNull()
         deleteIdsInternal(ids)
         store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
         ids.size
@@ -351,6 +403,61 @@ class MessageDao internal constructor(private val store: MailStore) {
     fun deleteIds(ids: Collection<Long>) = store.tx {
         deleteIdsInternal(ids)
         store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
+    }
+
+    // ---------------------------------------------------------------- detached rows
+
+    /**
+     * Detaches, as used at [at], the listed rows of the folder outside [start]..[end] (its new
+     * sync window). Returns how many were detached.
+     */
+    fun detachOutsideWindow(folderId: Long, start: Long, end: Long, at: Long): Int = store.tx {
+        val count = sql.executeUpdateDelete(
+            "UPDATE messages SET detached_at = ? WHERE folder_id = ? AND detached_at IS NULL AND (uid < ? OR uid > ?)",
+            listOf(at, folderId, start, end),
+        )
+        if (count > 0) store.changed(Tables.MESSAGES)
+        count
+    }
+
+    /** The detached rows of the folder (hidden ones included), by uid. */
+    fun extras(folderId: Long): List<ExtraRow> =
+        sql.query(
+            "SELECT id, uid, detached_at FROM messages WHERE folder_id = ? AND detached_at IS NOT NULL ORDER BY uid",
+            listOf(folderId),
+        ) { ExtraRow(it.longOr("id"), it.longOr("uid"), it.longOr("detached_at")) }
+
+    /**
+     * Least-recently-used eviction of the folder's detached rows. In the order of their last use,
+     * then uid, every row but the last [keep] is deleted, except rows in [protectedUids] and rows
+     * used at [spareSince] or later. Returns how many were deleted.
+     */
+    fun evictExtras(folderId: Long, keep: Int, spareSince: Long, protectedUids: ProtectedUids): Int = store.tx {
+        val rows = sql.query(
+            "SELECT id, uid, detached_at FROM messages WHERE folder_id = ? AND detached_at IS NOT NULL ORDER BY detached_at, uid",
+            listOf(folderId),
+        ) { ExtraRow(it.longOr("id"), it.longOr("uid"), it.longOr("detached_at")) }
+        val ids = rows.dropLast(keep.coerceAtLeast(0))
+            .filter { it.detachedAt < spareSince && it.uid !in protectedUids }
+            .map { it.id }
+        if (ids.isNotEmpty()) {
+            deleteIdsInternal(ids)
+            store.changed(Tables.MESSAGES, Tables.ATTACHMENTS, Tables.MESSAGES_FTS)
+        }
+        ids.size
+    }
+
+    /**
+     * Marks the detached rows of [messageId]'s thread (in its account) as used at [at], so that
+     * eviction spares an open conversation. Nothing listed changes, so observers are not
+     * notified. Returns how many rows were touched.
+     */
+    fun touchDetachedThread(messageId: Long, at: Long): Int {
+        val ref = ref(messageId) ?: return 0
+        return sql.executeUpdateDelete(
+            "UPDATE messages SET detached_at = ? WHERE account_id = ? AND thread_id = ? AND detached_at IS NOT NULL",
+            listOf(at, ref.accountId, ref.threadId),
+        )
     }
 
     private fun deleteIdsInternal(ids: Collection<Long>) {
@@ -544,7 +651,11 @@ class MessageDao internal constructor(private val store: MailStore) {
      * see [SearchText.matchExpression]. Without a folder filter, Trash and Junk are left out and
      * copies of one message in several folders are returned once.
      */
-    fun search(query: String, filters: SearchFilters, limit: Int): List<MessageSummary> {
+    fun search(query: String, filters: SearchFilters, limit: Int): List<MessageSummary> =
+        searchHits(query, filters, limit).map { it.message }
+
+    /** [search] as search hits, which carry the Message-ID used to merge them with other sources. */
+    fun searchHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit.Cached> {
         val match = SearchText.matchExpression(query) ?: return emptyList()
         val where = StringBuilder("m.id IN (SELECT docid FROM messages_fts WHERE messages_fts MATCH ?) AND m.hidden = 0")
         val args = mutableListOf<Any?>(match)
@@ -567,11 +678,45 @@ class MessageDao internal constructor(private val store: MailStore) {
             ORDER BY m.date DESC, m.id DESC LIMIT ?
             """.trimIndent(),
             args,
-        ) { row -> row.string("mid")?.lowercase() to mapSummary(row) }
+        ) { row -> SearchHit.Cached(mapSummary(row), row.string("mid")) }
         val seen = HashSet<String>()
-        return rows.filter { (mid, _) -> mid == null || seen.add(mid) }
-            .map { it.second }
+        return rows.filter { hit -> hit.messageIdHeader?.lowercase()?.let { seen.add(it) } ?: true }
             .take(limit.coerceAtLeast(1))
+    }
+
+    /** The rows of [uids] in the folder as search hits, newest first; hidden rows are left out. */
+    fun cachedHits(folderId: Long, uids: Collection<Long>): List<SearchHit.Cached> {
+        val hits = uids.distinct().chunked(IN_CHUNK).flatMap { chunk ->
+            sql.query(
+                """
+                SELECT $SUMMARY_COLUMNS, m.message_id_header AS mid, 1 AS thread_count FROM messages m
+                WHERE m.folder_id = ? AND m.hidden = 0 AND m.uid IN (${placeholders(chunk.size)})
+                """.trimIndent(),
+                listOf<Any?>(folderId) + chunk,
+            ) { row -> SearchHit.Cached(mapSummary(row), row.string("mid")) }
+        }
+        return hits.sortedWith(compareByDescending<SearchHit.Cached> { it.date }.thenByDescending { it.message.id })
+    }
+
+    /** The [keys] that have a row here, hidden rows included. */
+    fun existingKeys(keys: Collection<SearchKey>): Set<SearchKey> {
+        val result = HashSet<SearchKey>()
+        for ((folderId, uids) in keys.groupBy({ it.folderId }, { it.uid })) {
+            existingUids(folderId, uids).mapTo(result) { SearchKey(folderId, it) }
+        }
+        return result
+    }
+
+    /** The [uids] of the folder that have a row here, hidden rows included. */
+    fun existingUids(folderId: Long, uids: Collection<Long>): Set<Long> {
+        val result = HashSet<Long>()
+        for (chunk in uids.distinct().chunked(IN_CHUNK)) {
+            sql.query(
+                "SELECT uid FROM messages WHERE folder_id = ? AND uid IN (${placeholders(chunk.size)})",
+                listOf<Any?>(folderId) + chunk,
+            ) { it.longOr("uid") }.forEach { result += it }
+        }
+        return result
     }
 
     // ---------------------------------------------------------------- mapping

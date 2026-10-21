@@ -187,6 +187,18 @@ abstract class SyncTestBase {
         folder.appendMessages(messages.toTypedArray<Message>())
     }
 
+    /**
+     * Stores [messages] in a server folder (created if needed) straight through GreenMail's
+     * store rather than IMAP APPEND, which takes tens of seconds for thousands of messages.
+     * Their arrival time is their Date header.
+     */
+    protected fun storeOnServer(folderName: String, messages: List<MimeMessage>, user: String = "ana") {
+        val owner = greenMail.userManager.getUser(user)
+        val manager = greenMail.managers.imapHostManager
+        val folder = manager.getFolder(owner, folderName) ?: manager.createMailbox(owner, folderName)
+        for (message in messages) folder.appendMessage(message, Flags(), message.sentDate ?: Date())
+    }
+
     /** Messages of a server folder as (subject, flags), in uid order. */
     protected fun serverMessages(folderName: String, user: String = "ana"): List<Pair<String, Flags>> = withServer(user) { server ->
         val folder = server.getFolder(folderName)

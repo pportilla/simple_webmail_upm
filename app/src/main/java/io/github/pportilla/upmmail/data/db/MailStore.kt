@@ -23,6 +23,7 @@ class MailStore(
     val outbox = OutboxDao(this)
     val drafts = DraftDao(this)
     val recentSearches = RecentSearchDao(this)
+    val headerIndex = HeaderIndexDao(this)
 
     fun now(): Long = clock()
 

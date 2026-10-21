@@ -146,10 +146,41 @@
     <string name="search_empty_title">Search your mail</string>
     <string name="search_empty_body">Find messages by sender, recipient, subject or text.</string>
     <string name="search_no_local_title">No matches on this device</string>
-    <string name="search_no_local_body">Only downloaded messages are searched instantly. Try searching on the server.</string>
+    <string name="search_no_local_body">Nothing found on this device. The server search below can also look inside message text.</string>
     <string name="search_on_server">Search on server</string>
     <string name="search_on_server_hint">Looks in %1$s on the UPM mail server</string>
-    <string name="search_server_running">Searching %1$s on the server…</string>
+    <string name="search_on_server_hint_all">Looks in all your folders on the UPM mail server</string>
     <string name="search_from_server">From server</string>
     <string name="search_server_nothing_more">No other messages found in %1$s on the server.</string>
+    <string name="search_server_nothing_more_all">No other messages found on the server.</string>
+    <string name="search_server_starting">Searching on the server…</string>
+    <string name="search_server_headers_progress">Searching subjects and senders in %1$s… (%2$d of %3$d)</string>
+    <string name="search_server_text_preparing">Getting ready to search message text in %1$s…</string>
+    <string name="search_server_text_progress">Searching message text in %1$s… (%2$d of %3$d)</string>
+    <string name="search_server_snippets_progress">Loading previews…</string>
+    <string name="search_server_stop">Stop</string>
+    <string name="search_server_stopped">Search stopped.</string>
+    <string name="search_server_search_text">Search message text</string>
+    <string name="search_server_search_text_hint">Slower: looks inside every message on the UPM server.</string>
+    <string name="search_server_headers_done">Subjects, senders and recipients checked on the server.</string>
+    <plurals name="search_server_skipped">
+        <item quantity="one">%1$d part of the search took too long and was skipped.</item>
+        <item quantity="other">%1$d parts of the search took too long and were skipped.</item>
+    </plurals>
+    <plurals name="search_server_failed">
+        <item quantity="one">%1$d part of the search failed on the server.</item>
+        <item quantity="other">%1$d parts of the search failed on the server.</item>
+    </plurals>
+    <string name="search_server_charset_failed">The server cannot search for words with accents or special letters.</string>
+    <string name="search_server_truncated">Showing the first %1$d matches. Add more words to narrow the search.</string>
+    <string name="search_server_bins">Also search Trash and Spam</string>
+    <string name="search_index_progress">%1$s of %2$s messages indexed on this device</string>
+    <string name="search_index_running">Indexing your mail… %1$s of %2$s</string>
+    <string name="search_index_now">Index now</string>
+    <string name="search_index_confirm_title">Index all mail now?</string>
+    <string name="search_index_confirm_body">You are on mobile data. Indexing downloads about %1$s of message headers (no message text or attachments).</string>
+    <string name="search_hit_gone">This message is no longer on the server.</string>
+    <string name="search_hit_pending">This message is being moved or deleted.</string>
+    <string name="search_hit_opening">Downloading message</string>
+    <string name="search_flags_approximate">Read and star marks of messages not downloaded yet may be out of date.</string>
 </resources>

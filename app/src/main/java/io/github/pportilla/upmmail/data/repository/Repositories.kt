@@ -7,12 +7,18 @@ import io.github.pportilla.upmmail.model.ContactSuggestion
 import io.github.pportilla.upmmail.model.Draft
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.HitOpenResult
+import io.github.pportilla.upmmail.model.IndexStatus
 import io.github.pportilla.upmmail.model.MessageDetail
 import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.OutboxItem
 import io.github.pportilla.upmmail.model.OutgoingAttachment
 import io.github.pportilla.upmmail.model.SearchFilters
+import io.github.pportilla.upmmail.model.SearchHit
+import io.github.pportilla.upmmail.model.ServerSearchProgress
+import io.github.pportilla.upmmail.model.ServerSearchRequest
 import io.github.pportilla.upmmail.model.ServerSettings
+import io.github.pportilla.upmmail.model.mergeHits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -84,6 +90,8 @@ interface MailRepository {
     /**
      * Every cached message of the thread [messageId] belongs to, oldest first, across the
      * account's folders. Trash and Junk copies are excluded unless [messageId] itself lives there.
+     * While it is collected, messages of the thread downloaded from search results (outside the
+     * folders' lists) are kept in the cache.
      */
     fun observeThread(messageId: Long): Flow<List<MessageDetail>>
 
@@ -135,10 +143,33 @@ interface MailRepository {
     suspend fun searchLocal(query: String, filters: SearchFilters, limit: Int = 200): List<MessageSummary>
 
     /**
-     * Server-side IMAP SEARCH (subject, from, to and body) in [folderId], or in the INBOX when
-     * null. Matches are added to the local cache and returned newest first.
+     * Instant search on the device: the local cache (as [searchLocal]) and the header index
+     * (subject and people of messages not downloaded), merged with [mergeHits], newest first.
      */
-    suspend fun searchServer(query: String, accountId: Long, folderId: Long?, limit: Int = 50): Result<List<MessageSummary>>
+    suspend fun searchLocalHits(query: String, filters: SearchFilters, limit: Int = 200): List<SearchHit>
+
+    /**
+     * Progressive search on the server (see [ServerSearchRequest]): the progress after every
+     * step, ending with one whose [ServerSearchProgress.finished] is set. Failures are emitted,
+     * never thrown. Cold; cancelling the collection stops the search and its connection.
+     */
+    fun searchServerProgress(request: ServerSearchRequest): Flow<ServerSearchProgress>
+
+    /**
+     * Makes [hit] openable: a cached message as it is; one known only from the header index is
+     * downloaded first (it does not appear in the folder's list).
+     */
+    suspend fun openSearchHit(hit: SearchHit): Result<HitOpenResult>
+
+    /** Header index coverage per account, in account order; [IndexStatus.running] while it is being built. */
+    fun observeIndexStatus(): Flow<List<IndexStatus>>
+
+    /**
+     * Builds the header index of every account now, in the background ("Index now"). Unless
+     * [allowMetered] (the user agreed to use mobile data), it stops if the device moves to a
+     * metered network.
+     */
+    fun startIndexingNow(allowMetered: Boolean)
 
     suspend fun recentSearches(): List<String>
 

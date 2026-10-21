@@ -157,10 +157,41 @@
     <string name="search_empty_title">Busca en tu correo</string>
     <string name="search_empty_body">Encuentra mensajes por remitente, destinatario, asunto o texto.</string>
     <string name="search_no_local_title">Sin resultados en este dispositivo</string>
-    <string name="search_no_local_body">La búsqueda instantánea solo incluye los mensajes descargados. Prueba a buscar en el servidor.</string>
+    <string name="search_no_local_body">No se ha encontrado nada en este dispositivo. La búsqueda en el servidor también puede mirar dentro del texto de los mensajes.</string>
     <string name="search_on_server">Buscar en el servidor</string>
     <string name="search_on_server_hint">Busca en %1$s en el servidor de correo de la UPM</string>
-    <string name="search_server_running">Buscando en %1$s en el servidor…</string>
+    <string name="search_on_server_hint_all">Busca en todas tus carpetas del servidor de correo de la UPM</string>
     <string name="search_from_server">Del servidor</string>
     <string name="search_server_nothing_more">No se han encontrado más mensajes en %1$s en el servidor.</string>
+    <string name="search_server_nothing_more_all">No se han encontrado más mensajes en el servidor.</string>
+    <string name="search_server_starting">Buscando en el servidor…</string>
+    <string name="search_server_headers_progress">Buscando en asuntos y remitentes de %1$s… (%2$d de %3$d)</string>
+    <string name="search_server_text_preparing">Preparando la búsqueda en el texto de los mensajes de %1$s…</string>
+    <string name="search_server_text_progress">Buscando en el texto de los mensajes de %1$s… (%2$d de %3$d)</string>
+    <string name="search_server_snippets_progress">Cargando vistas previas…</string>
+    <string name="search_server_stop">Detener</string>
+    <string name="search_server_stopped">Búsqueda detenida.</string>
+    <string name="search_server_search_text">Buscar en el texto de los mensajes</string>
+    <string name="search_server_search_text_hint">Más lento: busca dentro de cada mensaje en el servidor de la UPM.</string>
+    <string name="search_server_headers_done">Asuntos, remitentes y destinatarios revisados en el servidor.</string>
+    <plurals name="search_server_skipped">
+        <item quantity="one">%1$d parte de la búsqueda tardó demasiado y se ha omitido.</item>
+        <item quantity="other">%1$d partes de la búsqueda tardaron demasiado y se han omitido.</item>
+    </plurals>
+    <plurals name="search_server_failed">
+        <item quantity="one">%1$d parte de la búsqueda falló en el servidor.</item>
+        <item quantity="other">%1$d partes de la búsqueda fallaron en el servidor.</item>
+    </plurals>
+    <string name="search_server_charset_failed">El servidor no puede buscar palabras con tildes o letras especiales.</string>
+    <string name="search_server_truncated">Se muestran los primeros %1$d resultados. Añade más palabras para afinar la búsqueda.</string>
+    <string name="search_server_bins">Buscar también en la papelera y en spam</string>
+    <string name="search_index_progress">%1$s de %2$s mensajes indexados en este dispositivo</string>
+    <string name="search_index_running">Indexando tu correo… %1$s de %2$s</string>
+    <string name="search_index_now">Indexar ahora</string>
+    <string name="search_index_confirm_title">¿Indexar todo el correo ahora?</string>
+    <string name="search_index_confirm_body">Estás usando datos móviles. La indexación descarga unos %1$s de cabeceras de mensajes (sin texto ni adjuntos).</string>
+    <string name="search_hit_gone">Este mensaje ya no está en el servidor.</string>
+    <string name="search_hit_pending">Este mensaje se está moviendo o eliminando.</string>
+    <string name="search_hit_opening">Descargando mensaje</string>
+    <string name="search_flags_approximate">Las marcas de leído y destacado de los mensajes aún no descargados pueden no estar actualizadas.</string>
 </resources>

@@ -1,5 +1,8 @@
 package io.github.pportilla.upmmail.ui.search
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -26,11 +30,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ManageSearch
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.CloudQueue
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderCopy
 import androidx.compose.material.icons.outlined.History
@@ -39,6 +45,7 @@ import androidx.compose.material.icons.outlined.NorthWest
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -65,6 +72,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,11 +80,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -88,20 +101,25 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.pportilla.upmmail.R
-import io.github.pportilla.upmmail.model.MessageSummary
+import io.github.pportilla.upmmail.model.SearchHit
+import io.github.pportilla.upmmail.model.SearchPhase
+import io.github.pportilla.upmmail.model.ServerSearchProgress
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
+import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.components.errorMessage
 import io.github.pportilla.upmmail.ui.components.folderDisplayName
 import io.github.pportilla.upmmail.ui.components.folderIcon
+import io.github.pportilla.upmmail.ui.components.formatFileSize
 import io.github.pportilla.upmmail.ui.mailbox.MailboxEmptyState
 import io.github.pportilla.upmmail.ui.mailbox.MessageListItem
 import io.github.pportilla.upmmail.ui.mailbox.showsRecipients
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 
 /**
- * Mail search: instant results from the local cache while typing, flag filters, a folder
- * scope and an explicit search on the server. With an empty query it shows recent searches.
+ * Mail search: instant results from this device while typing (the cache and the header index),
+ * flag filters, a folder scope and a progressive search on the server below them, with its
+ * progress and a Stop button. With an empty query it shows recent searches.
  *
  * @param accountId account to search, null for every account.
  * @param folderId folder the search was opened from, offered as the "This folder" scope.
@@ -111,6 +129,9 @@ fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
     val container = appContainer()
     val viewModel = viewModel { SearchViewModel(container, accountId, folderId) }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbar = LocalAppSnackbar.current
+    val currentNavigator by rememberUpdatedState(navigator)
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
@@ -126,6 +147,37 @@ fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
+
+    LaunchedEffect(viewModel, snackbar) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is SearchEvent.OpenMessage -> currentNavigator.openMessage(event.messageId)
+                is SearchEvent.Info -> snackbar.show(context.getString(event.message))
+                is SearchEvent.Error -> snackbar.show(context.errorMessage(event.error))
+            }
+        }
+    }
+
+    // "Index now" on mobile data asks first.
+    var confirmIndexBytes by rememberSaveable { mutableStateOf<Long?>(null) }
+    confirmIndexBytes?.let { bytes ->
+        AlertDialog(
+            onDismissRequest = { confirmIndexBytes = null },
+            title = { Text(stringResource(R.string.search_index_confirm_title)) },
+            text = { Text(stringResource(R.string.search_index_confirm_body, formatFileSize(bytes))) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmIndexBytes = null
+                        viewModel.indexNow(allowMetered = true)
+                    },
+                ) { Text(stringResource(R.string.search_index_now)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmIndexBytes = null }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
 
     // Results of a different query start at the top; coming back from a result keeps the position.
     var shownResultsQuery by rememberSaveable { mutableStateOf("") }
@@ -195,14 +247,32 @@ fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
                 SearchResults(
                     state = state,
                     listState = resultsState,
-                    onOpen = { message ->
-                        viewModel.onResultOpened()
-                        navigator.openMessage(message.id)
+                    onOpen = { hit ->
+                        when (hit) {
+                            is SearchHit.Cached -> {
+                                viewModel.onCachedResultOpened()
+                                navigator.openMessage(hit.message.id)
+                            }
+                            is SearchHit.Indexed -> viewModel.openIndexedHit(hit)
+                        }
                     },
-                    onSearchServer = {
-                        hideKeyboard()
-                        viewModel.searchOnServer()
-                    },
+                    actions = ServerActions(
+                        searchHeaders = {
+                            hideKeyboard()
+                            viewModel.searchServerHeaders()
+                        },
+                        searchText = {
+                            hideKeyboard()
+                            viewModel.searchServerText()
+                        },
+                        searchBins = viewModel::searchServerBins,
+                        stop = viewModel::stopServerSearch,
+                        retry = viewModel::retryServerSearch,
+                        indexNow = {
+                            val remaining = state.index?.remainingBytes ?: 0L
+                            if (context.isOnMeteredNetwork()) confirmIndexBytes = remaining else viewModel.indexNow(allowMetered = false)
+                        },
+                    ),
                 )
                 if (state.searching) {
                     LinearProgressIndicator(
@@ -288,6 +358,14 @@ private fun SearchTopBar(
                 onAttachmentsChange = onAttachmentsChange,
                 onScopeChange = onScopeChange,
             )
+            if (state.approximateFlags) {
+                Text(
+                    text = stringResource(R.string.search_flags_approximate),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider()
         }
     }
@@ -454,12 +532,22 @@ private fun RecentSearches(
     }
 }
 
+/** What the server part of the results can ask for. */
+private class ServerActions(
+    val searchHeaders: () -> Unit,
+    val searchText: () -> Unit,
+    val searchBins: () -> Unit,
+    val stop: () -> Unit,
+    val retry: () -> Unit,
+    val indexNow: () -> Unit,
+)
+
 @Composable
 private fun SearchResults(
     state: SearchUiState,
     listState: LazyListState,
-    onOpen: (MessageSummary) -> Unit,
-    onSearchServer: () -> Unit,
+    onOpen: (SearchHit) -> Unit,
+    actions: ServerActions,
 ) {
     val noLocalMatches = !state.searching && state.localResults.isEmpty() && state.resultsQuery.isNotEmpty()
     LazyColumn(
@@ -477,111 +565,253 @@ private fun SearchResults(
                 )
             }
         }
-        items(state.localResults, key = { "local-${it.id}" }, contentType = { "message" }) { message ->
-            SearchResultRow(message, state, onOpen)
+        items(state.localResults, key = { hitKey(SECTION_LOCAL, it.key) }, contentType = { "message" }) { hit ->
+            SearchResultRow(hit, state, onOpen)
         }
-        if (state.resultsQuery.isNotEmpty() || state.server !is ServerSearchState.Idle) {
+        if (state.resultsQuery.isNotEmpty() || state.server != null) {
             item(key = "server", contentType = "server") {
-                ServerSection(state = state, onSearchServer = onSearchServer)
+                ServerSection(state = state, actions = actions)
             }
         }
-        items(state.serverResults, key = { "server-${it.id}" }, contentType = { "message" }) { message ->
-            SearchResultRow(message, state, onOpen)
+        items(state.serverResults, key = { hitKey(SECTION_SERVER, it.key) }, contentType = { "message" }) { hit ->
+            SearchResultRow(hit, state, onOpen)
+        }
+        state.server?.let { server ->
+            item(key = "server-footer", contentType = "server-footer") {
+                ServerFooter(server = server, state = state, actions = actions)
+            }
+        }
+        state.index?.let { index ->
+            item(key = "index", contentType = "index") {
+                IndexStatusRow(index = index, onIndexNow = actions.indexNow)
+            }
         }
     }
 }
 
 @Composable
-private fun SearchResultRow(message: MessageSummary, state: SearchUiState, onOpen: (MessageSummary) -> Unit) {
-    val folder = state.folders[message.folderId]
-    MessageListItem(
-        message = message,
-        onClick = { onOpen(message) },
-        showRecipients = showsRecipients(folder?.role),
-        showSnippet = state.showSnippets,
-        ownAddress = state.accountAddresses[message.accountId],
-        highlightQuery = state.resultsQuery,
-        folderLabel = if (!state.filters.thisFolderOnly && folder != null) folderDisplayName(folder) else null,
-    )
+private fun SearchResultRow(hit: SearchHit, state: SearchUiState, onOpen: (SearchHit) -> Unit) {
+    val folder = state.folders[hit.key.folderId]
+    val opening = hit.key == state.openingKey
+    Column(Modifier.fillMaxWidth()) {
+        MessageListItem(
+            message = hit.display,
+            // While it downloads, the row does nothing more.
+            onClick = { if (!opening) onOpen(hit) },
+            showRecipients = showsRecipients(folder?.role),
+            showSnippet = state.showSnippets,
+            ownAddress = state.accountAddresses[hit.accountId],
+            highlightQuery = state.resultsQuery,
+            folderLabel = if (!state.filters.thisFolderOnly && folder != null) folderDisplayName(folder) else null,
+        )
+        if (opening) {
+            val label = stringResource(R.string.search_hit_opening)
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .semantics { contentDescription = label },
+            )
+        }
+    }
 }
 
+/** Header of the server part: the button that starts it, its progress, or how it ended. */
 @Composable
-private fun ServerSection(state: SearchUiState, onSearchServer: () -> Unit) {
+private fun ServerSection(state: SearchUiState, actions: ServerActions) {
     val server = state.server
-    val current = state.resultsQuery
-    val serverFolderName = state.serverFolder?.let { folderDisplayName(it) } ?: stringResource(R.string.folder_inbox)
     Column(Modifier.fillMaxWidth()) {
+        if (server == null) {
+            ServerButton(
+                label = stringResource(R.string.search_on_server),
+                icon = Icons.Outlined.CloudQueue,
+                hint = state.serverFolder?.let { stringResource(R.string.search_on_server_hint, folderDisplayName(it)) }
+                    ?: stringResource(R.string.search_on_server_hint_all),
+                enabled = state.resultsQuery.isNotEmpty(),
+                onClick = actions.searchHeaders,
+            )
+            return@Column
+        }
+        LabeledDivider(stringResource(R.string.search_from_server))
+        val error = server.error
         when {
-            server is ServerSearchState.Running && server.query == current -> Row(
+            server.running -> ServerProgressRow(progress = server.progress, onStop = actions.stop)
+            error != null -> Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = stringResource(R.string.search_server_running, serverFolderName),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            server is ServerSearchState.Failed && server.query == current -> Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = LocalContext.current.errorMessage(server.error),
+                        text = LocalContext.current.errorMessage(error),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                TextButton(onClick = onSearchServer) { Text(stringResource(R.string.action_retry)) }
+                if (server.canRetry) TextButton(onClick = actions.retry) { Text(stringResource(R.string.action_retry)) }
             }
+            server.stopped -> NoteText(stringResource(R.string.search_server_stopped))
+        }
+    }
+}
 
-            server is ServerSearchState.Done && server.query == current -> {
-                LabeledDivider(stringResource(R.string.search_from_server))
-                if (state.serverResults.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.search_server_nothing_more, serverFolderName),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+/** Spinner, what is being searched now and a Stop button. */
+@Composable
+private fun ServerProgressRow(progress: ServerSearchProgress?, onStop: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = progressText(progress),
+            modifier = Modifier
+                .weight(1f)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = onStop) { Text(stringResource(R.string.search_server_stop)) }
+    }
+}
+
+@Composable
+private fun progressText(progress: ServerSearchProgress?): String {
+    val folderName = progress?.folder?.let { folderDisplayName(it) }
+    return when {
+        progress?.phase == SearchPhase.SNIPPETS -> stringResource(R.string.search_server_snippets_progress)
+        progress == null || folderName == null -> stringResource(R.string.search_server_starting)
+        progress.phase == SearchPhase.TEXT && progress.totalSteps <= 0 ->
+            stringResource(R.string.search_server_text_preparing, folderName)
+        progress.phase == SearchPhase.TEXT ->
+            stringResource(R.string.search_server_text_progress, folderName, progress.step, progress.totalSteps)
+        progress.totalSteps <= 0 -> stringResource(R.string.search_server_starting)
+        else -> stringResource(R.string.search_server_headers_progress, folderName, progress.step, progress.totalSteps)
+    }
+}
+
+/** After the server matches: notes on what the search could not cover, and what can be searched next. */
+@Composable
+private fun ServerFooter(server: ServerSession, state: SearchUiState, actions: ServerActions) {
+    val problems = server.allProblems
+    val finished = !server.running && server.error == null
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (finished) {
+            val skipped = skippedParts(problems)
+            val failed = failedParts(problems)
+            if (skipped > 0) NoteText(pluralStringResource(R.plurals.search_server_skipped, skipped, skipped))
+            if (failed > 0) NoteText(pluralStringResource(R.plurals.search_server_failed, failed, failed))
+            if ((skipped > 0 || failed > 0) && server.canRetry) {
+                TextButton(onClick = actions.retry) { Text(stringResource(R.string.action_retry)) }
             }
-
-            else -> Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                OutlinedButton(onClick = onSearchServer, enabled = current.isNotEmpty()) {
-                    Icon(Icons.Outlined.CloudQueue, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.search_on_server))
-                }
-                Spacer(Modifier.size(4.dp))
-                Text(
-                    text = stringResource(R.string.search_on_server_hint, serverFolderName),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
+            if (problems.any(::charsetRejected)) NoteText(stringResource(R.string.search_server_charset_failed))
+            if (server.truncated) NoteText(stringResource(R.string.search_server_truncated, server.allHits.size))
+            val textDone = SearchPhase.TEXT in server.done
+            when {
+                textDone && state.serverOnlyCount == 0 && !server.stopped -> NoteText(
+                    state.serverFolder?.let { stringResource(R.string.search_server_nothing_more, folderDisplayName(it)) }
+                        ?: stringResource(R.string.search_server_nothing_more_all),
                 )
+                !textDone && SearchPhase.HEADERS in server.done -> NoteText(stringResource(R.string.search_server_headers_done))
+            }
+        }
+        if (!server.textRequested) {
+            ServerButton(
+                label = stringResource(R.string.search_server_search_text),
+                icon = Icons.AutoMirrored.Outlined.ManageSearch,
+                hint = stringResource(R.string.search_server_search_text_hint),
+                enabled = true,
+                onClick = actions.searchText,
+            )
+        }
+        if (finished && server.binsOffered) {
+            TextButton(onClick = actions.searchBins, modifier = Modifier.padding(top = 4.dp)) {
+                Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.search_server_bins))
             }
         }
     }
+}
+
+/** How much of the mail is indexed on the device, with "Index now" (or the run's progress). */
+@Composable
+private fun IndexStatusRow(index: IndexSummary, onIndexNow: () -> Unit) {
+    val indexed = formatCount(index.indexed)
+    val total = formatCount(index.total)
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .padding(start = 24.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (index.running) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(
+                text = if (index.running) {
+                    stringResource(R.string.search_index_running, indexed, total)
+                } else {
+                    stringResource(R.string.search_index_progress, indexed, total)
+                },
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!index.running) TextButton(onClick = onIndexNow) { Text(stringResource(R.string.search_index_now)) }
+        }
+    }
+}
+
+@Composable
+private fun ServerButton(label: String, icon: ImageVector, hint: String, enabled: Boolean, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        OutlinedButton(onClick = onClick, enabled = enabled) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label)
+        }
+        Spacer(Modifier.size(4.dp))
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun NoteText(text: String) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
@@ -610,5 +840,14 @@ private fun FocusRequester.requestFocusSafely(): Boolean = try {
     requestFocus()
     true
 } catch (_: IllegalStateException) {
+    false
+}
+
+/** True on a network the user pays by use (mobile data); false when unknown or offline. */
+private fun Context.isOnMeteredNetwork(): Boolean = try {
+    val manager = getSystemService(ConnectivityManager::class.java)
+    val capabilities = manager?.activeNetwork?.let { manager.getNetworkCapabilities(it) }
+    capabilities != null && !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+} catch (_: SecurityException) {
     false
 }

@@ -9,20 +9,30 @@ import io.github.pportilla.upmmail.mail.MessageFlag
 import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.HitOpenResult
+import io.github.pportilla.upmmail.model.IndexStatus
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
 import io.github.pportilla.upmmail.model.MessageDetail
 import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.SearchFilters
+import io.github.pportilla.upmmail.model.SearchHit
+import io.github.pportilla.upmmail.model.ServerSearchProgress
+import io.github.pportilla.upmmail.model.ServerSearchRequest
+import io.github.pportilla.upmmail.model.mergeHits
 import io.github.pportilla.upmmail.sync.FlushScheduler
+import io.github.pportilla.upmmail.sync.IndexBudget
 import io.github.pportilla.upmmail.sync.SyncEngine
 import io.github.pportilla.upmmail.sync.mailResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -52,7 +62,15 @@ class MailRepositoryImpl(
     private val discardLocalDraft: suspend (draftId: Long) -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** How often an open conversation marks its rows downloaded from search results as used. */
+    private val detachedKeepAlive: Long = DETACHED_KEEP_ALIVE,
 ) : MailRepository {
+
+    /** The "Index now" run, while it lasts. */
+    private var indexJob: Job? = null
+
+    /** Whether [indexJob] may go on over mobile data. */
+    private var indexJobMetered = false
 
     override fun observeFolders(accountId: Long): Flow<List<Folder>> = store.folders.observeByAccount(accountId)
 
@@ -78,7 +96,23 @@ class MailRepositoryImpl(
 
     override fun observeMessage(messageId: Long): Flow<MessageDetail?> = store.messages.observeDetail(messageId)
 
-    override fun observeThread(messageId: Long): Flow<List<MessageDetail>> = store.messages.observeThread(messageId)
+    override fun observeThread(messageId: Long): Flow<List<MessageDetail>> = channelFlow {
+        // Rows downloaded from search results are evicted some time after their last use: keep
+        // marking the thread's as used while it is on screen.
+        launch(io) {
+            while (true) {
+                try {
+                    store.messages.touchDetachedThread(messageId, clock())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Best effort: at worst the rows are downloaded again when opened again.
+                }
+                delay(detachedKeepAlive)
+            }
+        }
+        store.messages.observeThread(messageId).collect { send(it) }
+    }
 
     override val syncingFolders: StateFlow<Set<Long>> get() = engine.syncingFolders
 
@@ -367,14 +401,49 @@ class MailRepositoryImpl(
     override suspend fun searchLocal(query: String, filters: SearchFilters, limit: Int): List<MessageSummary> =
         db { store.messages.search(query, filters, limit) }
 
-    override suspend fun searchServer(
-        query: String,
-        accountId: Long,
-        folderId: Long?,
-        limit: Int,
-    ): Result<List<MessageSummary>> = mailResult {
-        if (query.isBlank()) return@mailResult emptyList()
-        engine.searchServer(accountId, folderId, query.trim(), limit)
+    override suspend fun searchLocalHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit> = db {
+        val cached = store.messages.searchHits(query, filters, limit)
+        val indexed = store.headerIndex.search(query, filters, limit).map(SearchHit::Indexed)
+        mergeHits(cached, indexed, limit = limit)
+    }
+
+    override fun searchServerProgress(request: ServerSearchRequest): Flow<ServerSearchProgress> =
+        engine.serverSearch.search(request)
+
+    override suspend fun openSearchHit(hit: SearchHit): Result<HitOpenResult> = mailResult {
+        when (hit) {
+            is SearchHit.Cached -> db {
+                // The row may have gone since the search (evicted, expunged) or be being moved.
+                val ref = store.messages.ref(hit.message.id)
+                when {
+                    ref == null -> HitOpenResult.Gone
+                    ref.hidden -> HitOpenResult.PendingChange
+                    else -> {
+                        store.messages.touchDetachedThread(ref.id, clock())
+                        HitOpenResult.Opened(ref.id)
+                    }
+                }
+            }
+            is SearchHit.Indexed -> engine.materializeIndexed(hit.entry.indexId)
+        }
+    }
+
+    override fun observeIndexStatus(): Flow<List<IndexStatus>> =
+        combine(store.headerIndex.observeStatus(), engine.headerIndexer.running) { statuses, running ->
+            statuses.map { it.copy(running = it.accountId in running) }
+        }
+
+    override fun startIndexingNow(allowMetered: Boolean) {
+        synchronized(this) {
+            // A run already going does the work, unless this one may use mobile data and it may
+            // not: then this one follows it (runs take turns).
+            if (indexJob?.isActive == true && (indexJobMetered || !allowMetered)) return
+            indexJobMetered = allowMetered
+            indexJob = scope.launch(io) {
+                // Never fails but for cancellation; problems show up in the index status.
+                mailResult { engine.headerIndexer.run(IndexBudget.manual(clock(), allowMetered)) }
+            }
+        }
     }
 
     override suspend fun recentSearches(): List<String> = db { store.recentSearches.list() }
@@ -444,5 +513,8 @@ class MailRepositoryImpl(
         const val NO_UNDO = -1L
         const val UNDO_ROUNDS = 3
         val BIN_ROLES = setOf(FolderRole.TRASH, FolderRole.JUNK)
+
+        /** Well below the 30 minutes after which eviction may delete an unused downloaded search result. */
+        const val DETACHED_KEEP_ALIVE = 10 * 60_000L
     }
 }

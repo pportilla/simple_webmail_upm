@@ -68,6 +68,12 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- Builds and refreshes the search index of message headers in the background. -->
+        <service
+            android:name=".sync.IndexJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <service
             android:name=".sync.PushService"
             android:exported="false"

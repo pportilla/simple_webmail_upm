@@ -10,6 +10,8 @@ import jakarta.mail.MessagingException
 import jakarta.mail.SendFailedException
 import jakarta.mail.StoreClosedException
 import jakarta.mail.internet.InternetAddress
+import org.eclipse.angus.mail.iap.ConnectionException
+import org.eclipse.angus.mail.iap.Response
 import org.eclipse.angus.mail.smtp.SMTPAddressFailedException
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException
 import org.eclipse.angus.mail.smtp.SMTPSenderFailedException
@@ -176,6 +178,41 @@ class MailErrorsTest {
         assertFalse(MailErrors.isConnectionDrop(MessagingException("x", SocketTimeoutException("Read timed out"))))
         assertFalse(MailErrors.isConnectionDrop(AuthenticationFailedException("no")))
         assertFalse(MailErrors.isConnectionDrop(MessagingException("A1 NO nope")))
+    }
+
+    @Test
+    fun recognisesTimeoutsAngusDisguisesAsClosedFolders() {
+        // What Angus throws when a folder command hits the read timeout: only the text survives.
+        val text = "* BYE Jakarta Mail Exception: java.net.SocketTimeoutException: Read timed out"
+        val disguised = listOf(
+            FolderClosedException(null, text),
+            StoreClosedException(null, text),
+            MessagingException("x", ConnectionException(null, Response.byeResponse(SocketTimeoutException("Read timed out")))),
+        )
+        for (failure in disguised) {
+            assertTrue(failure.toString(), MailErrors.isTimeout(failure))
+            // The places that rethrow on a dead connection still see one.
+            assertTrue(failure.toString(), MailErrors.isConnectionDrop(failure))
+            assertEquals(failure.toString(), MailErrorKind.NETWORK, kind(failure))
+        }
+        assertTrue(MailErrors.isTimeout(MessagingException("x", SocketTimeoutException("Read timed out"))))
+        assertFalse(MailErrors.isTimeout(FolderClosedException(null, "* BYE Jakarta Mail Exception: java.net.SocketException: Socket closed")))
+        assertFalse(MailErrors.isTimeout(StoreClosedException(null, "closed")))
+        assertFalse(MailErrors.isTimeout(MessagingException("A3 NO SocketTimeoutException in the text of a refusal")))
+    }
+
+    @Test
+    fun recognisesAServerThatCannotBeReached() {
+        val connectTimeout = MailConnectException(
+            SocketConnectException("connect", SocketTimeoutException("connect timed out"), "correo.upm.es", 993, 20_000),
+        )
+        assertTrue("a timeout, but while connecting", MailErrors.isTimeout(connectTimeout))
+        assertTrue(MailErrors.isConnectFailure(connectTimeout))
+        assertTrue("as mapped", MailErrors.isConnectFailure(MailErrors.map(connectTimeout)))
+        assertTrue(MailErrors.isConnectFailure(MessagingException("x", UnknownHostException("correo.upm.es"))))
+        assertTrue(MailErrors.isConnectFailure(MessagingException("x", ConnectException("Connection refused"))))
+        assertFalse("a slow answer on an open connection", MailErrors.isConnectFailure(MessagingException("x", SocketTimeoutException("Read timed out"))))
+        assertFalse(MailErrors.isConnectFailure(FolderClosedException(null, "* BYE Jakarta Mail Exception: java.net.SocketException: Socket closed")))
     }
 
     @Test

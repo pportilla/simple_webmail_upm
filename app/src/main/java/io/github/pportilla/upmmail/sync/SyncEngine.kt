@@ -1,9 +1,11 @@
 package io.github.pportilla.upmmail.sync
 
+import io.github.pportilla.upmmail.data.db.FolderDao
 import io.github.pportilla.upmmail.data.db.FolderListEntry
 import io.github.pportilla.upmmail.data.db.FolderSyncState
 import io.github.pportilla.upmmail.data.db.LocalFlag
 import io.github.pportilla.upmmail.data.db.MailStore
+import io.github.pportilla.upmmail.data.db.MessageRef
 import io.github.pportilla.upmmail.data.db.OutboxEntry
 import io.github.pportilla.upmmail.data.db.PendingOp
 import io.github.pportilla.upmmail.data.db.PendingOpType
@@ -16,6 +18,7 @@ import io.github.pportilla.upmmail.mail.ComposedMessage
 import io.github.pportilla.upmmail.mail.FolderRoleDetector
 import io.github.pportilla.upmmail.mail.HtmlText
 import io.github.pportilla.upmmail.mail.ImapClient
+import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.MessageComposer
 import io.github.pportilla.upmmail.mail.MessageFlag
 import io.github.pportilla.upmmail.mail.ParsedBody
@@ -27,6 +30,8 @@ import io.github.pportilla.upmmail.model.Draft
 import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.HitOpenResult
+import io.github.pportilla.upmmail.model.IndexedMessage
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
 import io.github.pportilla.upmmail.model.MessageSummary
@@ -50,6 +55,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.InputStream
+import java.util.Locale
 import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -94,6 +100,10 @@ data class CompletedMove(
  * Network work of one account (sync, flush, paging) is serialised by a per-account mutex; the
  * outbox has its own mutex so sending is never stuck behind a long sync. Every public function
  * throws [MailException] on failure.
+ *
+ * It also keeps the header index (see [HeaderIndexer]) in step with what it learns while syncing,
+ * and owns the server search ([serverSearch]) and the indexer ([headerIndexer]), each with
+ * connections of their own (`searchOptions`, `indexOptions`).
  */
 class SyncEngine(
     private val store: MailStore,
@@ -103,6 +113,8 @@ class SyncEngine(
     private val listener: SyncListener = SyncListener.NONE,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
+    indexOptions: ImapOptions = ImapOptions.INDEX,
+    searchOptions: ImapOptions = ImapOptions.SEARCH,
 ) {
     private val accountLocks = ConcurrentHashMap<Long, Mutex>()
     private val outboxLock = Mutex()
@@ -118,6 +130,30 @@ class SyncEngine(
 
     /** Folder ids currently being synchronised. */
     val syncingFolders: StateFlow<Set<Long>> = syncing.asStateFlow()
+
+    /** Progressive search of every folder on the server. */
+    val serverSearch = ServerSearch(
+        store,
+        clients,
+        io,
+        clock,
+        searchOptions,
+        ::storeParsedBody,
+        onValidityChanged = ::resyncQuietly,
+        ensureFolders = ::ensureFolderList,
+    )
+
+    /** Builds and maintains the header index; it pauses while [serverSearch] uses an account. */
+    val headerIndexer = HeaderIndexer(
+        store,
+        clients,
+        io,
+        clock,
+        indexOptions,
+        serverSearch.activeAccounts,
+        ensureFolders = ::ensureFolderList,
+        onValidityChanged = ::resyncQuietly,
+    )
 
     // ------------------------------------------------------------------ folders
 
@@ -156,6 +192,21 @@ class SyncEngine(
         syncFolderList(accountId)
         return db { store.folders.findByRole(accountId, FolderRole.INBOX) }
             ?: throw MailException(MailErrorKind.NOT_FOUND, "No INBOX")
+    }
+
+    /**
+     * Fetches the folder list of an account that has none yet, or whose folders were not listed
+     * since the upgrade that started keeping their attributes (until then none is indexed or
+     * searched: they may be virtual or shared folders).
+     */
+    private suspend fun ensureFolderList(accountId: Long) {
+        val needed = db { store.folders.getByAccount(accountId).isEmpty() || store.folders.hasUnlistedFolders(accountId) }
+        if (needed) syncFolderList(accountId)
+    }
+
+    /** Syncs a folder found renumbered (new UIDVALIDITY) outside a sync; a failure waits for the next sync. */
+    private suspend fun resyncQuietly(folderId: Long) {
+        mailResult { syncFolder(folderId) }
     }
 
     /** Folder list, outbox and INBOX of one account: what "refresh" means for the user. */
@@ -248,32 +299,45 @@ class SyncEngine(
         }
         val own = db { store.accounts.ownAddresses() }
         val feedContacts = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK
+        // Whatever the sync fetches goes into the header index too, so search finds it at once.
+        val indexed = db { FolderDao.isIndexable(folder.role, folder.selectable, store.folders.attributesOf(folderId)) }
+        if (indexed) {
+            indexQuietly { store.headerIndex.ensureState(folderId, status.uidValidity, status.uidNext, status.messageCount) }
+        }
 
         if (state.uidValidity == 0L) {
             // First sync (or after a reset): the newest messages only, nothing to notify about.
             val result = imap.fetchNewest(folder.fullName, INITIAL_WINDOW)
             db { storeHeaders(folder, result.messages, feedContacts, own) }
+            if (indexed) indexQuietly { store.headerIndex.upsertFromSync(folderId, result.uidValidity, result.messages) }
             val start = result.messages.minOfOrNull { it.uid } ?: status.uidNext.coerceAtLeast(1)
             val end = maxOf(result.messages.maxOfOrNull { it.uid } ?: 0L, status.uidNext - 1)
-            db { store.folders.setWindow(folderId, start, end, result.truncated) }
+            db { setWindowAndDetach(folderId, start, end, result.truncated) }
             db { store.folders.updateAfterSync(folderId, status.uidValidity, status.unreadCount, status.messageCount) }
         } else {
             val oldEnd = state.windowEndUid
             val result = imap.fetchNewer(folder.fullName, oldEnd, NEWER_LIMIT)
             if (result.truncated) {
                 // Too many new messages to fill the gap: restart the window at the newest ones.
+                // Rows the user opened or found a moment ago survive, detached.
                 val keep = result.messages.takeLast(INITIAL_WINDOW)
                 db {
                     store.tx {
-                        store.messages.deleteVisibleExcept(folderId, protectedNow(folder).uids + keep.map { it.uid })
+                        store.messages.deleteVisibleExcept(
+                            folderId,
+                            protectedNow(folder).uids + keep.map { it.uid },
+                            spareDetachedSince = clock() - HeaderIndexer.DETACHED_SPARE,
+                        )
                     }
                 }
                 db { newMail += storeHeaders(folder, keep, feedContacts, own) }
+                if (indexed) indexQuietly { store.headerIndex.upsertFromSync(folderId, result.uidValidity, result.messages) }
                 val start = keep.minOfOrNull { it.uid } ?: oldEnd
                 val end = maxOf(keep.maxOfOrNull { it.uid } ?: oldEnd, status.uidNext - 1)
-                db { store.folders.setWindow(folderId, start, end, true) }
+                db { setWindowAndDetach(folderId, start, end, true) }
             } else {
                 db { newMail += storeHeaders(folder, result.messages, feedContacts, own) }
+                if (indexed) indexQuietly { store.headerIndex.upsertFromSync(folderId, result.uidValidity, result.messages) }
                 val end = maxOf(oldEnd, result.messages.maxOfOrNull { it.uid } ?: 0L, status.uidNext - 1)
                 db { store.folders.setWindow(folderId, state.windowStartUid, end, state.moreAvailable) }
                 reconcileFlags(imap, state, oldEnd)
@@ -295,28 +359,40 @@ class SyncEngine(
         }
     }
 
-    /** Server flags for the cached window, plus a few extra rows found by server searches. */
+    /**
+     * Server flags for the cached window, then for the detached rows (search results and opened
+     * messages outside the window): the least recently used beyond [HeaderIndexer.DETACHED_KEEP]
+     * are evicted, and the flags of the rest are fetched in one go.
+     */
     private suspend fun reconcileFlags(imap: ImapClient, state: FolderSyncState, windowEnd: Long) {
         val folder = state.folder
         val start = state.windowStartUid.coerceAtLeast(1)
         if (windowEnd >= start && db { store.messages.uidBounds(folder.id) } != null) {
             val flags = imap.fetchFlags(folder.fullName, start, windowEnd)
             db { applyFlags(folder, start..windowEnd, flags) }
+            val present = flags.filterValues { !it.deleted }.keys
+            indexQuietly { store.headerIndex.deleteMissingInRange(folder.id, start..windowEnd, present) }
         }
-        val extras = db { store.messages.uidsBelow(folder.id, start) }
-        if (extras.size > MAX_EXTRA_CHECKS) {
-            db {
-                store.tx {
-                    val protectedUids = protectedNow(folder)
-                    store.messages.deleteByUids(folder.id, extras.filter { it !in protectedUids })
-                }
-            }
-        } else {
-            for (uid in extras) {
-                val flags = imap.fetchFlags(folder.fullName, uid, uid)
-                db { applyFlags(folder, uid..uid, flags) }
+        if (db { store.messages.extras(folder.id) }.isEmpty()) return
+        val spareSince = clock() - HeaderIndexer.DETACHED_SPARE
+        db { store.tx { store.messages.evictExtras(folder.id, HeaderIndexer.DETACHED_KEEP, spareSince, protectedNow(folder)) } }
+        val extras = db { store.messages.extras(folder.id) }.map { it.uid }
+        if (extras.isEmpty()) return
+        val flags = imap.fetchFlagsFor(folder.fullName, extras)
+        db {
+            store.tx {
+                val protectedUids = protectedNow(folder)
+                store.messages.applyServerFlagsFor(folder.id, extras, flags, extras.filterTo(HashSet()) { it in protectedUids })
             }
         }
+        val gone = extras.filter { flags[it]?.deleted != false }
+        if (gone.isNotEmpty()) indexQuietly { store.headerIndex.deleteUids(folder.id, gone) }
+    }
+
+    /** The folder's new sync window; listed rows outside it are detached (kept for search and open messages). */
+    private fun setWindowAndDetach(folderId: Long, start: Long, end: Long, moreAvailable: Boolean) = store.tx {
+        store.folders.setWindow(folderId, start, end, moreAvailable)
+        store.messages.detachOutsideWindow(folderId, start, end, clock())
     }
 
     /**
@@ -346,6 +422,7 @@ class SyncEngine(
                 val dropped = store.pendingOps.deleteForFolder(folder.accountId, folder.fullName)
                 store.messages.clearFolder(folder.id)
                 store.folders.resetSyncState(folder.id)
+                store.headerIndex.resetFolder(folder.id)
                 dropped
             }
         }
@@ -382,6 +459,7 @@ class SyncEngine(
                 val own = db { store.accounts.ownAddresses() }
                 val feedContacts = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK
                 db { storeHeaders(folder, result.messages, feedContacts, own) }
+                indexQuietly { store.headerIndex.upsertFromSync(folderId, current.uidValidity, result.messages) }
                 val newStart = result.messages.minOfOrNull { it.uid } ?: start
                 db { store.folders.setWindow(folderId, newStart, current.windowEndUid, result.truncated) }
                 result.truncated
@@ -398,12 +476,13 @@ class SyncEngine(
         if (!ref.bodyLoaded) {
             val folder = db { store.folders.get(ref.folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder ${ref.folderId}")
             val body = clients.imap(ref.accountId).fetchBody(folder.fullName, ref.uid)
-            db { storeBody(ref.id, body) }
+            db { storeParsedBody(ref.id, body) }
         }
         if (inlineImages) downloadInlineImages(messageId)
     }
 
-    private fun storeBody(messageId: Long, body: ParsedBody) {
+    /** Stores a downloaded body (text for search, snippet, attachments); also used by [ServerSearch]. */
+    internal fun storeParsedBody(messageId: Long, body: ParsedBody) {
         val plain = body.text ?: body.html?.let { runCatching { HtmlText.toPlainText(it) }.getOrNull() } ?: ""
         val snippet = runCatching { HtmlText.snippet(body.text, body.html) }.getOrDefault(plain.take(SNIPPET_FALLBACK))
         store.messages.storeBody(messageId, body.html, body.text, snippet, body.attachments, plain)
@@ -437,7 +516,7 @@ class SyncEngine(
                 // Opened (and downloaded) meanwhile, or gone.
                 if (db { store.messages.ref(ref.id) }?.bodyLoaded != false) continue
                 val body = clients.imap(folder.accountId).fetchBody(folder.fullName, ref.uid)
-                db { storeBody(ref.id, body) }
+                db { storeParsedBody(ref.id, body) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -481,8 +560,10 @@ class SyncEngine(
 
     /**
      * IMAP SEARCH in [folderId] (or the INBOX); matches missing from the cache are fetched and
-     * stored. Returns the matches newest first.
+     * stored as detached rows (they do not change the folder's list). Returns the matches newest
+     * first.
      */
+    @Deprecated("Searches one folder and blocks until done; use serverSearch, which searches every folder progressively.")
     suspend fun searchServer(accountId: Long, folderId: Long?, query: String, limit: Int): List<MessageSummary> =
         withContext(io) { searchServerOnIo(accountId, folderId, query, limit) }
 
@@ -494,10 +575,10 @@ class SyncEngine(
         if (uids.isEmpty()) return emptyList()
         val missing = db { uids.filter { store.messages.findByUid(folder.id, it) == null } }
         if (missing.isNotEmpty()) {
-            val fetched = imap.fetchMessages(folder.fullName, missing)
-            val own = db { store.accounts.ownAddresses() }
-            db { storeHeaders(folder, fetched, feedContacts = false, own = own) }
-            prefetchSearchBodies(folder, fetched)
+            val fetched = imap.fetchByUids(folder.fullName, missing)
+            if (db { store.storeFetchedOutsideSync(folder, fetched.uidValidity, fetched.messages, clock()) }) {
+                prefetchSearchBodies(folder, fetched.messages)
+            }
         }
         val ids = db { uids.mapNotNull { uid -> store.messages.findByUid(folder.id, uid)?.takeIf { !it.hidden }?.id } }
         return db { store.messages.summaries(ids) }.sortedByDescending { it.date }
@@ -511,7 +592,7 @@ class SyncEngine(
                 val ref = db { store.messages.findByUid(folder.id, message.uid) } ?: continue
                 if (ref.bodyLoaded) continue
                 val body = clients.imap(folder.accountId).fetchBody(folder.fullName, message.uid)
-                db { storeBody(ref.id, body) }
+                db { storeParsedBody(ref.id, body) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -546,6 +627,7 @@ class SyncEngine(
                 store.tx {
                     store.pendingOps.deleteForEmptiedFolder(folder.accountId, folder.fullName)
                     store.messages.clearFolder(folderId)
+                    store.headerIndex.clearRows(folderId)
                     store.folders.get(folderId)?.let { current ->
                         store.folders.adjustCounts(folderId, -current.unreadCount, -current.totalCount)
                     }
@@ -591,6 +673,7 @@ class SyncEngine(
                 execute(op, touched)
                 db { finishSuccess(op) }
                 done.complete(true)
+                indexQuietly { updateIndexAfter(op) }
             } catch (e: CancellationException) {
                 withContext(NonCancellable) { db { store.pendingOps.release(op.id, op.attempts) } }
                 throw e
@@ -632,6 +715,8 @@ class SyncEngine(
                 inFlightOps.remove(op.id)
             }
         }
+        // Mail we added there is new to the header index: a check soon indexes it.
+        if (touched.isNotEmpty()) indexQuietly { store.headerIndex.markDirty(touched) }
         val remaining = db { store.pendingOps.forAccount(accountId) }
         val nextDue = remaining.filter { !it.inFlight && it.notBefore > now }.minOfOrNull { it.notBefore }
         return FlushResult(nextDue, blockedBy, touched)
@@ -789,6 +874,38 @@ class SyncEngine(
         }
         store.pendingOps.delete(op.id)
         discardSentCopy(op)
+    }
+
+    /**
+     * What a completed operation changed in the header index: messages moved or deleted leave
+     * their folder's index at once, a move target waits for new mail, flags follow. Apart from
+     * [finishSuccess], so that a failure here can never undo the operation's local effect.
+     */
+    private fun updateIndexAfter(op: PendingOp) {
+        val source = store.folders.findByFullName(op.accountId, op.folder)
+        val target = op.target?.let { store.folders.findByFullName(op.accountId, it) }
+        when (op.type) {
+            PendingOpType.MOVE, PendingOpType.DELETE, PendingOpType.DELETE_SERVER_COPY -> {
+                if (source != null) store.headerIndex.deleteUids(source.id, op.uids)
+                if (op.type == PendingOpType.MOVE && target != null) store.headerIndex.markDirty(listOf(target.id))
+            }
+            PendingOpType.MOVE_BY_MESSAGE_ID -> {
+                val messageIds = op.payload.orEmpty().lines().map { it.trim() }.filter { it.isNotEmpty() }
+                if (source != null) store.headerIndex.deleteByMessageIds(source.id, messageIds)
+                if (target != null) store.headerIndex.markDirty(listOf(target.id))
+            }
+            PendingOpType.FLAG -> {
+                val flag = when (op.flag) {
+                    MessageFlag.SEEN.name -> LocalFlag.READ
+                    MessageFlag.FLAGGED.name -> LocalFlag.STARRED
+                    MessageFlag.ANSWERED.name -> LocalFlag.ANSWERED
+                    else -> null
+                }
+                if (source != null && flag != null) store.headerIndex.setFlag(source.id, op.uids, flag, op.value)
+            }
+            PendingOpType.MARK_FOLDER_READ -> if (source != null) store.headerIndex.markFolderRead(source.id)
+            PendingOpType.APPEND_DRAFT, PendingOpType.APPEND_SENT -> Unit
+        }
     }
 
     private fun finishFailure(op: PendingOp) = store.tx {
@@ -1073,6 +1190,7 @@ class SyncEngine(
                 bestEffort {
                     clients.imap(account.id).append(folder.fullName, outcome.message.mime, true, false)
                     touched += folder.id
+                    indexQuietly { store.headerIndex.markDirty(listOf(folder.id)) }
                 }
             }
         } finally {
@@ -1178,6 +1296,81 @@ class SyncEngine(
         return MessageComposer.build(from, draft, sources, clock())
     }
 
+    // ------------------------------------------------------------------ header index
+
+    /**
+     * Makes the message of header index row [indexId] (a search result known only by its
+     * headers) openable: it is downloaded as a detached row, which does not change the folder's
+     * list. If the message is no longer at that place (moved, deleted, the mailbox renumbered),
+     * the row is dropped and up to [MAX_COPY_ATTEMPTS] other indexed copies with the same
+     * Message-ID are tried. Uses the main connection and no account lock.
+     */
+    suspend fun materializeIndexed(indexId: Long): HitOpenResult = withContext(io) { materializeIndexedOnIo(indexId) }
+
+    private suspend fun materializeIndexedOnIo(indexId: Long): HitOpenResult {
+        val first = db { store.headerIndex.get(indexId) } ?: return HitOpenResult.Gone
+        materializeRow(first)?.let { return it }
+        val messageId = first.messageIdHeader?.takeIf { it.isNotBlank() } ?: return HitOpenResult.Gone
+        val copies = db { store.headerIndex.findByMessageId(first.accountId, messageId) }
+            .filter { it.indexId != first.indexId }
+            .take(MAX_COPY_ATTEMPTS)
+        for (copy in copies) materializeRow(copy)?.let { return it }
+        return HitOpenResult.Gone
+    }
+
+    /** Opens [row]'s message, downloading it if needed; null if it is not (or no longer) there. */
+    private suspend fun materializeRow(row: IndexedMessage): HitOpenResult? {
+        val folder = db { store.folders.get(row.folderId) } ?: return null
+        val indexValidity = db { store.headerIndex.state(row.folderId) }?.uidValidity
+        val cacheValidity = db { store.folders.syncState(row.folderId) }?.uidValidity ?: 0L
+        // A cached row of another UIDVALIDITY than the index row is another message.
+        val sameEpoch = cacheValidity == 0L || cacheValidity == indexValidity
+        if (sameEpoch) db { store.messages.findByUid(row.folderId, row.uid) }?.let { return opened(it) }
+        val fetched = clients.imap(folder.accountId).fetchByUids(folder.fullName, listOf(row.uid))
+        if (cacheValidity != 0L && cacheValidity != fetched.uidValidity) {
+            // The mailbox was renumbered: rebuild its cache (and index) first.
+            syncFolder(folder.id)
+        }
+        val message = fetched.messages.firstOrNull { it.uid == row.uid }
+        val same = message != null && !message.flags.deleted && indexValidity == fetched.uidValidity &&
+            sameMessageId(row.messageIdHeader, message.messageId)
+        if (message == null || !same) {
+            db {
+                store.headerIndex.deleteUids(row.folderId, listOf(row.uid))
+                store.headerIndex.markDirty(listOf(row.folderId))
+            }
+            return null
+        }
+        if (!db { store.storeFetchedOutsideSync(folder, fetched.uidValidity, listOf(message), clock()) }) return null
+        indexQuietly { store.headerIndex.updateFlags(row.folderId, mapOf(row.uid to message.flags)) }
+        val ref = db { store.messages.findByUid(row.folderId, row.uid) } ?: return null
+        return opened(ref)
+    }
+
+    /** A cached message ready to open, its detached rows marked as just used; or a pending move or delete. */
+    private suspend fun opened(ref: MessageRef): HitOpenResult {
+        if (ref.hidden) return HitOpenResult.PendingChange
+        db { store.messages.touchDetachedThread(ref.id, clock()) }
+        return HitOpenResult.Opened(ref.id)
+    }
+
+    private fun sameMessageId(indexed: String?, server: String?): Boolean {
+        val a = indexed?.trim()?.takeIf { it.isNotEmpty() } ?: return true
+        val b = server?.trim()?.takeIf { it.isNotEmpty() } ?: return true
+        return a.lowercase(Locale.ROOT) == b.lowercase(Locale.ROOT)
+    }
+
+    /** Keeps the header index in step; never fails the mail work it follows (the indexer repairs the index). */
+    private suspend fun indexQuietly(block: () -> Unit) {
+        try {
+            db(block)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The index is a search aid: the next indexer run puts it right.
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private suspend fun <T> withAccountLock(accountId: Long, block: suspend () -> T): T =
@@ -1249,7 +1442,6 @@ class SyncEngine(
         const val PREFETCH_MAX_SIZE = 300L * 1024
         const val MAX_SEND_ATTEMPTS = 10
         private const val SEARCH_PREFETCH = 10
-        private const val MAX_EXTRA_CHECKS = 30
         private const val MAX_INLINE_IMAGES = 20
         private const val MAX_INLINE_IMAGE = 2L * 1024 * 1024
         private const val SNIPPET_FALLBACK = 160
@@ -1265,6 +1457,9 @@ class SyncEngine(
         private const val STALE_SENDING = 10 * 60_000L
         private const val FIRST_RETRY_DELAY = 30_000L
         private const val MAX_RETRY_DELAY = 15 * 60_000L
+
+        /** Other indexed copies (same Message-ID) tried when a search result has moved. */
+        private const val MAX_COPY_ATTEMPTS = 2
 
         /** Failures that concern the whole account (its login), never a single operation. */
         private val ACCOUNT_KINDS = setOf(MailErrorKind.AUTHENTICATION, MailErrorKind.CERTIFICATE)

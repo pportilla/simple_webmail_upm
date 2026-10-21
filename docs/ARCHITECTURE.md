@@ -35,7 +35,7 @@ then the full address.
 | `data.security` | Keystore-backed password store | no |
 | `data.settings` | `SharedPreferences`-backed `SettingsRepository`, `AppLanguage` choices | `AppLanguage` yes |
 | `data` | `DefaultAppContainer`, `AttachmentProvider` | no |
-| `sync` | `SyncEngine` and `PushWatcher` (pure), `SyncJobService` + scheduler, `PushService` + `PushController` (Android) | engine and watcher yes |
+| `sync` | `SyncEngine`, `PushWatcher`, `ServerSearch` and `HeaderIndexer` (pure), `SyncJobService` + scheduler, `PushService` + `PushController`, `IndexJobService` + `IndexScheduler` (Android) | engine, watcher, search and indexer yes |
 | `notifications` | New-mail notifications, notification actions | no |
 | `ui.*` | Compose screens, one package per screen, plus `ui.components`, `ui.theme`, `ui.navigation` | no |
 
@@ -68,6 +68,9 @@ then the full address.
   service when Android allows it (app visible, boot, app update, periodic job when exempt from
   battery optimisation). The periodic job stays on (15 minutes) as a safety net. Installs from
   before push get it only if they kept the default 15-minute interval.
+- Search looks at two local sources at once: the cached messages and a **header index** of every
+  folder, built in the background. It then searches the server progressively. See
+  [Search and the header index](#search-and-the-header-index).
 
 ## Mail engine API (`mail` package)
 
@@ -93,7 +96,8 @@ enum class MessageFlag { SEEN, FLAGGED, ANSWERED, FORWARDED, DRAFT, DELETED }
 interface AttachmentSource { val fileName: String; val mimeType: String; fun openStream(): java.io.InputStream }
 data class ComposedMessage(val mime: jakarta.mail.internet.MimeMessage, val messageId: String)
 
-class ImapClient(settings: ServerSettings, passwordProvider: () -> String) : java.io.Closeable {
+class ImapClient(settings: ServerSettings, passwordProvider: () -> String,
+                 options: ImapOptions = ImapOptions.DEFAULT /* read timeout, abortable, keepFolderOpen */) : java.io.Closeable {
     suspend fun connect()                                                     // login check
     suspend fun listFolders(): List<RemoteFolder>
     suspend fun status(folder: String): RemoteFolderStatus
@@ -111,6 +115,17 @@ class ImapClient(settings: ServerSettings, passwordProvider: () -> String) : jav
     suspend fun append(folder: String, message: MimeMessage, seen: Boolean, draft: Boolean): Long?
     suspend fun search(folder: String, query: String, limit: Int): List<Long>   // uids, newest first
     suspend fun findUidByMessageId(folder: String, messageId: String): Long?
+    // Search and index (see "Search and the header index")
+    suspend fun examine(folder: String): FolderProbe                          // fresh EXAMINE: UIDVALIDITY, UIDNEXT, count
+    suspend fun searchUids(folder: String, query: ServerQuery, range: SearchRange?, limit: Int): SearchOutcome
+    suspend fun searchAllUids(folder: String, fromUid: Long = 1): UidList     // UID SEARCH UID n:*
+    suspend fun searchUndeletedUids(folder: String): UidList                 // UID SEARCH UNDELETED
+    suspend fun fetchIndexHeaders(folder: String, uids: List<Long>): HeaderBatch     // envelope, flags, size, Content-Type
+    suspend fun fetchFlagsFor(folder: String, uids: List<Long>): Map<Long, RemoteFlags>  // absent uid = expunged
+    suspend fun fetchByUids(folder: String, uids: List<Long>): FetchResult
+    fun derive(options: ImapOptions): ImapClient                              // same login, own connection
+    val isBusy: Boolean
+    fun abort()                                                               // closes the sockets now; no LOGOUT
     override fun close()
 }
 class ImapIdler(settings: ServerSettings, passwordProvider: () -> String, folderName: String = "INBOX") {
@@ -157,6 +172,120 @@ object Threading { fun threadId(messageId: String?, inReplyTo: String?, referenc
 object MailErrors { fun map(t: Throwable): MailException }
 ```
 
+## Search and the header index
+
+Search has to find old mail that was never downloaded, on a server that has no full-text index
+and can take a minute to scan one big folder. It combines three sources:
+
+1. **Cached messages** (`messages` + `messages_fts`): subject, people and the downloaded bodies.
+2. **Header index** (`header_index` + `header_index_fts`, `HeaderIndexDao`): subject, sender
+   and recipients, date, size and flags of up to 50,000 newest messages of every
+   indexable folder (2,000 for Trash and Spam, 100,000 per account), about 625 bytes per
+   message. Drafts, virtual folders (`\All`, `\Flagged`) and shared or other users' folders are
+   not indexed; a folder that becomes one of them loses its index rows. Folders not listed by
+   the server since the upgrade to schema version 2 (`folders.attributes` is NULL) are not
+   indexed either: index runs and server searches list the account's folders first. The index
+   uses prefix terms of 3 or more characters; shorter ones ("CV", "SO") match whole words only,
+   and a short last word that matches nothing is ignored while it may still be being typed.
+   Index writes notify only the index tables, so the mailbox lists never re-query for them.
+3. **Server search** (`ServerSearch`, `ServerQuery`, `SearchPlanning`): an AND over the words
+   (at most 5), each word matching any of its accent variants. The **HEADERS** phase (subject,
+   from, to, cc) starts by itself when the device found fewer than 5 results. It searches every
+   folder in scope, in windows of 10,000 messages, and skips a folder whose index is complete
+   and fresh (not for queries with a word shorter than 3 characters, which the server also
+   finds inside longer words). The **TEXT** phase (message bodies, plus the headers when the
+   query has several words, so one may be in the subject and another in the text) runs only on
+   request (the keyboard's search key or "Search message text"). It searches 2,000-message windows, newest first, in tiers: the
+   newest window of every folder (INBOX, Sent and Archive first), then the next four windows of
+   each folder, then the rest. A window that times out is split in two. Results are emitted
+   after every step. The snippets phase then downloads the previews of the newest five text
+   matches. Trash and Spam are searched only on request. A server that cannot be reached (no
+   connection, or two connections in a row that time out before logging in) ends the search
+   with a connection error. A folder found renumbered is resynced apart from the search.
+
+Results are `SearchHit`s keyed by `SearchKey(folderId, uid)`. A `Cached` hit has a `messages`
+row. An `Indexed` hit exists only in the index; opening it downloads the message
+(`SyncEngine.materializeIndexed`) as a **detached** row.
+
+**Detached rows.** `messages.detached_at` is not null exactly when the row's uid is outside the
+folder's sync window (`window_start_uid..window_end_uid`), or the folder was never synced. Such
+rows come from opened search results and previews. They are hidden from the mailbox lists and
+thread counts, but shown in their conversation. The value is the time of the last use: an open
+conversation renews it every 10 minutes. A row becomes normal when the sync window grows over
+it. Each sync keeps at most 200 detached rows per folder, evicting the least recently used ones,
+but never one used within the last 30 minutes. Bulk index runs do the same for folders that are
+never synced.
+
+**Index state** (`header_index_state`, one row per folder):
+- UIDVALIDITY, the UIDNEXT of the last check, and the server's message count;
+- `complete`: the last comparison with the server found nothing missing within the cap;
+- `capped`: older mail exists beyond the cap;
+- `dirty`: our own move or upload added mail to the folder.
+
+Only a fresh STATUS or EXAMINE may reset a folder. A batch fetched under another UIDVALIDITY is
+dropped. Our own moves and deletes remove index rows at once. Every sync also feeds what it
+fetched into the index.
+
+**`HeaderIndexer` runs.** One run works at a time, and a run pauses while a server search uses
+the same account.
+- A check per folder: STATUS; the new uids since the stored UIDNEXT; expunges detected from the
+  counts.
+- A full comparison (`UID SEARCH UNDELETED`) when the folder lost messages or was last compared
+  a week ago, or, in runs that fill in older mail (bulk, manual), when it is incomplete.
+- Fetching in chunks, always from the folder whose next chunk is newest.
+
+| Run | Started by | Connection | Budget |
+|---|---|---|---|
+| bulk | job 1101, unmetered network, battery and storage not low | its own | 4 minutes (8 while charging), 60,000 headers |
+| manual | "Index now" in the search screen | its own | 10 minutes, 100,000 headers; stops on a metered network unless the user agreed to use mobile data |
+| light | job 1102, every 2 hours, any network | main | 1 minute, 500 headers, new mail only, comparisons of folders up to 2,000 messages |
+| dirty | 30 seconds after our own changes add mail to an indexed folder | main | 20 seconds, 200 headers |
+
+**Scheduling (`IndexScheduler`, `IndexJobService`).** The bulk job is planned from the index
+status and the outcome of the last run (`IndexJobPlan`):
+- While the index is being built, it needs no charger. It runs at once when first planned, or
+  when accounts or folders were added or removed, then every 15 minutes. The pause doubles, up
+  to 6 hours, after each run that left work but got nothing done. A folder the server refuses
+  does not count as work left.
+- Once the index is complete, it runs every 6 hours while charging.
+
+A job planned by an earlier process is kept, because the periodic mail check starts the process
+every 15 minutes. Runs stop below 300 MB of free storage. Both jobs are cancelled while there is
+no account.
+
+**Connections per account.** In steady state there are 4:
+- main (sync, pending changes, bodies, materialising, light and dirty index runs);
+- IDLE (push);
+- one pooled, abortable search connection, closed after 2 minutes unused;
+- an abortable crawl connection, only during bulk and manual runs.
+
+Read timeouts are never retried. An aborted connection is closed without LOGOUT, so leaving the
+search screen (or a stopped index job) ends its network traffic at once.
+
+**JobScheduler ids.**
+
+| Id | Job |
+|---|---|
+| 1001 | periodic mail check |
+| 1002 | outbox |
+| 1003 | pending operations |
+| 1101 | bulk index |
+| 1102 | light index |
+
+**Database versions.** `MailSchema.CREATE_V1` is version 1 exactly as shipped, and it is never
+edited. Later versions are steps in `MailSchema.MIGRATIONS`, and a fresh install runs version 1
+plus every step, so new and upgraded databases are identical. `MigrationTest` checks that every
+version has a step, and `Sqlite318CompatTest` runs the schema and queries on SQLite 3.18 (Android
+8): no UPSERT, RETURNING, window functions or FTS5. A step that fails rolls back, but the app then
+fails on every start until a fixed build ships. A missing step, or a downgrade (`onDowngrade`),
+recreates the database and loses the local data.
+
+**`versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Android therefore
+refuses to install an older build over a newer one (INSTALL_FAILED_VERSION_DOWNGRADE) instead of
+letting it wipe the database. A local build cannot be installed over a CI build. Forcing it
+(`adb install -d`) wipes the database when the forced build's schema version is older.
+Uninstalling always deletes the accounts, drafts, outbox and changes not yet sent.
+
 ## UI conventions
 
 - Every screen is a `@Composable` taking an `AppNavigator` (see `ui/navigation/AppNavigator.kt`)
@@ -185,6 +314,6 @@ object MailErrors { fun map(t: Throwable): MailException }
 | `mailbox` | `ui.mailbox.MailboxScreen` | Drawer (accounts, folders, outbox), list, swipe, multi-select, pull-to-refresh, paging |
 | `message/{messageId}` | `ui.message.MessageScreen` | Conversation view, HTML (sanitised WebView), attachments, actions |
 | `compose?...` | `ui.compose.ComposeScreen` | Recipient chips with autocomplete, Cc/Bcc, attachments, drafts, undo-send |
-| `search?accountId=&folderId=` | `ui.search.SearchScreen` | Instant local search, filters, server search |
+| `search?accountId=&folderId=` | `ui.search.SearchScreen` | Instant search of cached mail and the header index, filters, progressive server search, "Index now" |
 | `settings` | `ui.settings.SettingsScreen` | Appearance, behaviour, notifications, accounts, about |
 | `settings/account/{id}` | `ui.settings.AccountSettingsScreen` | Name, signature, server settings, password, remove |

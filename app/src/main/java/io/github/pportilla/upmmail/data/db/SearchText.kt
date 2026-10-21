@@ -22,16 +22,21 @@ object SearchText {
         fold(text).split(nonWord).filter { it.isNotEmpty() }
 
     /**
-     * A safe FTS4 MATCH expression for free text typed by the user: every word becomes a prefix
-     * term ("term*") and terms are implicitly ANDed. All FTS syntax characters are dropped and the
-     * words are lower case, so they can never be read as operators (OR, NOT, NEAR). Returns null
-     * when nothing searchable is left.
+     * A safe FTS4 MATCH expression for free text typed by the user: every word of at least
+     * [minPrefixLength] characters becomes a prefix term ("term*"), shorter ones must match a whole
+     * word, and terms are implicitly ANDed. All FTS syntax characters are dropped and the words are
+     * lower case, so they can never be read as operators (OR, NOT, NEAR). Returns null when nothing
+     * searchable is left. The default makes every word a prefix.
      */
-    fun matchExpression(query: String): String? {
+    fun matchExpression(query: String, minPrefixLength: Int = 1): String? {
         val terms = words(query).distinct().take(MAX_TERMS)
         if (terms.isEmpty()) return null
-        return terms.joinToString(" ") { "$it*" }
+        return terms.joinToString(" ") { if (it.length >= minPrefixLength) "$it*" else it }
     }
+
+    /** True if [query] has words (as split by [words]) and each has at least [length] characters. */
+    fun allTermsHaveLength(query: String, length: Int): Boolean =
+        words(query).let { terms -> terms.isNotEmpty() && terms.all { it.length >= length } }
 
     /**
      * True if every word of [query] is a prefix of some word of [candidates]

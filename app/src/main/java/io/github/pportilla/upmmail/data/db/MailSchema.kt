@@ -14,6 +14,9 @@ object Tables {
     const val DRAFT_ATTACHMENTS = "draft_attachments"
     const val RECENT_SEARCHES = "recent_searches"
     const val MESSAGES_FTS = "messages_fts"
+    const val HEADER_INDEX = "header_index"
+    const val HEADER_INDEX_FTS = "header_index_fts"
+    const val HEADER_INDEX_STATE = "header_index_state"
 }
 
 /**
@@ -21,13 +24,17 @@ object Tables {
  *
  * Android 8.0 (minSdk 26) ships SQLite 3.18, so only features available there are used: no
  * window functions, UPSERT, RETURNING, RENAME COLUMN or generated columns, and FTS4 instead of
- * FTS5. The JDBC driver used in unit tests is much newer and would not catch violations.
+ * FTS5. Sqlite318CompatTest runs the schema and the DAO queries on SQLite 3.18 to catch violations
+ * the much newer JDBC driver of the other unit tests would accept.
+ *
+ * A fresh database is built exactly like an upgraded one: version 1 followed by every migration.
  */
 object MailSchema {
     const val NAME = "upmmail.db"
-    const val VERSION = 1
+    const val VERSION = 2
 
-    private val CREATE = listOf(
+    /** Version 1 exactly as shipped. Never edit: installed databases were created from it. */
+    private val CREATE_V1 = listOf(
         """
         CREATE TABLE accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,7 +245,84 @@ object MailSchema {
         """,
     )
 
+    /**
+     * Version 2: the header index used by search, and detached messages (cached rows outside the
+     * sync window, hidden from the mailbox lists). Each statement is one element: the framework
+     * runs one statement per execSQL.
+     */
+    private val V1_TO_V2 = listOf(
+        // NULL: inside the sync window, listed. Otherwise the time of the last use (0 = unknown,
+        // evicted first) of a row kept for a search result or an opened message.
+        "ALTER TABLE messages ADD COLUMN detached_at INTEGER",
+        // Lower-case IMAP attributes of the folder, sorted and space separated. NULL: not listed
+        // since this upgrade, so whether the folder is virtual or shared (and indexed) is unknown.
+        "ALTER TABLE folders ADD COLUMN attributes TEXT",
+        // Rows a server search added below the window, or cached for a folder never synced, are
+        // the detached rows of version 2.
+        """
+        UPDATE messages SET detached_at = 0
+        WHERE EXISTS (
+            SELECT 1 FROM folders f WHERE f.id = messages.folder_id
+                AND (f.uid_validity = 0 OR messages.uid < f.window_start_uid OR messages.uid > f.window_end_uid)
+        )
+        """,
+        // Headers of messages that are not (necessarily) cached, so local search finds mail
+        // outside the sync window. to_addr is kept for the Sent folder only.
+        """
+        CREATE TABLE header_index (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            uid INTEGER NOT NULL,
+            message_id_header TEXT,
+            subject TEXT NOT NULL DEFAULT '',
+            from_addr TEXT NOT NULL DEFAULT '',
+            to_addr TEXT NOT NULL DEFAULT '',
+            date INTEGER NOT NULL,
+            internal_date INTEGER,
+            size INTEGER NOT NULL DEFAULT 0,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            is_starred INTEGER NOT NULL DEFAULT 0,
+            is_answered INTEGER NOT NULL DEFAULT 0,
+            has_attachments INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (folder_id, uid)
+        )
+        """,
+        "CREATE INDEX header_index_date ON header_index (date)",
+        // Folded text like messages_fts; docid = header_index.id.
+        "CREATE VIRTUAL TABLE header_index_fts USING fts4(subject, people, tokenize=unicode61)",
+        // Persistent: keeps the segment count low while the index is filled in many small batches.
+        "INSERT INTO header_index_fts(header_index_fts) VALUES('automerge=8')",
+        // Covers every delete, cascades included. Never insert into header_index with OR REPLACE:
+        // the rows it deletes would not fire this trigger.
+        """
+        CREATE TRIGGER header_index_fts_delete AFTER DELETE ON header_index BEGIN
+            DELETE FROM header_index_fts WHERE docid = old.id;
+        END
+        """,
+        // Per indexed folder: how far the index is known to match the server.
+        """
+        CREATE TABLE header_index_state (
+            folder_id INTEGER PRIMARY KEY REFERENCES folders(id) ON DELETE CASCADE,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            uid_validity INTEGER NOT NULL,
+            uid_next INTEGER NOT NULL,
+            server_count INTEGER NOT NULL DEFAULT 0,
+            indexed_count INTEGER NOT NULL DEFAULT 0,
+            complete INTEGER NOT NULL DEFAULT 0,
+            capped INTEGER NOT NULL DEFAULT 0,
+            dirty INTEGER NOT NULL DEFAULT 0,
+            checked_at INTEGER,
+            updated_at INTEGER
+        )
+        """,
+    )
+
     private val DROP = listOf(
+        "DROP TRIGGER IF EXISTS header_index_fts_delete",
+        "DROP TABLE IF EXISTS header_index_fts",
+        "DROP TABLE IF EXISTS header_index",
+        "DROP TABLE IF EXISTS header_index_state",
         "DROP TRIGGER IF EXISTS messages_fts_delete",
         "DROP TABLE IF EXISTS messages_fts",
         "DROP TABLE IF EXISTS recent_searches",
@@ -255,13 +339,23 @@ object MailSchema {
     )
 
     /**
-     * Step-by-step upgrades keyed by the version they start from. Version 1 is the first
-     * release, so there are none yet; add `1 to { db -> ... }` when bumping [VERSION].
+     * Step-by-step upgrades keyed by the version they start from; there must be one for every
+     * version below [VERSION]. They run inside the framework's upgrade transaction: if one throws,
+     * the database stays at its old version, but the app cannot open it until a fixed build
+     * ships, so every step must also pass Sqlite318CompatTest.
      */
-    private val MIGRATIONS: Map<Int, (SqlDatabase) -> Unit> = emptyMap()
+    internal val MIGRATIONS: Map<Int, (SqlDatabase) -> Unit> = mapOf(
+        1 to { db -> V1_TO_V2.forEach { db.execSQL(it.trimIndent()) } },
+    )
 
     fun create(db: SqlDatabase) {
-        CREATE.forEach { db.execSQL(it.trimIndent()) }
+        createVersion1(db)
+        for (version in 1 until VERSION) MIGRATIONS.getValue(version)(db)
+    }
+
+    /** The schema of version 1, for [create] and for migration tests. */
+    internal fun createVersion1(db: SqlDatabase) {
+        CREATE_V1.forEach { db.execSQL(it.trimIndent()) }
     }
 
     /** Applies the migrations from [from] to [to]; recreates the schema if a step is missing. */

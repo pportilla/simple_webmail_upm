@@ -14,7 +14,12 @@ android {
         applicationId = "io.github.pportilla.upmmail"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        // CI builds count up with the workflow run, so Android refuses to install an older build
+        // over a newer one (INSTALL_FAILED_VERSION_DOWNGRADE) instead of letting the app wipe its
+        // database in onDowngrade. A local build (versionCode 1) therefore cannot be installed over
+        // a CI build; forcing it with `adb install -d` wipes the local data (drafts, outbox and
+        // changes not yet sent) when its database version is older.
+        versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull()?.let { it + 100 } ?: 1
         versionName = "1.0.0"
     }
 
@@ -76,6 +81,10 @@ kotlin {
     }
 }
 
+// sqlite-jdbc 3.18.0, the SQLite of Android 8, kept apart from the test classpath: Sqlite318CompatTest
+// loads it in its own class loader from the path in -Dsqlite318.jar.
+val sqlite318: Configuration by configurations.creating { isTransitive = false }
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -99,4 +108,13 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.greenmail)
     testImplementation(libs.sqlite.jdbc)
+    sqlite318(libs.sqlite318.jdbc)
+}
+
+tasks.withType<Test>().configureEach {
+    val jar: FileCollection = sqlite318
+    inputs.files(jar).withPropertyName("sqlite318Jar").withNormalizer(ClasspathNormalizer::class.java)
+    jvmArgumentProviders += object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf("-Dsqlite318.jar=${jar.singleFile.absolutePath}")
+    }
 }

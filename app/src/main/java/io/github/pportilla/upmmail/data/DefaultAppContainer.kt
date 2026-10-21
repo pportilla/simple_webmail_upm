@@ -25,6 +25,7 @@ import io.github.pportilla.upmmail.notifications.MailNotifier
 import io.github.pportilla.upmmail.sync.AndroidSyncController
 import io.github.pportilla.upmmail.sync.FlushResult
 import io.github.pportilla.upmmail.sync.FlushScheduler
+import io.github.pportilla.upmmail.sync.IndexScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
 import io.github.pportilla.upmmail.sync.PushController
 import io.github.pportilla.upmmail.sync.SyncEngine
@@ -128,6 +129,11 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
         PushController(app, applicationScope, store, settingsRepository)
     }
 
+    /** Background jobs that build and refresh the header index used by search. */
+    val indexScheduler: IndexScheduler by lazy {
+        IndexScheduler(app, applicationScope, store, engine.headerIndexer)
+    }
+
     override val syncController: SyncController get() = androidSyncController
 
     val mailRepositoryImpl: MailRepositoryImpl by lazy {
@@ -201,13 +207,14 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     private fun currentLocale(): Locale = app.resources.configuration.locales.get(0) ?: Locale.getDefault()
 
-    /** Work for every process start: channels, push, interrupted sends, queued work, stale files. */
+    /** Work for every process start: channels, push, interrupted sends, queued work, the mail index, stale files. */
     private suspend fun housekeeping() {
         step("notification channels") { notifier.createChannels() }
         step("push") { pushController.start() }
         step("stale sends") { engine.failStaleSending() }
         step("outbox") { androidSyncController.requestOutboxSend() }
         step("pending operations") { store.pendingOps.accountsWithPending().forEach { flushScheduler.schedule(it) } }
+        step("mail index") { indexScheduler.start() }
         // Drafts and queued messages own their files (see LocalFiles): never deleted here.
         step("attachment cache") {
             val referenced = store.drafts.attachmentUris() + store.outbox.attachmentUris()

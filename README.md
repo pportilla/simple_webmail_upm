@@ -29,8 +29,17 @@ over IMAP and SMTP with TLS, so the mailbox is the same one you see in the UPM w
   (optionally) your phone contacts. Also: Cc/Bcc, signature, reply, reply-all and forward with
   quoting, drafts that sync to the server Drafts folder, and an outbox that sends when you are back
   online.
-- **Search**: instant local search with filters (unread, starred, attachments, folder), plus
-  server-side search for older mail. Recent searches are remembered.
+- **Search** that finds old mail too:
+  - **Instant results** from the mail on the device and from an index of the subjects, senders
+    and recipients of all your folders. The app builds the index in the background on Wi-Fi: about 0.9 KB per
+    message, without message text or attachments. *Index now* in the search screen builds it at
+    once.
+  - **Server search** when the device finds little. Subjects, senders and recipients of every
+    folder are searched on the UPM server automatically. *Search message text* (or the
+    keyboard's search key) also looks inside the messages, newest first, with progress per
+    folder and a *Stop* button. Results appear as they are found.
+  - Trash and Spam are searched only when you ask.
+  - Filters: unread, starred, attachments, this folder. Recent searches are remembered.
 - **Notifications** for new mail, with *Mark as read* and *Archive* actions. New mail arrives
   **instantly (push)**: the app keeps a connection to the server open with IMAP IDLE, shown by a
   small silent notification that you can hide. You can also choose checks every 15/30/60 minutes,
@@ -47,7 +56,8 @@ Download the latest build on your phone and open it:
 (see also the [latest-debug release page](https://github.com/pportilla/simple_webmail_upm/releases/tag/latest-debug)).
 Android will ask you to allow your browser to install unknown apps. Requires Android 8.0 or newer.
 Every push rebuilds this APK, and newer builds install over older ones without losing your
-accounts.
+accounts. Android refuses to install an older build over a newer one. Uninstalling the app to get
+around that deletes the accounts, drafts, outbox and changes not yet sent from the phone.
 
 ## UPM server settings
 
@@ -70,7 +80,10 @@ SDK (platform 36).
 ```
 
 To install on a phone with USB debugging enabled, run `./gradlew installDebug`. You can also copy
-the APK to the phone and open it (allow "install unknown apps").
+the APK to the phone and open it (allow "install unknown apps"). A local build has version code 1,
+and CI builds count up from the workflow run number. So a local build cannot be installed over a
+CI build. Forcing it (`adb install -d`) deletes the local data when the local build's database
+version is older.
 
 Every push also builds the debug APK on GitHub Actions (`.github/workflows/android.yml`). The APK
 can be downloaded from the run's *Artifacts* section.

@@ -12,6 +12,8 @@ jsoup = "1.21.2"
 junit = "4.13.2"
 greenmail = "2.1.5"
 sqliteJdbc = "3.50.3.0"
+# The SQLite of Android 8 (minSdk 26), for Sqlite318CompatTest only.
+sqliteJdbcAndroid8 = "3.18.0"
 
 [libraries]
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
@@ -34,6 +36,7 @@ jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 greenmail = { group = "com.icegreen", name = "greenmail", version.ref = "greenmail" }
 sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqliteJdbc" }
+sqlite318-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqliteJdbcAndroid8" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

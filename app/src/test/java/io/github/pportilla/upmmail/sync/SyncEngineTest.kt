@@ -1,6 +1,7 @@
 package io.github.pportilla.upmmail.sync
 
 import io.github.pportilla.upmmail.data.db.Conflict
+import io.github.pportilla.upmmail.data.db.ExtraRow
 import io.github.pportilla.upmmail.data.db.JdbcSqlDatabase
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.db.PendingOp
@@ -9,9 +10,11 @@ import io.github.pportilla.upmmail.data.db.SqlDatabase
 import io.github.pportilla.upmmail.data.db.TableObserver
 import io.github.pportilla.upmmail.data.db.Tables
 import io.github.pportilla.upmmail.data.db.addTestAccount
+import io.github.pportilla.upmmail.data.db.remoteMessage
 import io.github.pportilla.upmmail.data.files.FileAttachmentOpener
 import io.github.pportilla.upmmail.model.ComposeMode
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.HitOpenResult
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
 import io.github.pportilla.upmmail.model.OutboxState
@@ -26,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -437,6 +441,172 @@ class SyncEngineTest : SyncTestBase() {
         } finally {
             hookedClients.closeAll()
         }
+    }
+
+    // ------------------------------------------------------------------ header index and search results
+
+    private fun bulk() = IndexBudget.bulk(clock.now(), charging = true)
+
+    @Test
+    fun anIndexedSearchHitOpensAsADetachedRow() = runBlocking {
+        appendMessages("INBOX", numbered(60))
+        val inbox = inboxId()
+        engine.syncFolder(inbox)
+        engine.headerIndexer.run(bulk())
+        val listed = store.messages.list(inbox, 100, false).map { it.id }
+        val row = store.headerIndex.findByUids(inbox, listOf(3L)).single()
+        assertEquals("Message 3", row.subject)
+
+        val opened = engine.materializeIndexed(row.indexId) as HitOpenResult.Opened
+        assertEquals(3L, store.messages.ref(opened.messageId)!!.uid)
+        assertEquals("the list is unchanged", listed, store.messages.list(inbox, 100, false).map { it.id })
+        assertEquals("the conversation shows it", listOf("Message 3"), store.messages.thread(opened.messageId).map { it.summary.subject })
+        assertEquals(listOf(ExtraRow(opened.messageId, 3, clock.now())), store.messages.extras(inbox))
+        assertTrue(
+            "the cached copy replaces the index row in results",
+            store.headerIndex.search("Message", SearchFilters(), 100).none { it.uid == 3L },
+        )
+
+        clock.advance(60_000)
+        assertEquals(opened, engine.materializeIndexed(row.indexId))
+        assertEquals("opening it again marks it used", clock.now(), store.messages.extras(inbox).single().detachedAt)
+
+        engine.syncFolder(inbox)
+        assertEquals(listed, store.messages.list(inbox, 100, false).map { it.id })
+        assertNotNull("kept by the sync", store.messages.ref(opened.messageId))
+
+        // Once the window grows over it, it is an ordinary row again.
+        assertFalse(engine.loadOlder(inbox, 50))
+        assertTrue(store.messages.list(inbox, 100, false).any { it.id == opened.messageId })
+        assertTrue(store.messages.extras(inbox).isEmpty())
+    }
+
+    @Test
+    fun anIndexedHitThatMovedOpensAnotherCopyAndOneThatIsGoneSaysSo() = runBlocking {
+        appendMessages("INBOX", numbered(5))
+        appendMessages("Archive", listOf(message("Message 2", messageId = "<Message-2@test>")))
+        val inbox = inboxId()
+        val archive = store.folders.findByFullName(account.id, "Archive")!!.id
+        engine.headerIndexer.run(bulk())
+        val moved = store.headerIndex.findByUids(inbox, listOf(2L)).single()
+        val deleted = store.headerIndex.findByUids(inbox, listOf(4L)).single()
+        // On the server, Message 2 is now only in Archive and Message 4 is gone.
+        changeOnServer("INBOX", "Message 2") { it.setFlag(Flags.Flag.DELETED, true) }
+        changeOnServer("INBOX", "Message 4") { it.setFlag(Flags.Flag.DELETED, true) }
+
+        val opened = engine.materializeIndexed(moved.indexId) as HitOpenResult.Opened
+        assertEquals(archive, store.messages.ref(opened.messageId)!!.folderId)
+        assertTrue("the stale row is dropped", store.headerIndex.findByUids(inbox, listOf(2L)).isEmpty())
+
+        assertEquals(HitOpenResult.Gone, engine.materializeIndexed(deleted.indexId))
+        assertTrue(store.headerIndex.findByUids(inbox, listOf(4L)).isEmpty())
+        assertNull(store.messages.findByUid(inbox, 4))
+        assertEquals("the folder is checked again soon", listOf(inbox), store.headerIndex.dirtyFolders(account.id))
+        assertEquals(HitOpenResult.Gone, engine.materializeIndexed(deleted.indexId))
+    }
+
+    @Test
+    fun anIndexedHitBeingMovedReportsAPendingChange() = runBlocking {
+        createFolder("Archive")
+        appendMessages("INBOX", numbered(60))
+        val inbox = inboxId()
+        engine.syncFolder(inbox)
+        engine.headerIndexer.run(bulk())
+        val row = store.headerIndex.findByUids(inbox, listOf(3L)).single()
+        val opened = engine.materializeIndexed(row.indexId) as HitOpenResult.Opened
+
+        mailRepository().archive(listOf(opened.messageId)).getOrThrow()
+        assertEquals(HitOpenResult.PendingChange, engine.materializeIndexed(row.indexId))
+    }
+
+    @Test
+    fun detachedRowsAreEvictedLeastRecentlyUsedFirstButNotWhileInUse() = runBlocking {
+        storeOnServer("INBOX", numbered(350))
+        val inbox = inboxId()
+        engine.syncFolder(inbox)
+        val now = clock.now()
+        // 300 rows found by searches or opened: 50 used two hours ago, 250 in the last half hour.
+        store.messages.upsertHeaders(account.id, inbox, (1L..50L).map { remoteMessage(it) }, feedContacts = false, detachedAt = now - 2 * 60 * 60_000L)
+        store.messages.upsertHeaders(account.id, inbox, (51L..300L).map { remoteMessage(it) }, feedContacts = false, detachedAt = now - 10 * 60_000L)
+        assertEquals(300, store.messages.extras(inbox).size)
+
+        engine.syncFolder(inbox)
+        assertEquals("rows in use are spared", 250, store.messages.extras(inbox).size)
+        assertEquals(51L, store.messages.extras(inbox).first().uid)
+
+        clock.advance(60 * 60_000L)
+        engine.syncFolder(inbox)
+        val left = store.messages.extras(inbox)
+        assertEquals(HeaderIndexer.DETACHED_KEEP, left.size)
+        assertEquals(101L, left.first().uid)
+        assertEquals(50, store.messages.list(inbox, 500, false).size)
+    }
+
+    @Test
+    fun aWindowRestartDetachesTheRowsItKeeps() = runBlocking {
+        appendMessages("INBOX", numbered(60))
+        val inbox = inboxId()
+        engine.syncFolder(inbox)
+        val starred = store.messages.findByUid(inbox, 20)!!
+        store.pendingOps.insert(
+            PendingOp(
+                accountId = account.id,
+                type = PendingOpType.FLAG,
+                folder = "INBOX",
+                uids = listOf(20),
+                messageIds = listOf(starred.id),
+                flag = "FLAGGED",
+                value = true,
+                notBefore = clock.now() + 60_000,
+            ),
+        )
+        // A search result opened a minute ago.
+        store.messages.upsertHeaders(account.id, inbox, listOf(remoteMessage(5)), feedContacts = false, detachedAt = clock.now() - 60_000)
+        storeOnServer("INBOX", numbered(SyncEngine.NEWER_LIMIT + 50, "Nuevo"))
+
+        engine.syncFolder(inbox)
+        val listed = store.messages.list(inbox, 500, false)
+        assertEquals(SyncEngine.INITIAL_WINDOW, listed.size)
+        assertTrue(listed.all { it.subject.startsWith("Nuevo") })
+        assertTrue("the starred row waits for its change, detached", store.messages.extras(inbox).any { it.uid == 20L })
+        assertNotNull("the row in use survives", store.messages.findByUid(inbox, 5))
+        assertNull(store.messages.findByUid(inbox, 21))
+    }
+
+    @Test
+    fun completedChangesUpdateTheIndexAndMarkWhereMailWasAdded() = runBlocking {
+        createFolder("Archive")
+        createFolder("Sent")
+        appendMessages("INBOX", numbered(3))
+        val inbox = inboxId()
+        val archive = store.folders.findByFullName(account.id, "Archive")!!.id
+        val sent = store.folders.findByFullName(account.id, "Sent")!!.id
+        engine.syncFolder(inbox)
+        engine.headerIndexer.run(bulk())
+        assertEquals(3, store.headerIndex.state(inbox)!!.indexedCount)
+        val repository = mailRepository()
+        val byUid = store.messages.list(inbox, 10, false).associateBy { it.uid }
+
+        repository.setStarred(listOf(byUid.getValue(2).id), true)
+        repository.archive(listOf(byUid.getValue(1).id)).getOrThrow()
+        clock.advance(7_000)
+        engine.flushPendingOps(account.id)
+        assertTrue("moved away", store.headerIndex.findByUids(inbox, listOf(1L)).isEmpty())
+        assertTrue(store.headerIndex.findByUids(inbox, listOf(2L)).single().isStarred)
+        assertEquals("the move target expects new mail", listOf(archive), store.headerIndex.dirtyFolders(account.id))
+
+        repository.markFolderRead(inbox)
+        engine.flushPendingOps(account.id)
+        assertTrue(store.headerIndex.findByUids(inbox, listOf(2L, 3L)).all { it.isRead })
+
+        val dirty = engine.headerIndexer.run(IndexBudget.dirty(clock.now()))
+        assertEquals(1, dirty.fetched)
+        assertEquals(listOf("Message 1"), store.headerIndex.findByUids(archive, store.headerIndex.indexedUids(archive).toList()).map { it.subject })
+        assertTrue(store.headerIndex.dirtyFolders().isEmpty())
+
+        composeRepository().send(draftTo("bob@upm.es", "Hola Bob"), delaySeconds = 0)
+        assertEquals(1, engine.sendOutbox().sent)
+        assertEquals("the Sent copy is new there", listOf(sent), store.headerIndex.dirtyFolders(account.id))
     }
 }
 

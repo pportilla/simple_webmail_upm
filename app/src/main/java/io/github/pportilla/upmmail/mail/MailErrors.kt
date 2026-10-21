@@ -14,6 +14,7 @@ import org.eclipse.angus.mail.smtp.SMTPAddressFailedException
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException
 import org.eclipse.angus.mail.smtp.SMTPSenderFailedException
 import org.eclipse.angus.mail.util.MailConnectException
+import org.eclipse.angus.mail.util.SocketConnectException
 import java.io.EOFException
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -73,8 +74,28 @@ object MailErrors {
         }
     }
 
-    /** True when the socket may still be open but the peer stopped answering. */
-    internal fun isTimeout(t: Throwable): Boolean = causeChain(t).any { it is SocketTimeoutException }
+    /**
+     * True when the socket may still be open but the peer stopped answering. Angus Mail turns a
+     * read timeout during a folder command into a synthetic BYE and then into a
+     * FolderClosedException (or StoreClosedException) that keeps only the text of the timeout, not
+     * the exception; those count as timeouts too, while [isConnectionDrop] still matches them.
+     */
+    internal fun isTimeout(t: Throwable): Boolean = causeChain(t).any {
+        it is SocketTimeoutException ||
+            ((it is FolderClosedException || it is StoreClosedException || it is ConnectionException) &&
+                it.message.orEmpty().contains("SocketTimeoutException")) ||
+            (it is ConnectionException && it.response?.exception is SocketTimeoutException)
+    }
+
+    /**
+     * True when the server could not be reached at all: no connection could be opened (refused,
+     * no route, unknown host, or connecting timed out). Unlike a slow answer, this concerns every
+     * folder of the account alike.
+     */
+    internal fun isConnectFailure(t: Throwable): Boolean = causeChain(t).any {
+        it is MailConnectException || it is SocketConnectException || it is UnknownHostException ||
+            it is ConnectException || it is NoRouteToHostException
+    }
 
     /**
      * True for a login refused for a passing reason, e.g. "NO [UNAVAILABLE]" while the server's

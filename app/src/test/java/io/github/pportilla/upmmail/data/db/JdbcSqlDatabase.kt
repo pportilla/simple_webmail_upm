@@ -116,11 +116,22 @@ class JdbcSqlDatabase private constructor(private val connection: Connection) : 
     companion object {
         /** A fresh in-memory database with the app schema. */
         fun inMemory(): JdbcSqlDatabase {
-            val connection = DriverManager.getConnection("jdbc:sqlite::memory:")
-            connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
-            val db = JdbcSqlDatabase(connection)
+            val db = wrap(DriverManager.getConnection("jdbc:sqlite::memory:"))
             db.transaction { MailSchema.create(db) }
             return db
+        }
+
+        /** A fresh in-memory database with the schema of version 1, for migration tests. */
+        fun inMemoryVersion1(): JdbcSqlDatabase {
+            val db = wrap(DriverManager.getConnection("jdbc:sqlite::memory:"))
+            db.transaction { MailSchema.createVersion1(db) }
+            return db
+        }
+
+        /** Wraps an open connection (of any sqlite-jdbc version) with foreign keys turned on, like the app does. */
+        internal fun wrap(connection: Connection): JdbcSqlDatabase {
+            connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
+            return JdbcSqlDatabase(connection)
         }
     }
 }

@@ -27,6 +27,19 @@ class HelpersTest {
     }
 
     @Test
+    fun shortTermsCanBeExactWords() {
+        assertEquals("reunion* de depart*", SearchText.matchExpression("Reunión de DEPART", minPrefixLength = 3))
+        assertEquals("acta* a la", SearchText.matchExpression("acta a la", minPrefixLength = 3))
+        assertEquals("the default keeps every word a prefix", "a* la*", SearchText.matchExpression("a la"))
+        assertNull(SearchText.matchExpression(" () ", minPrefixLength = 3))
+        assertTrue(SearchText.allTermsHaveLength("Junta electoral", 3))
+        assertFalse(SearchText.allTermsHaveLength("de la Junta", 3))
+        assertTrue("letters are counted after folding", SearchText.allTermsHaveLength("año", 3))
+        assertFalse(SearchText.allTermsHaveLength("CV", 3))
+        assertFalse(SearchText.allTermsHaveLength(" () ", 1))
+    }
+
+    @Test
     fun fileNamesAreSanitised() {
         assertEquals("passwd", LocalFiles.sanitizeFileName("../../etc/passwd"))
         assertEquals("a_b_c.txt", LocalFiles.sanitizeFileName("a:b*c.txt"))
