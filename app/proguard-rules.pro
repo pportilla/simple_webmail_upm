@@ -1,0 +1,11 @@
+# Only used if minification is turned on for release builds.
+-keep class jakarta.mail.** { *; }
+-keep class jakarta.activation.** { *; }
+-keep class org.eclipse.angus.** { *; }
+-dontwarn java.awt.**
+-dontwarn javax.security.sasl.**
+-dontwarn javax.naming.**
+-dontwarn org.graalvm.**
+-dontwarn org.jspecify.annotations.**
+-dontwarn org.slf4j.**
+-dontwarn com.google.re2j.**
