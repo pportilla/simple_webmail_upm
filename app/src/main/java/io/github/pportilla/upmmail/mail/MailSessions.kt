@@ -95,6 +95,9 @@ internal object MailSessions {
         // A search the server rejects must fail instead of silently downloading every message.
         props["$p.throwsearchexception"] = "true"
         props["$p.ssl.checkserveridentity"] = "true"
+        // Android ignores the "LDAPS" endpoint check that checkserveridentity relies on, so the
+        // certificate must also be matched against the host name explicitly.
+        props["$p.ssl.hostnameverifier.class"] = HOSTNAME_VERIFIER
         applySecurity(props, protocol, settings.security)
         return withEngineClassLoader { Session.getInstance(props) }
     }
@@ -112,9 +115,15 @@ internal object MailSessions {
         // Do not wait for the server's answer to QUIT once the message has been accepted.
         props["$p.quitwait"] = "false"
         props["$p.ssl.checkserveridentity"] = "true"
+        // Android ignores the "LDAPS" endpoint check that checkserveridentity relies on, so the
+        // certificate must also be matched against the host name explicitly.
+        props["$p.ssl.hostnameverifier.class"] = HOSTNAME_VERIFIER
         applySecurity(props, protocol, settings.security)
         return withEngineClassLoader { Session.getInstance(props) }
     }
+
+    /** Angus Mail's built-in SAN/CN matcher (pure Java, so it works on Android and the JVM). */
+    private const val HOSTNAME_VERIFIER = "MailHostnameVerifier"
 
     fun imapProtocol(security: SecurityMode): String = if (security == SecurityMode.SSL_TLS) "imaps" else "imap"
 
