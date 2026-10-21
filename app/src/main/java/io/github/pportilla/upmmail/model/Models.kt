@@ -182,8 +182,15 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** Material You colours from the wallpaper (Android 12+) instead of UPM blue. */
     val dynamicColor: Boolean = false,
+    /**
+     * Push: keep an IMAP IDLE connection to every INBOX open (in a foreground service) so new
+     * mail arrives within seconds. The periodic check below stays on as a safety net.
+     */
+    val pushEnabled: Boolean = true,
     /** Background check interval in minutes; 0 means manual only. */
     val syncIntervalMinutes: Int = 15,
+    /** UI language: "" follows the system, otherwise a language tag ("en", "es"). */
+    val language: String = "",
     val notificationsEnabled: Boolean = true,
     /** Action for a start-to-end (left to right) swipe. */
     val swipeStartToEnd: SwipeAction = SwipeAction.ARCHIVE,
