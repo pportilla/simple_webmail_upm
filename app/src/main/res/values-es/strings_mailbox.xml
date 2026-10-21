@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Buzón: barra de búsqueda y menú lateral -->
+    <string name="mailbox_search_in">Buscar en %1$s</string>
+    <string name="mailbox_search_mail">Buscar en el correo</string>
+    <string name="mailbox_open_drawer">Abrir el menú de navegación</string>
+    <string name="mailbox_switch_account">Cambiar de cuenta</string>
+    <string name="mailbox_accounts_title">Cuentas</string>
+    <string name="mailbox_current_account">Cuenta actual</string>
+    <string name="mailbox_add_account">Añadir otra cuenta</string>
+    <string name="mailbox_manage_accounts">Gestionar cuentas</string>
+    <string name="mailbox_show_accounts">Mostrar cuentas</string>
+    <string name="mailbox_hide_accounts">Ocultar cuentas</string>
+    <string name="mailbox_drawer_folders">Carpetas</string>
+    <string name="mailbox_loading_folders">Cargando carpetas…</string>
+    <string name="mailbox_no_browser">No hay ninguna app que pueda abrir la página web.</string>
+
+    <!-- Buzón: menús y selección -->
+    <string name="mailbox_mark_all_read">Marcar todo como leído</string>
+    <string name="mailbox_select_all">Seleccionar todo</string>
+    <string name="mailbox_empty_trash">Vaciar papelera</string>
+    <string name="mailbox_empty_spam">Vaciar spam</string>
+    <string name="mailbox_exit_selection">Quitar selección</string>
+    <string name="mailbox_action_select">Seleccionar</string>
+    <string name="mailbox_action_deselect">Deseleccionar</string>
+    <plurals name="mailbox_selected_count">
+        <item quantity="one">%1$d seleccionado</item>
+        <item quantity="many">%1$d seleccionados</item>
+        <item quantity="other">%1$d seleccionados</item>
+    </plurals>
+
+    <!-- Buzón: filas de la lista -->
+    <string name="mailbox_to_recipients">Para: %1$s</string>
+    <string name="mailbox_no_recipients">(sin destinatarios)</string>
+    <string name="mailbox_draft_label">Borrador</string>
+    <string name="mailbox_has_attachments">Tiene adjuntos</string>
+    <string name="mailbox_state_unread">No leído</string>
+    <string name="mailbox_state_selected">Seleccionado</string>
+    <string name="mailbox_state_starred">Destacado</string>
+    <string name="mailbox_state_replied">Respondido</string>
+    <string name="mailbox_loading_messages">Cargando mensajes…</string>
+    <string name="mailbox_loading_older">Cargando mensajes anteriores…</string>
+    <string name="mailbox_load_older_failed">No se han podido cargar los mensajes anteriores.</string>
+    <string name="mailbox_setting_up">Preparando tu buzón…</string>
+    <string name="mailbox_setup_failed_title">No se ha podido cargar tu buzón</string>
+
+    <!-- Buzón: estados vacíos -->
+    <string name="mailbox_empty_inbox_title">¡Bandeja vacía!</string>
+    <string name="mailbox_empty_inbox_body">Estás al día. El correo nuevo aparecerá aquí.</string>
+    <string name="mailbox_empty_drafts_title">No hay borradores</string>
+    <string name="mailbox_empty_drafts_body">Aquí se guardan los mensajes que empiezas a escribir y no envías.</string>
+    <string name="mailbox_empty_sent_title">Todavía no has enviado nada</string>
+    <string name="mailbox_empty_sent_body">Los mensajes que envíes aparecerán aquí.</string>
+    <string name="mailbox_empty_archive_title">No hay nada archivado</string>
+    <string name="mailbox_empty_archive_body">Archiva mensajes para ordenar tu bandeja de entrada sin eliminarlos.</string>
+    <string name="mailbox_empty_trash_title">La papelera está vacía</string>
+    <string name="mailbox_empty_trash_body">Los mensajes que elimines aparecerán aquí.</string>
+    <string name="mailbox_empty_junk_title">No hay spam</string>
+    <string name="mailbox_empty_junk_body">¡Genial! Por aquí no hay nada sospechoso.</string>
+    <string name="mailbox_empty_folder_title">No hay mensajes</string>
+    <string name="mailbox_empty_folder_body">Esta carpeta está vacía.</string>
+    <string name="mailbox_empty_not_synced_title">Aún no se ha descargado</string>
+    <string name="mailbox_empty_not_synced_body">Esta carpeta todavía no se ha comprobado. Desliza hacia abajo o toca Actualizar para descargarla.</string>
+    <string name="mailbox_empty_outbox_title">La bandeja de salida está vacía</string>
+    <string name="mailbox_empty_outbox_body">Los mensajes pendientes de enviar aparecerán aquí.</string>
+    <string name="mailbox_go_to_inbox">Ir a Recibidos</string>
+
+    <!-- Buzón: confirmación de acciones -->
+    <plurals name="mailbox_archived">
+        <item quantity="one">Archivado</item>
+        <item quantity="many">%1$d archivados</item>
+        <item quantity="other">%1$d archivados</item>
+    </plurals>
+    <plurals name="mailbox_trashed">
+        <item quantity="one">Movido a la papelera</item>
+        <item quantity="many">%1$d movidos a la papelera</item>
+        <item quantity="other">%1$d movidos a la papelera</item>
+    </plurals>
+    <plurals name="mailbox_moved">
+        <item quantity="one">Movido a %2$s</item>
+        <item quantity="many">%1$d movidos a %2$s</item>
+        <item quantity="other">%1$d movidos a %2$s</item>
+    </plurals>
+    <plurals name="mailbox_deleted_forever">
+        <item quantity="one">Eliminado definitivamente</item>
+        <item quantity="many">%1$d eliminados definitivamente</item>
+        <item quantity="other">%1$d eliminados definitivamente</item>
+    </plurals>
+    <string name="mailbox_no_archive_folder">Esta cuenta no tiene carpeta de archivo.</string>
+    <string name="mailbox_marked_all_read">Todos los mensajes se han marcado como leídos</string>
+    <string name="mailbox_trash_emptied">Papelera vaciada</string>
+    <string name="mailbox_spam_emptied">Spam vaciado</string>
+
+    <!-- Buzón: confirmaciones -->
+    <string name="mailbox_confirm_trash_title">¿Mover a la papelera?</string>
+    <plurals name="mailbox_confirm_trash_conversations">
+        <item quantity="one">La conversación se moverá a la papelera.</item>
+        <item quantity="many">Se moverán %1$d conversaciones a la papelera.</item>
+        <item quantity="other">Se moverán %1$d conversaciones a la papelera.</item>
+    </plurals>
+    <plurals name="mailbox_confirm_trash_messages">
+        <item quantity="one">El mensaje se moverá a la papelera.</item>
+        <item quantity="many">Se moverán %1$d mensajes a la papelera.</item>
+        <item quantity="other">Se moverán %1$d mensajes a la papelera.</item>
+    </plurals>
+    <string name="mailbox_confirm_delete_forever_title">¿Eliminar definitivamente?</string>
+    <plurals name="mailbox_confirm_delete_forever_conversations">
+        <item quantity="one">La conversación se eliminará definitivamente. No podrás deshacerlo.</item>
+        <item quantity="many">Se eliminarán definitivamente %1$d conversaciones. No podrás deshacerlo.</item>
+        <item quantity="other">Se eliminarán definitivamente %1$d conversaciones. No podrás deshacerlo.</item>
+    </plurals>
+    <plurals name="mailbox_confirm_delete_forever_messages">
+        <item quantity="one">El mensaje se eliminará definitivamente. No podrás deshacerlo.</item>
+        <item quantity="many">Se eliminarán definitivamente %1$d mensajes. No podrás deshacerlo.</item>
+        <item quantity="other">Se eliminarán definitivamente %1$d mensajes. No podrás deshacerlo.</item>
+    </plurals>
+    <string name="mailbox_confirm_empty_trash_title">¿Vaciar la papelera?</string>
+    <string name="mailbox_confirm_empty_trash_body">Todo lo que hay en la papelera se eliminará definitivamente. No podrás deshacerlo.</string>
+    <string name="mailbox_confirm_empty_spam_title">¿Vaciar spam?</string>
+    <string name="mailbox_confirm_empty_spam_body">Todo lo que hay en spam se eliminará definitivamente. No podrás deshacerlo.</string>
+    <string name="mailbox_empty_action">Vaciar</string>
+
+    <!-- Buzón: bandeja de salida -->
+    <string name="mailbox_outbox_queued">Pendiente de envío</string>
+    <string name="mailbox_outbox_scheduled">Programado: %1$s</string>
+    <string name="mailbox_outbox_sending">Enviando…</string>
+    <string name="mailbox_outbox_failed">No enviado</string>
+    <string name="mailbox_outbox_edit">Editar</string>
+    <string name="mailbox_outbox_deleted">Mensaje no enviado eliminado</string>
+    <plurals name="mailbox_outbox_attempts">
+        <item quantity="one">%1$d intento</item>
+        <item quantity="many">%1$d intentos</item>
+        <item quantity="other">%1$d intentos</item>
+    </plurals>
+    <plurals name="mailbox_outbox_attachments">
+        <item quantity="one">%1$d adjunto</item>
+        <item quantity="many">%1$d adjuntos</item>
+        <item quantity="other">%1$d adjuntos</item>
+    </plurals>
+    <string name="mailbox_confirm_delete_outbox_title">¿Eliminar el mensaje no enviado?</string>
+    <string name="mailbox_confirm_delete_outbox_body">Este mensaje no se ha enviado y se perderá.</string>
+
+    <!-- Búsqueda -->
+    <string name="search_hint">Buscar en el correo</string>
+    <string name="search_hint_folder">Buscar en %1$s</string>
+    <string name="search_clear">Borrar búsqueda</string>
+    <string name="search_filter_unread">No leídos</string>
+    <string name="search_filter_starred">Destacados</string>
+    <string name="search_filter_attachments">Con adjuntos</string>
+    <string name="search_scope_this_folder">Esta carpeta</string>
+    <string name="search_scope_this_folder_named">Esta carpeta (%1$s)</string>
+    <string name="search_scope_all_folders">Todas las carpetas</string>
+    <string name="search_recent_title">Búsquedas recientes</string>
+    <string name="search_clear_history">Borrar historial</string>
+    <string name="search_edit_recent">Editar «%1$s»</string>
+    <string name="search_empty_title">Busca en tu correo</string>
+    <string name="search_empty_body">Encuentra mensajes por remitente, destinatario, asunto o texto.</string>
+    <string name="search_no_local_title">Sin resultados en este dispositivo</string>
+    <string name="search_no_local_body">La búsqueda instantánea solo incluye los mensajes descargados. Prueba a buscar en el servidor.</string>
+    <string name="search_on_server">Buscar en el servidor</string>
+    <string name="search_on_server_hint">Busca en %1$s en el servidor de correo de la UPM</string>
+    <string name="search_server_running">Buscando en %1$s en el servidor…</string>
+    <string name="search_from_server">Del servidor</string>
+    <string name="search_server_nothing_more">No se han encontrado más mensajes en %1$s en el servidor.</string>
+</resources>

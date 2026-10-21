@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Conversation states -->
+    <string name="message_not_found_title">Message not available</string>
+    <string name="message_not_found_body">It may have been deleted or moved to another folder.</string>
+    <plurals name="message_more_messages">
+        <item quantity="one">%1$d more message</item>
+        <item quantity="other">%1$d more messages</item>
+    </plurals>
+
+    <!-- Message card -->
+    <string name="message_expand">Expand message</string>
+    <string name="message_collapse">Collapse message</string>
+    <string name="message_draft_label">Draft</string>
+    <string name="message_edit_draft">Edit draft</string>
+    <string name="message_has_attachments">Has attachments</string>
+    <string name="message_starred">Starred</string>
+    <!-- Recipient line under the sender, e.g. "to me, Ana" -->
+    <string name="message_to_summary">to %1$s</string>
+    <plurals name="message_to_summary_more">
+        <item quantity="one">to %1$s and %2$d more</item>
+        <item quantity="other">to %1$s and %2$d more</item>
+    </plurals>
+    <string name="message_to_undisclosed">to undisclosed recipients</string>
+    <string name="message_show_details">Show details</string>
+    <string name="message_hide_details">Hide details</string>
+    <string name="message_more_options_message">More options for this message</string>
+    <string name="message_mark_unread_from_here">Mark unread from here</string>
+    <string name="message_delete_this">Delete this message</string>
+
+    <!-- Details block -->
+    <string name="message_details_from">From</string>
+    <string name="message_details_to">To</string>
+    <string name="message_details_cc">Cc</string>
+    <string name="message_details_bcc">Bcc</string>
+    <string name="message_details_reply_to">Reply-To</string>
+    <string name="message_details_date">Date</string>
+    <string name="message_write_to">Write to %1$s</string>
+    <string name="message_copy_address">Copy address</string>
+    <string name="message_address_copied">Address copied</string>
+
+    <!-- Body -->
+    <string name="message_loading_body">Loading message…</string>
+    <string name="message_body_error">Couldn\'t load this message</string>
+    <string name="message_empty_body">This message has no text.</string>
+    <string name="message_images_hidden">Images are hidden</string>
+    <string name="message_images_hidden_detail">Remote images can tell the sender that you opened the message.</string>
+    <string name="message_show_images">Show images</string>
+    <string name="message_always_show_images">Always show from %1$s</string>
+    <string name="message_no_app_for_link">No app can open this link</string>
+
+    <!-- Attachments -->
+    <plurals name="message_attachment_count">
+        <item quantity="one">%1$d attachment</item>
+        <item quantity="other">%1$d attachments</item>
+    </plurals>
+    <string name="message_attachment_downloading">Downloading…</string>
+    <string name="message_attachment_options">Options for %1$s</string>
+    <string name="message_attachment_share">Share</string>
+    <string name="message_attachment_share_title">Share %1$s</string>
+    <string name="message_attachment_share_failed">Couldn\'t share this file</string>
+    <string name="message_attachment_save">Save to device</string>
+    <string name="message_attachment_saved">Saved %1$s</string>
+    <string name="message_attachment_save_failed">Couldn\'t save the file</string>
+    <string name="message_attachment_open_failed">No app found to open this file</string>
+
+    <!-- Reply bar (short labels: the three buttons share one row) -->
+    <string name="message_button_reply">Reply</string>
+    <string name="message_button_reply_all">Reply all</string>
+    <string name="message_button_forward">Forward</string>
+
+    <!-- Conversation actions -->
+    <string name="message_print">Print</string>
+    <string name="message_print_failed">Couldn\'t print this message</string>
+    <string name="message_archived">Conversation archived</string>
+    <string name="message_trashed">Conversation moved to Trash</string>
+    <string name="message_deleted_forever">Conversation deleted forever</string>
+    <string name="message_single_trashed">Message moved to Trash</string>
+    <string name="message_single_deleted_forever">Message deleted forever</string>
+    <string name="message_moved">Conversation moved to %1$s</string>
+    <string name="message_reported_spam">Reported as spam</string>
+    <string name="message_delete_title">Delete conversation?</string>
+    <plurals name="message_delete_body">
+        <item quantity="one">%1$d message will be moved to Trash.</item>
+        <item quantity="other">%1$d messages will be moved to Trash.</item>
+    </plurals>
+    <string name="message_delete_forever_title">Delete forever?</string>
+    <plurals name="message_delete_forever_body">
+        <item quantity="one">%1$d message will be permanently deleted. You can\'t undo this.</item>
+        <item quantity="other">%1$d messages will be permanently deleted. You can\'t undo this.</item>
+    </plurals>
+    <string name="message_delete_single_title">Delete this message?</string>
+    <string name="message_delete_single_body">It will be moved to Trash.</string>
+    <string name="message_delete_single_forever_body">It will be permanently deleted. You can\'t undo this.</string>
+
+    <!-- Unsubscribe -->
+    <string name="message_unsubscribe">Unsubscribe</string>
+    <string name="message_unsubscribe_title">Unsubscribe?</string>
+    <string name="message_unsubscribe_title_from">Unsubscribe from %1$s?</string>
+    <string name="message_unsubscribe_web">The unsubscribe page of %1$s will open in your browser.</string>
+    <string name="message_unsubscribe_mail">A message to %1$s will be prepared. Send it to stop receiving these emails.</string>
+    <!-- Subject of the unsubscribe e-mail when the sender does not suggest one; kept in English on purpose for mailing-list robots -->
+    <string name="message_unsubscribe_default_subject">unsubscribe</string>
+</resources>

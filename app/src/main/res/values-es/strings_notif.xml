@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Canales de notificación -->
+    <string name="notif_channel_new_mail">Correo nuevo</string>
+    <string name="notif_channel_new_mail_description">Mensajes nuevos en tus bandejas de entrada</string>
+    <string name="notif_channel_send_failures">Mensajes no enviados</string>
+    <string name="notif_channel_send_failures_description">Mensajes que no se han podido enviar y necesitan tu atención</string>
+
+    <!-- Correo nuevo -->
+    <plurals name="notif_new_messages">
+        <item quantity="one">%1$d mensaje nuevo</item>
+        <item quantity="many">%1$d mensajes nuevos</item>
+        <item quantity="other">%1$d mensajes nuevos</item>
+    </plurals>
+    <string name="notif_inbox_line">%1$s  %2$s</string>
+    <string name="notif_action_mark_read">Marcar como leído</string>
+    <string name="notif_action_archive">Archivar</string>
+    <string name="notif_action_delete">Eliminar</string>
+
+    <!-- Errores de envío -->
+    <string name="notif_send_failed_title">Mensaje no enviado</string>
+    <string name="notif_send_failed_text">No se ha podido enviar «%1$s». Toca para abrir la bandeja de salida.</string>
+
+    <!-- Textos que se insertan en respuestas y reenvíos -->
+    <string name="notif_quote_attribution">El %1$s, %2$s escribió:</string>
+    <string name="notif_quote_forward_separator">---------- Mensaje reenviado ----------</string>
+    <string name="notif_quote_forward_from">De: %1$s</string>
+    <string name="notif_quote_forward_date">Fecha: %1$s</string>
+    <string name="notif_quote_forward_subject">Asunto: %1$s</string>
+    <string name="notif_quote_forward_to">Para: %1$s</string>
+    <string name="notif_quote_forward_cc">CC: %1$s</string>
+</resources>

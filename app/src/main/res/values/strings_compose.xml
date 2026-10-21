@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose: app bar titles -->
+    <string name="compose_title_new">New message</string>
+    <string name="compose_title_reply">Reply</string>
+    <string name="compose_title_reply_all">Reply all</string>
+    <string name="compose_title_forward">Forward</string>
+    <string name="compose_title_edit_draft">Edit draft</string>
+
+    <!-- Compose: app bar actions -->
+    <string name="compose_attach">Attach file</string>
+    <string name="compose_save_draft">Save draft</string>
+    <string name="compose_add_cc_bcc">Add Cc/Bcc</string>
+
+    <!-- Compose: form fields -->
+    <string name="compose_from">From</string>
+    <string name="compose_choose_account">From. Choose the account to send from</string>
+    <string name="compose_to">To</string>
+    <string name="compose_cc">Cc</string>
+    <string name="compose_bcc">Bcc</string>
+    <string name="compose_show_cc_bcc">Show Cc and Bcc</string>
+    <string name="compose_hide_cc_bcc">Hide Cc and Bcc</string>
+    <string name="compose_subject">Subject</string>
+    <string name="compose_body_hint">Compose email</string>
+
+    <!-- Compose: recipient chips and suggestions -->
+    <string name="compose_chip_edit">Edit</string>
+    <string name="compose_chip_remove">Remove</string>
+    <!-- Header of the menu of an invalid recipient chip, e.g. "Not a valid address: ana@upm" -->
+    <string name="compose_chip_invalid">Not a valid address: %1$s</string>
+    <!-- Accessibility state of an invalid recipient chip -->
+    <string name="compose_chip_invalid_state">Invalid address</string>
+    <string name="compose_device_contact">Contact from your phone</string>
+
+    <!-- Compose: attachments -->
+    <string name="compose_remove_attachment">Remove %1$s</string>
+    <plurals name="compose_attaching">
+        <item quantity="one">Adding %1$d file…</item>
+        <item quantity="other">Adding %1$d files…</item>
+    </plurals>
+    <!-- %1$s is a size such as "23 MB" -->
+    <string name="compose_attachments_large">The attachments add up to %1$s. The server may reject messages over 20 MB; consider sharing a link instead.</string>
+    <string name="compose_no_file_picker">No app available to pick files.</string>
+    <plurals name="compose_attachments_failed">
+        <item quantity="one">Couldn\'t attach the file.</item>
+        <item quantity="other">Couldn\'t attach %1$d files.</item>
+    </plurals>
+
+    <!-- Compose: loading and errors -->
+    <string name="compose_error_title">Couldn\'t prepare the message</string>
+    <string name="compose_draft_missing_title">This draft no longer exists</string>
+    <string name="compose_draft_missing_body">It may have been sent or deleted from another device.</string>
+    <string name="compose_no_account_title">No account yet</string>
+    <string name="compose_no_account_body">Add your UPM account to send mail.</string>
+    <string name="compose_add_account">Add account</string>
+
+    <!-- Compose: validation -->
+    <string name="compose_error_no_recipients">Add at least one recipient.</string>
+    <plurals name="compose_error_invalid_recipients">
+        <item quantity="one">This address isn\'t valid: %2$s</item>
+        <item quantity="other">These addresses aren\'t valid: %2$s</item>
+    </plurals>
+    <string name="compose_error_attachments_pending">Wait until the attachments have been added.</string>
+    <string name="compose_nothing_to_save">There\'s nothing to save yet.</string>
+
+    <!-- Compose: dialogs -->
+    <string name="compose_discard_title">Discard this draft?</string>
+    <string name="compose_discard_body">The message will be deleted, including its copy in your Drafts folder.</string>
+    <string name="compose_no_subject_title">Send without a subject?</string>
+    <string name="compose_no_subject_body">This message has no subject. Recipients will see it as “(no subject)”.</string>
+
+    <!-- Compose: after leaving the screen -->
+    <string name="compose_sending">Sending…</string>
+    <string name="compose_queued_offline">You\'re offline. The message will be sent when you\'re back online.</string>
+    <string name="compose_already_sent">Too late to undo: the message has already been sent.</string>
+    <string name="compose_undo_failed">Couldn\'t undo the send.</string>
+    <string name="compose_send_failed_saved">Couldn\'t send the message. It was kept as a draft.</string>
+    <string name="compose_send_failed">Couldn\'t send the message.</string>
+    <string name="compose_open_draft">Open</string>
+    <string name="compose_draft_saved">Draft saved</string>
+    <string name="compose_draft_save_failed">Couldn\'t save the draft.</string>
+    <string name="compose_draft_discarded">Draft discarded</string>
+</resources>

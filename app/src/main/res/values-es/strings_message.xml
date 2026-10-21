@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Estados de la conversación -->
+    <string name="message_not_found_title">Mensaje no disponible</string>
+    <string name="message_not_found_body">Puede que se haya eliminado o movido a otra carpeta.</string>
+    <plurals name="message_more_messages">
+        <item quantity="one">%1$d mensaje más</item>
+        <item quantity="many">%1$d mensajes más</item>
+        <item quantity="other">%1$d mensajes más</item>
+    </plurals>
+
+    <!-- Tarjeta de mensaje -->
+    <string name="message_expand">Desplegar mensaje</string>
+    <string name="message_collapse">Contraer mensaje</string>
+    <string name="message_draft_label">Borrador</string>
+    <string name="message_edit_draft">Editar borrador</string>
+    <string name="message_has_attachments">Tiene archivos adjuntos</string>
+    <string name="message_starred">Destacado</string>
+    <!-- Línea de destinatarios bajo el remitente, p. ej. "para mí, Ana" -->
+    <string name="message_to_summary">para %1$s</string>
+    <plurals name="message_to_summary_more">
+        <item quantity="one">para %1$s y %2$d más</item>
+        <item quantity="many">para %1$s y %2$d más</item>
+        <item quantity="other">para %1$s y %2$d más</item>
+    </plurals>
+    <string name="message_to_undisclosed">para destinatarios ocultos</string>
+    <string name="message_show_details">Mostrar detalles</string>
+    <string name="message_hide_details">Ocultar detalles</string>
+    <string name="message_more_options_message">Más opciones de este mensaje</string>
+    <string name="message_mark_unread_from_here">Marcar como no leído desde aquí</string>
+    <string name="message_delete_this">Eliminar este mensaje</string>
+
+    <!-- Bloque de detalles -->
+    <string name="message_details_from">De</string>
+    <string name="message_details_to">Para</string>
+    <string name="message_details_cc">Cc</string>
+    <string name="message_details_bcc">Cco</string>
+    <string name="message_details_reply_to">Responder a</string>
+    <string name="message_details_date">Fecha</string>
+    <string name="message_write_to">Escribir a %1$s</string>
+    <string name="message_copy_address">Copiar dirección</string>
+    <string name="message_address_copied">Dirección copiada</string>
+
+    <!-- Cuerpo -->
+    <string name="message_loading_body">Cargando mensaje…</string>
+    <string name="message_body_error">No se ha podido cargar este mensaje</string>
+    <string name="message_empty_body">Este mensaje no tiene texto.</string>
+    <string name="message_images_hidden">Imágenes ocultas</string>
+    <string name="message_images_hidden_detail">Las imágenes remotas pueden avisar al remitente de que has abierto el mensaje.</string>
+    <string name="message_show_images">Mostrar imágenes</string>
+    <string name="message_always_show_images">Mostrar siempre de %1$s</string>
+    <string name="message_no_app_for_link">No hay ninguna aplicación que pueda abrir este enlace</string>
+
+    <!-- Archivos adjuntos -->
+    <plurals name="message_attachment_count">
+        <item quantity="one">%1$d archivo adjunto</item>
+        <item quantity="many">%1$d archivos adjuntos</item>
+        <item quantity="other">%1$d archivos adjuntos</item>
+    </plurals>
+    <string name="message_attachment_downloading">Descargando…</string>
+    <string name="message_attachment_options">Opciones de %1$s</string>
+    <string name="message_attachment_share">Compartir</string>
+    <string name="message_attachment_share_title">Compartir %1$s</string>
+    <string name="message_attachment_share_failed">No se ha podido compartir este archivo</string>
+    <string name="message_attachment_save">Guardar en el dispositivo</string>
+    <string name="message_attachment_saved">%1$s guardado</string>
+    <string name="message_attachment_save_failed">No se ha podido guardar el archivo</string>
+    <string name="message_attachment_open_failed">No hay ninguna aplicación para abrir este archivo</string>
+
+    <!-- Barra de respuesta (etiquetas cortas: los tres botones comparten fila) -->
+    <string name="message_button_reply">Responder</string>
+    <string name="message_button_reply_all">A todos</string>
+    <string name="message_button_forward">Reenviar</string>
+
+    <!-- Acciones de la conversación -->
+    <string name="message_print">Imprimir</string>
+    <string name="message_print_failed">No se ha podido imprimir este mensaje</string>
+    <string name="message_archived">Conversación archivada</string>
+    <string name="message_trashed">Conversación movida a la papelera</string>
+    <string name="message_deleted_forever">Conversación eliminada definitivamente</string>
+    <string name="message_single_trashed">Mensaje movido a la papelera</string>
+    <string name="message_single_deleted_forever">Mensaje eliminado definitivamente</string>
+    <string name="message_moved">Conversación movida a %1$s</string>
+    <string name="message_reported_spam">Marcado como spam</string>
+    <string name="message_delete_title">¿Eliminar la conversación?</string>
+    <plurals name="message_delete_body">
+        <item quantity="one">%1$d mensaje se moverá a la papelera.</item>
+        <item quantity="many">%1$d mensajes se moverán a la papelera.</item>
+        <item quantity="other">%1$d mensajes se moverán a la papelera.</item>
+    </plurals>
+    <string name="message_delete_forever_title">¿Eliminar definitivamente?</string>
+    <plurals name="message_delete_forever_body">
+        <item quantity="one">%1$d mensaje se eliminará para siempre. No podrás deshacerlo.</item>
+        <item quantity="many">%1$d mensajes se eliminarán para siempre. No podrás deshacerlo.</item>
+        <item quantity="other">%1$d mensajes se eliminarán para siempre. No podrás deshacerlo.</item>
+    </plurals>
+    <string name="message_delete_single_title">¿Eliminar este mensaje?</string>
+    <string name="message_delete_single_body">Se moverá a la papelera.</string>
+    <string name="message_delete_single_forever_body">Se eliminará para siempre. No podrás deshacerlo.</string>
+
+    <!-- Darse de baja -->
+    <string name="message_unsubscribe">Darse de baja</string>
+    <string name="message_unsubscribe_title">¿Darte de baja?</string>
+    <string name="message_unsubscribe_title_from">¿Darte de baja de %1$s?</string>
+    <string name="message_unsubscribe_web">Se abrirá en tu navegador la página de baja de %1$s.</string>
+    <string name="message_unsubscribe_mail">Se preparará un mensaje para %1$s. Envíalo para dejar de recibir estos correos.</string>
+    <!-- Asunto del correo de baja cuando el remitente no propone uno; en inglés a propósito para los robots de listas -->
+    <string name="message_unsubscribe_default_subject">unsubscribe</string>
+</resources>

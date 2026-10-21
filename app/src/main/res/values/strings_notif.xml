@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification channels -->
+    <string name="notif_channel_new_mail">New mail</string>
+    <string name="notif_channel_new_mail_description">New messages in your inboxes</string>
+    <string name="notif_channel_send_failures">Messages not sent</string>
+    <string name="notif_channel_send_failures_description">Messages that could not be sent and need your attention</string>
+
+    <!-- New mail -->
+    <plurals name="notif_new_messages">
+        <item quantity="one">%1$d new message</item>
+        <item quantity="other">%1$d new messages</item>
+    </plurals>
+    <!-- Line of the grouped summary: sender, then subject -->
+    <string name="notif_inbox_line">%1$s  %2$s</string>
+    <string name="notif_action_mark_read">Mark as read</string>
+    <string name="notif_action_archive">Archive</string>
+    <string name="notif_action_delete">Delete</string>
+
+    <!-- Send failures -->
+    <string name="notif_send_failed_title">Message not sent</string>
+    <string name="notif_send_failed_text">“%1$s” could not be sent. Tap to open the Outbox.</string>
+
+    <!-- Texts inserted in replies and forwards -->
+    <string name="notif_quote_attribution">On %1$s, %2$s wrote:</string>
+    <string name="notif_quote_forward_separator">---------- Forwarded message ----------</string>
+    <string name="notif_quote_forward_from">From: %1$s</string>
+    <string name="notif_quote_forward_date">Date: %1$s</string>
+    <string name="notif_quote_forward_subject">Subject: %1$s</string>
+    <string name="notif_quote_forward_to">To: %1$s</string>
+    <string name="notif_quote_forward_cc">Cc: %1$s</string>
+</resources>

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ajustes: aspecto -->
+    <string name="settings_section_appearance">Aspecto</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_system">Predeterminado del sistema</string>
+    <string name="settings_theme_light">Claro</string>
+    <string name="settings_theme_dark">Oscuro</string>
+    <string name="settings_dynamic_color">Colores del fondo de pantalla</string>
+    <string name="settings_dynamic_color_summary">Usa los colores de tu fondo de pantalla en lugar del azul UPM</string>
+
+    <!-- Ajustes: lectura -->
+    <string name="settings_section_reading">Lectura</string>
+    <string name="settings_conversation_view">Vista de conversación</string>
+    <string name="settings_conversation_view_summary">Agrupa los mensajes de una misma conversación</string>
+    <string name="settings_show_snippets">Vista previa de los mensajes</string>
+    <string name="settings_show_snippets_summary">Muestra la primera línea de cada mensaje en la lista</string>
+    <string name="settings_remote_images">Cargar imágenes automáticamente</string>
+    <string name="settings_remote_images_summary">Las imágenes de Internet pueden indicar al remitente que has abierto el mensaje</string>
+    <string name="settings_trusted_senders">Remitentes con imágenes siempre visibles</string>
+    <plurals name="settings_trusted_senders_summary">
+        <item quantity="one">%1$d remitente. Toca para olvidarlo.</item>
+        <item quantity="many">%1$d remitentes. Toca para olvidarlos.</item>
+        <item quantity="other">%1$d remitentes. Toca para olvidarlos.</item>
+    </plurals>
+    <string name="settings_trusted_senders_confirm_title">¿Olvidar estos remitentes?</string>
+    <string name="settings_trusted_senders_confirm_text">Las imágenes de estos remitentes volverán a bloquearse hasta que decidas mostrarlas.</string>
+    <string name="settings_trusted_senders_confirm_action">Olvidar</string>
+    <string name="settings_trusted_senders_cleared">Se volverá a preguntar antes de mostrar imágenes</string>
+    <string name="settings_confirm_delete">Confirmar antes de eliminar</string>
+    <string name="settings_confirm_delete_summary">Pregunta antes de mover mensajes a la papelera</string>
+    <string name="settings_default_reply">Acción de respuesta predeterminada</string>
+
+    <!-- Ajustes: deslizar -->
+    <string name="settings_section_swipe">Acciones al deslizar</string>
+    <string name="settings_swipe_right">Deslizar a la derecha</string>
+    <string name="settings_swipe_left">Deslizar a la izquierda</string>
+    <string name="settings_swipe_none">Ninguna</string>
+    <string name="settings_swipe_toggle_read">Marcar como leído o no leído</string>
+    <string name="settings_swipe_toggle_star">Destacar o quitar estrella</string>
+
+    <!-- Ajustes: envío -->
+    <string name="settings_section_sending">Envío</string>
+    <string name="settings_undo_send">Deshacer envío</string>
+    <string name="settings_undo_send_off">Desactivado</string>
+    <plurals name="settings_undo_send_seconds">
+        <item quantity="one">%1$d segundo</item>
+        <item quantity="many">%1$d segundos</item>
+        <item quantity="other">%1$d segundos</item>
+    </plurals>
+
+    <!-- Ajustes: notificaciones -->
+    <string name="settings_section_notifications">Notificaciones</string>
+    <string name="settings_notifications">Notificaciones de correo nuevo</string>
+    <string name="settings_notifications_summary">Avísame cuando lleguen mensajes nuevos</string>
+    <string name="settings_notifications_blocked">Las notificaciones están bloqueadas</string>
+    <string name="settings_notifications_blocked_summary">Android no permite que UPM Mail muestre notificaciones. Toca para permitirlas.</string>
+    <string name="settings_sync_interval">Buscar correo nuevo</string>
+    <string name="settings_sync_manual">Solo manualmente</string>
+    <plurals name="settings_sync_every_minutes">
+        <item quantity="one">Cada minuto</item>
+        <item quantity="many">Cada %1$d minutos</item>
+        <item quantity="other">Cada %1$d minutos</item>
+    </plurals>
+    <plurals name="settings_sync_every_hours">
+        <item quantity="one">Cada hora</item>
+        <item quantity="many">Cada %1$d horas</item>
+        <item quantity="other">Cada %1$d horas</item>
+    </plurals>
+    <string name="settings_system_notifications">Ajustes de notificaciones del sistema</string>
+    <string name="settings_system_notifications_summary">Sonidos, vibración y categorías de notificación</string>
+    <string name="settings_cannot_open_system_settings">No se han podido abrir los ajustes del sistema.</string>
+
+    <!-- Ajustes: cuentas -->
+    <string name="settings_section_accounts">Cuentas</string>
+    <string name="settings_add_account">Añadir cuenta</string>
+    <string name="settings_account_notifications_off">Notificaciones desactivadas para esta cuenta</string>
+
+    <!-- Ajustes: información -->
+    <string name="settings_section_about">Información</string>
+    <string name="settings_version">Versión</string>
+    <string name="settings_webmail_staff">Webmail de la UPM para personal</string>
+    <string name="settings_webmail_students">Webmail de la UPM para estudiantes</string>
+    <string name="settings_source_code">Código fuente</string>
+    <string name="settings_licenses">Licencias de código abierto</string>
+    <string name="settings_licenses_summary">Bibliotecas con las que está hecha UPM Mail</string>
+    <string name="settings_lib_angus">Jakarta Mail y Eclipse Angus Mail</string>
+    <string name="settings_lib_jsoup">jsoup</string>
+    <string name="settings_lib_androidx">AndroidX y Jetpack Compose</string>
+    <string name="settings_lib_kotlin">Kotlin y kotlinx.coroutines</string>
+    <string name="settings_license_angus">EPL 2.0 o GPL 2.0 con la excepción Classpath</string>
+    <string name="settings_license_mit">Licencia MIT</string>
+    <string name="settings_license_apache">Licencia Apache 2.0</string>
+    <string name="settings_unofficial">App no oficial</string>
+    <string name="settings_unofficial_summary">UPM Mail no está vinculada a la Universidad Politécnica de Madrid ni cuenta con su respaldo.</string>
+    <string name="settings_no_browser">No hay ninguna app que pueda abrir páginas web en este dispositivo.</string>
+
+    <!-- Ajustes de la cuenta -->
+    <string name="settings_account_title">Ajustes de la cuenta</string>
+    <string name="settings_account_identity">Nombre y firma</string>
+    <string name="settings_account_name">Tu nombre</string>
+    <string name="settings_account_name_hint">Lo verán las personas a las que escribas</string>
+    <string name="settings_account_signature">Firma</string>
+    <string name="settings_account_signature_hint">Se añade al final de los mensajes nuevos, las respuestas y los reenvíos</string>
+    <string name="settings_account_notifications">Notificaciones de correo nuevo de esta cuenta</string>
+    <string name="settings_account_notifications_summary">Avísame de los mensajes nuevos en la bandeja de entrada</string>
+    <string name="settings_account_notifications_global_off">Las notificaciones de correo nuevo están desactivadas para todas las cuentas en Ajustes</string>
+    <string name="settings_account_password">Contraseña</string>
+    <string name="settings_account_new_password">Contraseña nueva</string>
+    <string name="settings_account_new_password_hint">Déjala vacía para mantener la contraseña actual. Cámbiala aquí después de cambiarla en la UPM.</string>
+    <string name="settings_account_servers">Configuración de los servidores</string>
+    <string name="settings_account_servers_edit">Servidores de entrada y de salida</string>
+    <string name="settings_account_servers_summary">IMAP: %1$s · SMTP: %2$s</string>
+    <string name="settings_account_servers_note">Los cambios en los servidores o en la contraseña se comprueban con los servidores antes de guardarlos.</string>
+    <string name="settings_account_save_failed">No se han podido guardar los cambios</string>
+    <string name="settings_account_saved">Cuenta guardada</string>
+    <string name="settings_discard_title">¿Descartar los cambios?</string>
+    <string name="settings_discard_text">No has guardado los cambios de esta cuenta.</string>
+    <string name="settings_keep_editing">Seguir editando</string>
+    <string name="settings_account_remove_section">Quitar cuenta</string>
+    <string name="settings_account_remove_summary">Quita de este dispositivo la cuenta, el correo descargado y la contraseña guardada. Tu correo se queda en el servidor.</string>
+    <string name="settings_account_remove">Quitar cuenta</string>
+    <string name="settings_account_removing">Quitando…</string>
+    <string name="settings_account_remove_title">¿Quitar %1$s?</string>
+    <string name="settings_account_remove_text">Se borrarán de este dispositivo la cuenta, su correo descargado, los borradores y los mensajes pendientes de enviar, y la contraseña guardada. Tu correo se queda en el servidor de la UPM y puedes volver a añadir la cuenta cuando quieras.</string>
+    <string name="settings_account_remove_failed">No se ha podido quitar la cuenta</string>
+    <string name="settings_account_removed">Cuenta quitada</string>
+    <string name="settings_account_missing">Esta cuenta ya no está en este dispositivo.</string>
+</resources>

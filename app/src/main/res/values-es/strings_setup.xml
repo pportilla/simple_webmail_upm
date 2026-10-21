@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Inicio de sesión: cabecera -->
+    <string name="setup_welcome">Te damos la bienvenida a UPM Mail</string>
+    <string name="setup_add_account_heading">Añadir otra cuenta</string>
+    <string name="setup_add_account_title">Añadir cuenta</string>
+    <string name="setup_subtitle">Inicia sesión con tu cuenta de correo de la UPM</string>
+
+    <!-- Inicio de sesión: campos -->
+    <string name="setup_email_label">Dirección de correo</string>
+    <string name="setup_email_placeholder">nombre.apellido@upm.es</string>
+    <string name="setup_email_error">Escribe tu dirección de correo completa, por ejemplo ana.garcia@upm.es</string>
+    <string name="setup_complete_domain">Completar la dirección con @%1$s</string>
+    <string name="setup_password_label">Contraseña</string>
+    <string name="setup_password_error">Escribe tu contraseña</string>
+    <string name="setup_password_show">Mostrar contraseña</string>
+    <string name="setup_password_hide">Ocultar contraseña</string>
+    <string name="setup_name_label">Tu nombre (opcional)</string>
+    <string name="setup_name_hint">Lo verán las personas a las que escribas</string>
+    <string name="setup_not_upm_notice">Esta no es una dirección de la UPM. Revisa los servidores en Configuración avanzada antes de iniciar sesión.</string>
+
+    <!-- Inicio de sesión: configuración avanzada -->
+    <string name="setup_advanced_title">Configuración avanzada</string>
+    <string name="setup_advanced_summary">Servidores, puertos, seguridad y nombres de usuario</string>
+    <string name="setup_advanced_explanation">Ya están rellenos para las cuentas de la UPM. Cámbialos solo si lo necesitas. Mientras no cambies un servidor, su nombre de usuario se detecta automáticamente al iniciar sesión.</string>
+    <string name="setup_advanced_reset">Restaurar los valores de la UPM</string>
+    <string name="setup_expanded">Desplegado</string>
+    <string name="setup_collapsed">Plegado</string>
+    <string name="setup_incoming_title">Correo entrante (IMAP)</string>
+    <string name="setup_outgoing_title">Correo saliente (SMTP)</string>
+    <string name="setup_server_host">Servidor</string>
+    <string name="setup_server_host_error">Escribe el nombre de un servidor, como correo.upm.es</string>
+    <string name="setup_server_port">Puerto</string>
+    <string name="setup_server_port_error">Escribe un puerto entre 1 y 65535</string>
+    <string name="setup_server_security">Seguridad</string>
+    <string name="setup_security_ssl">SSL/TLS</string>
+    <string name="setup_security_starttls">STARTTLS</string>
+    <string name="setup_security_none">Ninguna (inseguro)</string>
+    <string name="setup_security_none_warning">Sin cifrado, tu contraseña y tus mensajes viajan como texto legible. Úsalo solo en redes de confianza.</string>
+    <string name="setup_server_username">Nombre de usuario</string>
+    <string name="setup_server_username_error">Escribe el nombre de usuario de este servidor</string>
+    <string name="setup_server_username_hint_imap">En la UPM suele ser la parte de tu dirección antes de la @</string>
+    <string name="setup_server_username_hint_smtp">En la UPM suele ser tu dirección de correo completa</string>
+
+    <!-- Inicio de sesión: acciones y progreso -->
+    <string name="setup_sign_in">Iniciar sesión</string>
+    <string name="setup_signing_in">Iniciando sesión…</string>
+    <string name="setup_signing_in_hint">Comprobando tu cuenta con los servidores de correo. Puede tardar unos segundos.</string>
+    <string name="setup_signed_in">Has iniciado sesión como %1$s</string>
+
+    <!-- Inicio de sesión: errores -->
+    <string name="setup_error_title">No se ha podido iniciar sesión</string>
+    <string name="setup_error_duplicate">Esta cuenta ya está en este dispositivo.</string>
+    <string name="setup_error_show_details">Ver detalles</string>
+    <string name="setup_error_hide_details">Ocultar detalles</string>
+    <string name="setup_hint_authentication">Usa tu usuario y contraseña de la UPM, los mismos que en el webmail y la intranet de la UPM. Si has cambiado la contraseña hace poco, usa la nueva.</string>
+    <string name="setup_hint_certificate">Comprueba que la fecha y la hora del móvil son correctas. Algunas redes Wi-Fi públicas también interfieren con las conexiones seguras; prueba con otra red.</string>
+    <string name="setup_hint_network">Comprueba que tienes conexión a Internet. Algunas redes bloquean las conexiones de correo; prueba con otra Wi-Fi o con los datos móviles.</string>
+    <string name="setup_hint_server">Puede que el servicio de correo de la UPM no esté disponible en este momento. Vuelve a intentarlo dentro de unos minutos.</string>
+
+    <!-- Inicio de sesión: pie -->
+    <string name="setup_privacy_note">Tu contraseña se guarda cifrada en este dispositivo y solo se envía a los servidores de correo de la UPM.</string>
+    <string name="setup_unofficial_note">UPM Mail es una app no oficial. No está vinculada a la Universidad Politécnica de Madrid ni cuenta con su respaldo.</string>
+    <string name="setup_no_browser">No hay ninguna app que pueda abrir páginas web en este dispositivo.</string>
+</resources>
