@@ -1,7 +1,15 @@
 package io.github.pportilla.upmmail.sync
 
+import io.github.pportilla.upmmail.data.db.Conflict
+import io.github.pportilla.upmmail.data.db.JdbcSqlDatabase
+import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.db.PendingOp
 import io.github.pportilla.upmmail.data.db.PendingOpType
+import io.github.pportilla.upmmail.data.db.SqlDatabase
+import io.github.pportilla.upmmail.data.db.TableObserver
+import io.github.pportilla.upmmail.data.db.Tables
+import io.github.pportilla.upmmail.data.db.addTestAccount
+import io.github.pportilla.upmmail.data.files.FileAttachmentOpener
 import io.github.pportilla.upmmail.model.ComposeMode
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
@@ -11,6 +19,9 @@ import io.github.pportilla.upmmail.model.OutgoingAttachment
 import io.github.pportilla.upmmail.model.SearchFilters
 import jakarta.mail.Flags
 import jakarta.mail.internet.MimeMessage
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -389,6 +400,43 @@ class SyncEngineTest : SyncTestBase() {
         engine.flushPendingOps(account.id)
         assertTrue(serverMessages("Drafts").isEmpty())
         assertNull(compose.loadDraft(id))
+    }
+
+    @Test
+    fun newMailStoredByACancelledSyncIsStillNotified() = runBlocking {
+        // Cancels the sync right after it stores a message, as a push restart on a new network can.
+        var afterInsert: (() -> Unit)? = null
+        val database = JdbcSqlDatabase.inMemory()
+        val hooked = object : SqlDatabase by database {
+            override fun insert(table: String, values: Map<String, Any?>, conflict: Conflict): Long =
+                database.insert(table, values, conflict).also { if (table == Tables.MESSAGES && it > 0) afterInsert?.invoke() }
+        }
+        val hookedStore = MailStore(hooked, TableObserver(), clock::now)
+        val hookedAccount = hookedStore.addTestAccount(email = anaEmail, imap = account.imap, smtp = account.smtp)
+        passwords.set(hookedAccount.id, password)
+        val hookedClients = MailClientProvider({ hookedStore.accounts.get(it) }, passwords)
+        val recorder = RecordingListener()
+        val hookedEngine = SyncEngine(hookedStore, hookedClients, files, FileAttachmentOpener, recorder, clock = clock::now)
+        try {
+            appendMessages("INBOX", numbered(3))
+            hookedEngine.syncFolderList(hookedAccount.id)
+            val inbox = hookedEngine.inboxOf(hookedAccount.id).id
+            hookedEngine.syncFolder(inbox)
+
+            appendMessages("INBOX", listOf(message("Nuevo")))
+            val sync = launch(Dispatchers.IO, start = CoroutineStart.LAZY) { hookedEngine.syncFolder(inbox) }
+            afterInsert = { sync.cancel() }
+            sync.join()
+            afterInsert = null
+            assertTrue(sync.isCancelled)
+            assertEquals(4, hookedStore.messages.count(inbox))
+            assertEquals(listOf("Nuevo"), recorder.newMessages.map { it.subject })
+
+            assertTrue("a stored message is not new again", hookedEngine.syncFolder(inbox).isEmpty())
+            assertEquals(1, recorder.newMessages.size)
+        } finally {
+            hookedClients.closeAll()
+        }
     }
 }
 

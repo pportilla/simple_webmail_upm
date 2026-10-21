@@ -29,8 +29,14 @@ object SettingsOptions {
     /** Seconds; 0 turns undo-send off. */
     val undoSendSeconds: List<Int> = listOf(0, 5, 10, 20, 30)
 
-    /** Minutes; 0 means manual checks only. */
-    val syncIntervals: List<Int> = listOf(15, 30, 60, 0)
+    /** Instant push first, then the background check intervals (0 = only when the app is opened). */
+    val mailChecks: List<MailCheck> = listOf(
+        MailCheck.Push,
+        MailCheck.Every(15),
+        MailCheck.Every(30),
+        MailCheck.Every(60),
+        MailCheck.Every(0),
+    )
 
     val swipeActions: List<SwipeAction> = listOf(
         SwipeAction.ARCHIVE,
@@ -43,6 +49,22 @@ object SettingsOptions {
     /** [options] plus [current] if it is not one of them (e.g. set by an older version). */
     fun <T> withCurrent(options: List<T>, current: T): List<T> =
         if (current in options) options else options + current
+}
+
+/** How new mail is looked for: one choice of the "Check for new mail" setting. */
+sealed interface MailCheck {
+    /** Instant push over IMAP IDLE, with the periodic check kept as a safety net. */
+    data object Push : MailCheck
+
+    /** A background check every [minutes] (0: only when the app is opened). */
+    data class Every(val minutes: Int) : MailCheck
+
+    companion object {
+        /** The periodic check that stays on behind push. */
+        const val PUSH_SAFETY_NET_MINUTES = 15
+
+        fun of(settings: AppSettings): MailCheck = if (settings.pushEnabled) Push else Every(settings.syncIntervalMinutes)
+    }
 }
 
 /** The app settings and the account list; every change is saved immediately. */
@@ -68,8 +90,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         settingsRepository.update(transform)
     }
 
-    fun setSyncInterval(minutes: Int) {
-        settingsRepository.update { it.copy(syncIntervalMinutes = minutes) }
+    fun setMailCheck(check: MailCheck) {
+        settingsRepository.update {
+            when (check) {
+                MailCheck.Push -> it.copy(pushEnabled = true, syncIntervalMinutes = MailCheck.PUSH_SAFETY_NET_MINUTES)
+                is MailCheck.Every -> it.copy(pushEnabled = false, syncIntervalMinutes = check.minutes)
+            }
+        }
         container.syncController.schedulePeriodicSync()
     }
 

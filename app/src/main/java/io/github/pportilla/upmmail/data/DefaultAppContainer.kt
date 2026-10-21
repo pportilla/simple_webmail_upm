@@ -24,12 +24,19 @@ import io.github.pportilla.upmmail.notifications.MailNotifier
 import io.github.pportilla.upmmail.sync.AndroidSyncController
 import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
+import io.github.pportilla.upmmail.sync.PushController
 import io.github.pportilla.upmmail.sync.SyncEngine
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * The app's object graph, created once in Application.onCreate. Everything heavy is lazy; the
@@ -80,8 +87,19 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
     }
 
     val androidSyncController: AndroidSyncController by lazy {
-        AndroidSyncController(app, applicationScope, store, engine, settingsRepository) { flushScheduler }
-            .also { it.start() }
+        AndroidSyncController(
+            context = app,
+            scope = applicationScope,
+            store = store,
+            engine = engine,
+            settings = settingsRepository,
+            flushScheduler = { flushScheduler },
+            onForeground = { pushController.onAppForeground() },
+        ).also { it.start() }
+    }
+
+    val pushController: PushController by lazy {
+        PushController(app, applicationScope, store, settingsRepository)
     }
 
     override val syncController: SyncController get() = androidSyncController
@@ -129,13 +147,35 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
         ContactRepositoryImpl(store, AndroidDeviceContacts(app))
     }
 
+    private val appLocale = MutableStateFlow(currentLocale())
+
+    /**
+     * The language of the texts made outside the screens (notifications, quotes in replies): it
+     * changes with the language chosen in the app, the per-app language set in the system
+     * settings (Android 13+) or the system language.
+     */
+    val locale: StateFlow<Locale> = appLocale.asStateFlow()
+
     init {
         applicationScope.launch(Dispatchers.IO) { housekeeping() }
+        // Channel names are shown in the system settings: keep them in the app's language.
+        applicationScope.launch(Dispatchers.IO) {
+            locale.drop(1).collect { step("notification channels") { notifier.createChannels() } }
+        }
     }
 
-    /** Work for every process start: channels, interrupted sends, queued work, stale files. */
+    /** Reads the app's language again after a change; returns whether it changed. */
+    fun onLocaleChanged(): Boolean {
+        val new = currentLocale()
+        return appLocale.getAndUpdate { new } != new
+    }
+
+    private fun currentLocale(): Locale = app.resources.configuration.locales.get(0) ?: Locale.getDefault()
+
+    /** Work for every process start: channels, push, interrupted sends, queued work, stale files. */
     private suspend fun housekeeping() {
         step("notification channels") { notifier.createChannels() }
+        step("push") { pushController.start() }
         step("stale sends") { engine.failStaleSending() }
         step("outbox") { androidSyncController.requestOutboxSend() }
         step("pending operations") { store.pendingOps.accountsWithPending().forEach { flushScheduler.schedule(it) } }

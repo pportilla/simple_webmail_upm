@@ -14,6 +14,7 @@ import org.eclipse.angus.mail.handlers.text_plain
 import org.eclipse.angus.mail.handlers.text_xml
 import java.util.Locale
 import java.util.Properties
+import javax.net.SocketFactory
 
 /**
  * Jakarta Mail plumbing shared by the IMAP/SMTP clients, the MIME parser and the composer.
@@ -77,7 +78,11 @@ internal object MailSessions {
     /** A session with only the MIME settings, for building and parsing messages offline. */
     fun mimeSession(): Session = sharedMimeSession
 
-    fun imapSession(settings: ServerSettings): Session {
+    /**
+     * [socketFactory], if given, creates the plain TCP sockets (TLS is still layered on top as
+     * usual). It is never bypassed, so whoever owns it can close every socket of the session.
+     */
+    fun imapSession(settings: ServerSettings, socketFactory: SocketFactory? = null): Session {
         val props = baseProperties()
         val protocol = imapProtocol(settings.security)
         val p = "mail.$protocol"
@@ -86,6 +91,10 @@ internal object MailSessions {
         props["$p.port"] = settings.port.toString()
         props["$p.connectiontimeout"] = CONNECTION_TIMEOUT_MS.toString()
         props["$p.timeout"] = READ_TIMEOUT_MS.toString()
+        if (socketFactory != null) {
+            props["$p.socketFactory"] = socketFactory
+            props["$p.socketFactory.fallback"] = "false"
+        }
         // Never set \Seen implicitly when reading bodies or parts.
         props["$p.peek"] = "true"
         props["$p.fetchsize"] = IMAP_FETCH_SIZE.toString()

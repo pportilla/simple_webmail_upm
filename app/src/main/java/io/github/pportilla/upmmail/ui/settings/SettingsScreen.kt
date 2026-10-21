@@ -29,7 +29,9 @@ import androidx.compose.material.icons.automirrored.outlined.ReplyAll
 import androidx.compose.material.icons.automirrored.outlined.ShortText
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.BatteryAlert
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MarkEmailRead
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsOff
@@ -90,6 +93,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.pportilla.upmmail.BuildConfig
 import io.github.pportilla.upmmail.R
+import io.github.pportilla.upmmail.UpmMailApp
+import io.github.pportilla.upmmail.data.settings.AppLanguage
 import io.github.pportilla.upmmail.mail.UpmPresets
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.AppSettings
@@ -125,8 +130,11 @@ fun SettingsScreen(navigator: AppNavigator) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     var systemNotificationsAllowed by remember { mutableStateOf(context.areAppNotificationsEnabled()) }
+    var backgroundAllowed by remember { mutableStateOf(context.isIgnoringBatteryOptimizations()) }
+    // Both can change in the system settings, or in the system dialogs opened from here.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         systemNotificationsAllowed = context.areAppNotificationsEnabled()
+        backgroundAllowed = context.isIgnoringBatteryOptimizations()
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         systemNotificationsAllowed = context.areAppNotificationsEnabled()
@@ -137,6 +145,14 @@ fun SettingsScreen(navigator: AppNavigator) {
     }
     val openSystemNotificationSettings = {
         if (!context.openAppNotificationSettings()) snackbar.show(context.getString(R.string.settings_cannot_open_system_settings))
+    }
+    val changeLanguage: (String) -> Unit = { language ->
+        val activity = context.findActivity()
+        val app = context.applicationContext as? UpmMailApp
+        if (activity != null && app != null) app.changeLanguage(activity, language)
+    }
+    val allowBackground = {
+        if (!context.requestIgnoreBatteryOptimizations()) snackbar.show(context.getString(R.string.settings_cannot_open_system_settings))
     }
     // Ask with the system dialog while Android still shows it; afterwards only the system
     // settings can turn notifications back on.
@@ -184,7 +200,7 @@ fun SettingsScreen(navigator: AppNavigator) {
                     .fillMaxWidth()
                     .fillMaxHeight(),
             ) {
-                appearanceSection(state.settings, viewModel)
+                appearanceSection(state.settings, viewModel, onSelectLanguage = changeLanguage)
                 readingSection(state.settings, viewModel) {
                     viewModel.forgetTrustedImageSenders()
                     snackbar.show(context.getString(R.string.settings_trusted_senders_cleared))
@@ -201,6 +217,8 @@ fun SettingsScreen(navigator: AppNavigator) {
                         if (enabled && !systemNotificationsAllowed) allowNotifications()
                     },
                     onOpenSystemSettings = openSystemNotificationSettings,
+                    backgroundAllowed = backgroundAllowed,
+                    onAllowBackground = allowBackground,
                 )
                 accountsSection(
                     state = state,
@@ -213,7 +231,11 @@ fun SettingsScreen(navigator: AppNavigator) {
     }
 }
 
-private fun LazyListScope.appearanceSection(settings: AppSettings, viewModel: SettingsViewModel) {
+private fun LazyListScope.appearanceSection(
+    settings: AppSettings,
+    viewModel: SettingsViewModel,
+    onSelectLanguage: (String) -> Unit,
+) {
     item(key = "appearance") {
         Column {
             PreferenceSectionHeader(stringResource(R.string.settings_section_appearance))
@@ -234,6 +256,14 @@ private fun LazyListScope.appearanceSection(settings: AppSettings, viewModel: Se
                     onCheckedChange = { enabled -> viewModel.update { it.copy(dynamicColor = enabled) } },
                 )
             }
+            ChoicePreference(
+                title = stringResource(R.string.settings_language),
+                icon = Icons.Outlined.Language,
+                options = AppLanguage.choices,
+                selected = AppLanguage.normalize(settings.language),
+                optionLabel = { languageLabel(it) },
+                onSelect = onSelectLanguage,
+            )
         }
     }
 }
@@ -370,6 +400,8 @@ private fun LazyListScope.notificationsSection(
     onAllow: () -> Unit,
     onEnable: (Boolean) -> Unit,
     onOpenSystemSettings: () -> Unit,
+    backgroundAllowed: Boolean,
+    onAllowBackground: () -> Unit,
 ) {
     item(key = "notifications") {
         Column {
@@ -390,14 +422,24 @@ private fun LazyListScope.notificationsSection(
                     onClick = onAllow,
                 )
             }
+            val mailCheck = MailCheck.of(settings)
             ChoicePreference(
                 title = stringResource(R.string.settings_sync_interval),
-                icon = Icons.Outlined.Schedule,
-                options = SettingsOptions.withCurrent(SettingsOptions.syncIntervals, settings.syncIntervalMinutes),
-                selected = settings.syncIntervalMinutes,
-                optionLabel = { minutes -> syncIntervalLabel(minutes) },
-                onSelect = viewModel::setSyncInterval,
+                icon = if (mailCheck == MailCheck.Push) Icons.Outlined.Bolt else Icons.Outlined.Schedule,
+                options = SettingsOptions.withCurrent(SettingsOptions.mailChecks, mailCheck),
+                selected = mailCheck,
+                optionLabel = { check -> mailCheckLabel(check) },
+                onSelect = viewModel::setMailCheck,
             )
+            // Without the exemption, Doze can hold push back for long stretches.
+            if (settings.pushEnabled && !backgroundAllowed) {
+                ClickablePreference(
+                    title = stringResource(R.string.settings_background),
+                    summary = stringResource(R.string.settings_background_summary),
+                    icon = Icons.Outlined.BatteryAlert,
+                    onClick = onAllowBackground,
+                )
+            }
             ClickablePreference(
                 title = stringResource(R.string.settings_system_notifications),
                 summary = stringResource(R.string.settings_system_notifications_summary),
@@ -569,6 +611,16 @@ private fun themeLabel(mode: ThemeMode): String = stringResource(
     },
 )
 
+/** "System default" is translated; each language is named in itself. */
+@Composable
+private fun languageLabel(language: String): String = stringResource(
+    when (language) {
+        AppLanguage.ENGLISH -> R.string.settings_language_english
+        AppLanguage.SPANISH -> R.string.settings_language_spanish
+        else -> R.string.settings_language_system
+    },
+)
+
 @Composable
 private fun swipeLabel(action: SwipeAction): String = stringResource(
     when (action) {
@@ -595,6 +647,12 @@ private fun undoSendLabel(seconds: Int): String =
     } else {
         pluralStringResource(R.plurals.settings_undo_send_seconds, seconds, seconds)
     }
+
+@Composable
+private fun mailCheckLabel(check: MailCheck): String = when (check) {
+    MailCheck.Push -> stringResource(R.string.settings_sync_push)
+    is MailCheck.Every -> syncIntervalLabel(check.minutes)
+}
 
 @Composable
 private fun syncIntervalLabel(minutes: Int): String = when {

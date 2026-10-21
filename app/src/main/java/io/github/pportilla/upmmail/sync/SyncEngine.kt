@@ -181,36 +181,63 @@ class SyncEngine(
     private suspend fun syncFolderOnIo(folderId: Long): List<MessageSummary> {
         val folder = db { store.folders.get(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         if (!folder.selectable) return emptyList()
-        val newIds = markSyncing(folderId) {
-            withAccountLock(folder.accountId) {
-                flushLocked(folder.accountId)
-                syncHeadersLocked(folderId)
+        // No later sync reports stored mail as new, so it is reported even when this sync is
+        // cancelled (a push restart, a stopped job) or fails after storing it.
+        val newIds = ArrayList<Long>()
+        var synced = false
+        try {
+            markSyncing(folderId) {
+                withAccountLock(folder.accountId) {
+                    flushLocked(folder.accountId)
+                    syncHeadersLocked(folderId, newIds)
+                }
+            }
+            prefetchBodies(folder)
+            synced = true
+        } finally {
+            if (!synced && folder.role == FolderRole.INBOX && newIds.isNotEmpty()) {
+                withContext(NonCancellable) {
+                    // Best effort: the caller hears about the sync's own failure.
+                    val fresh = try {
+                        freshMail(newIds)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                    if (fresh.isNotEmpty()) notify { listener.onNewMessages(folder.accountId, folderId, fresh) }
+                }
             }
         }
-        prefetchBodies(folder)
         if (folder.role != FolderRole.INBOX) return emptyList()
-        val fresh = db { store.messages.summaries(newIds) }.filter { !it.isRead }.sortedByDescending { it.date }
-        notify {
-            listener.onInboxSynced(folder.accountId, folderId)
-            if (fresh.isNotEmpty()) listener.onNewMessages(folder.accountId, folderId, fresh)
+        return withContext(NonCancellable) {
+            val fresh = freshMail(newIds)
+            notify {
+                listener.onInboxSynced(folder.accountId, folderId)
+                if (fresh.isNotEmpty()) listener.onNewMessages(folder.accountId, folderId, fresh)
+            }
+            fresh
         }
-        return fresh
     }
 
-    /** Returns the ids of the messages inserted by this sync that are genuinely new mail. */
-    private suspend fun syncHeadersLocked(folderId: Long): List<Long> {
+    /** The unread ones among the messages [ids], newest first. */
+    private suspend fun freshMail(ids: List<Long>): List<MessageSummary> =
+        db { store.messages.summaries(ids) }.filter { !it.isRead }.sortedByDescending { it.date }
+
+    /**
+     * Adds the ids of the messages inserted by this sync that are genuinely new mail to [newMail]
+     * as they are stored: inside db {}, as a cancellation discards the result of a db {} call.
+     */
+    private suspend fun syncHeadersLocked(folderId: Long, newMail: MutableList<Long>) {
         var state = db { store.folders.syncState(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         val folder = state.folder
         val imap = clients.imap(folder.accountId)
         val status = imap.status(folder.fullName)
         if (state.uidValidity != 0L && state.uidValidity != status.uidValidity) {
             dropFolderCache(state)
-            state = db { store.folders.syncState(folderId) } ?: return emptyList()
+            state = db { store.folders.syncState(folderId) } ?: return
         }
         val own = db { store.accounts.ownAddresses() }
         val feedContacts = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK
         val protectedUids = db { store.pendingOps.protectedUids(folder.accountId, folder.fullName) }
-        val newMail = ArrayList<Long>()
 
         if (state.uidValidity == 0L) {
             // First sync (or after a reset): the newest messages only, nothing to notify about.
@@ -228,13 +255,13 @@ class SyncEngine(
                 db {
                     store.messages.deleteVisibleExcept(folderId, protectedUids.uids + keep.map { it.uid })
                 }
-                newMail += db { store.messages.upsertHeaders(folder.accountId, folderId, keep, protectedUids.uids, feedContacts, own) }
+                db { newMail += store.messages.upsertHeaders(folder.accountId, folderId, keep, protectedUids.uids, feedContacts, own) }
                 val start = keep.minOfOrNull { it.uid } ?: oldEnd
                 val end = maxOf(keep.maxOfOrNull { it.uid } ?: oldEnd, status.uidNext - 1)
                 db { store.folders.setWindow(folderId, start, end, true) }
             } else {
-                newMail += db {
-                    store.messages.upsertHeaders(folder.accountId, folderId, result.messages, protectedUids.uids, feedContacts, own)
+                db {
+                    newMail += store.messages.upsertHeaders(folder.accountId, folderId, result.messages, protectedUids.uids, feedContacts, own)
                 }
                 val end = maxOf(oldEnd, result.messages.maxOfOrNull { it.uid } ?: 0L, status.uidNext - 1)
                 db { store.folders.setWindow(folderId, state.windowStartUid, end, state.moreAvailable) }
@@ -242,7 +269,6 @@ class SyncEngine(
             }
         }
         db { store.folders.updateAfterSync(folderId, status.uidValidity, status.unreadCount, status.messageCount) }
-        return newMail
     }
 
     /** Server flags for the cached window, plus a few extra rows found by server searches. */

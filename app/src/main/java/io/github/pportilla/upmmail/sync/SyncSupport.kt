@@ -2,6 +2,7 @@ package io.github.pportilla.upmmail.sync
 
 import io.github.pportilla.upmmail.data.security.PasswordStore
 import io.github.pportilla.upmmail.mail.ImapClient
+import io.github.pportilla.upmmail.mail.ImapIdler
 import io.github.pportilla.upmmail.mail.MailErrors
 import io.github.pportilla.upmmail.mail.SmtpClient
 import io.github.pportilla.upmmail.model.Account
@@ -14,7 +15,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 /** Events of the sync engine that the app reacts to (notifications). All calls are best effort. */
@@ -54,7 +59,8 @@ suspend inline fun <T> mailResult(crossinline block: suspend () -> T): Result<T>
 /**
  * One cached [ImapClient] per account (it keeps its connection open between syncs); SMTP clients
  * are cheap and created per use. A client is replaced when the account's server settings change
- * and closed by [invalidate] when the account is removed or its password changes.
+ * and closed by [invalidate] when the account is removed or its password changes. Push
+ * connections ([idler]) are not cached; their owner restarts them on [invalidated].
  */
 class MailClientProvider(
     private val accountLookup: (Long) -> Account?,
@@ -65,6 +71,13 @@ class MailClientProvider(
     private class Cached(val settings: ServerSettings, val client: ImapClient)
 
     private val imapClients = HashMap<Long, Cached>()
+    private val invalidations = MutableSharedFlow<Long>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /** Accounts passed to [invalidate]: their login changed or they were removed. */
+    val invalidated: SharedFlow<Long> = invalidations.asSharedFlow()
 
     fun account(accountId: Long): Account =
         accountLookup(accountId) ?: throw MailException(MailErrorKind.NOT_FOUND, "Account $accountId does not exist")
@@ -89,10 +102,14 @@ class MailClientProvider(
         return smtpFactory(account.smtp, passwordProvider(accountId))
     }
 
-    /** Closes and forgets the account's IMAP connection. */
+    /** A push connection to the account's INBOX, with its current server settings and password. */
+    fun idler(accountId: Long): ImapIdler = ImapIdler(account(accountId).imap, passwordProvider(accountId))
+
+    /** Closes and forgets the account's IMAP connection, and tells [invalidated] collectors. */
     fun invalidate(accountId: Long) {
         val removed = synchronized(imapClients) { imapClients.remove(accountId) }
         removed?.client?.closeQuietly()
+        invalidations.tryEmit(accountId)
     }
 
     fun closeAll() {

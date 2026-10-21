@@ -5,6 +5,8 @@
     <string name="notif_channel_new_mail_description">Mensajes nuevos en tus bandejas de entrada</string>
     <string name="notif_channel_send_failures">Mensajes no enviados</string>
     <string name="notif_channel_send_failures_description">Mensajes que no se han podido enviar y necesitan tu atención</string>
+    <string name="notif_channel_push">Correo al instante</string>
+    <string name="notif_channel_push_description">Se muestra mientras UPM Mail sigue conectada para recibir el correo nuevo al instante. Puedes desactivarla: el correo nuevo seguirá llegando.</string>
 
     <!-- Correo nuevo -->
     <plurals name="notif_new_messages">
@@ -20,6 +22,15 @@
     <!-- Errores de envío -->
     <string name="notif_send_failed_title">Mensaje no enviado</string>
     <string name="notif_send_failed_text">No se ha podido enviar «%1$s». Toca para abrir la bandeja de salida.</string>
+
+    <!-- Notificación permanente del correo al instante -->
+    <string name="notif_push_waiting">Esperando correo nuevo</string>
+    <string name="notif_push_connecting">Conectando…</string>
+    <string name="notif_push_reconnecting">Reconectando…</string>
+    <string name="notif_push_offline">Sin conexión</string>
+    <string name="notif_push_login_failed">No se ha podido iniciar sesión en %1$s</string>
+    <string name="notif_push_hint">Para ocultar esta notificación, mantenla pulsada y desactívala. El correo nuevo seguirá llegando al instante.</string>
+    <string name="notif_push_login_failed_hint">Toca para abrir UPM Mail y revisa la contraseña en los ajustes de la cuenta.</string>
 
     <!-- Textos que se insertan en respuestas y reenvíos -->
     <string name="notif_quote_attribution">El %1$s, %2$s escribió:</string>

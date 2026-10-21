@@ -28,7 +28,12 @@ class SyncJobService : JobService() {
             var reschedule = false
             try {
                 reschedule = when (jobId) {
-                    AndroidSyncController.JOB_PERIODIC -> controller.runPeriodicSync()
+                    AndroidSyncController.JOB_PERIODIC -> {
+                        // A chance to bring push back: allowed if the app is exempt from battery
+                        // optimisation, otherwise refused (and logged) without affecting the job.
+                        container.pushController.startIfWanted()
+                        controller.runPeriodicSync()
+                    }
                     AndroidSyncController.JOB_OUTBOX -> controller.runOutboxJob()
                     AndroidSyncController.JOB_PENDING_OPS -> controller.runPendingOpsJob()
                     else -> false

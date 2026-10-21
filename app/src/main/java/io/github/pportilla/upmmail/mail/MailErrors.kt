@@ -32,6 +32,9 @@ object MailErrors {
         """(?i)(\b552\b|\b5\.3\.4\b|\[TOOBIG]|message size|size limit|too (large|big)|exceeds?\b.*\bsize|size\b.*\bexceed)""",
     )
 
+    /** RFC 5530 codes of a passing failure, and wording like "Temporary authentication failure". */
+    private val TEMPORARY_REFUSAL_PATTERN = Regex("""(?i)(\[(UNAVAILABLE|SERVERBUG|INUSE)]|\btempor)""")
+
     /** Maps Jakarta Mail / IO / TLS exceptions to a MailException with the right kind. */
     fun map(t: Throwable): MailException {
         if (t is MailException) return t
@@ -64,6 +67,15 @@ object MailErrors {
 
     /** True when the socket may still be open but the peer stopped answering. */
     internal fun isTimeout(t: Throwable): Boolean = causeChain(t).any { it is SocketTimeoutException }
+
+    /**
+     * True for a login refused for a passing reason, e.g. "NO [UNAVAILABLE]" while the server's
+     * authentication backend is down. Jakarta Mail reports every refused login, and so [map]
+     * an AUTHENTICATION failure, as if the password were wrong.
+     */
+    internal fun isTemporaryLoginRefusal(t: Throwable): Boolean = causeChain(t).any {
+        it is AuthenticationFailedException && TEMPORARY_REFUSAL_PATTERN.containsMatchIn(it.message.orEmpty())
+    }
 
     private fun kindOf(t: Throwable, chain: List<Throwable>): MailErrorKind {
         if (chain.any { it is AuthenticationFailedException }) return MailErrorKind.AUTHENTICATION

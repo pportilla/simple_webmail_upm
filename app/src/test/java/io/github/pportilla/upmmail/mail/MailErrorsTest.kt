@@ -91,4 +91,17 @@ class MailErrorsTest {
         assertFalse(MailErrors.isConnectionDrop(AuthenticationFailedException("no")))
         assertFalse(MailErrors.isConnectionDrop(MessagingException("A1 NO nope")))
     }
+
+    @Test
+    fun recognisesTemporaryLoginRefusals() {
+        val temporary = AuthenticationFailedException("[UNAVAILABLE] Temporary authentication failure. [host:2026-10-21]")
+        assertTrue(MailErrors.isTemporaryLoginRefusal(temporary))
+        assertTrue("as mapped", MailErrors.isTemporaryLoginRefusal(MailErrors.map(temporary)))
+        assertTrue(MailErrors.isTemporaryLoginRefusal(AuthenticationFailedException("[SERVERBUG] Internal error")))
+        assertTrue(MailErrors.isTemporaryLoginRefusal(AuthenticationFailedException("454 4.7.0 Temporary authentication failure")))
+        assertFalse(MailErrors.isTemporaryLoginRefusal(AuthenticationFailedException("[AUTHENTICATIONFAILED] Authentication failed.")))
+        assertFalse(MailErrors.isTemporaryLoginRefusal(AuthenticationFailedException("LOGIN failed")))
+        assertFalse(MailErrors.isTemporaryLoginRefusal(AuthenticationFailedException(null)))
+        assertFalse("not a login", MailErrors.isTemporaryLoginRefusal(MessagingException("[UNAVAILABLE] try later")))
+    }
 }

@@ -5,6 +5,8 @@
     <string name="notif_channel_new_mail_description">New messages in your inboxes</string>
     <string name="notif_channel_send_failures">Messages not sent</string>
     <string name="notif_channel_send_failures_description">Messages that could not be sent and need your attention</string>
+    <string name="notif_channel_push">Instant mail</string>
+    <string name="notif_channel_push_description">Shown while UPM Mail stays connected to receive new mail instantly. You can turn it off: new mail keeps arriving.</string>
 
     <!-- New mail -->
     <plurals name="notif_new_messages">
@@ -20,6 +22,15 @@
     <!-- Send failures -->
     <string name="notif_send_failed_title">Message not sent</string>
     <string name="notif_send_failed_text">“%1$s” could not be sent. Tap to open the Outbox.</string>
+
+    <!-- Ongoing notification of instant push -->
+    <string name="notif_push_waiting">Waiting for new mail</string>
+    <string name="notif_push_connecting">Connecting…</string>
+    <string name="notif_push_reconnecting">Reconnecting…</string>
+    <string name="notif_push_offline">Offline</string>
+    <string name="notif_push_login_failed">Couldn\'t sign in to %1$s</string>
+    <string name="notif_push_hint">To hide this notification, touch and hold it and turn it off. New mail will still arrive instantly.</string>
+    <string name="notif_push_login_failed_hint">Tap to open UPM Mail and check the password in the account settings.</string>
 
     <!-- Texts inserted in replies and forwards -->
     <string name="notif_quote_attribution">On %1$s, %2$s wrote:</string>

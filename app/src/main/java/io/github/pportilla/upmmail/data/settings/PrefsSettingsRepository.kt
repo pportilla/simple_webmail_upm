@@ -32,30 +32,60 @@ class PrefsSettingsRepository(context: Context) : SettingsRepository {
         }
     }
 
-    private companion object {
-        const val PREFS_NAME = "upmmail_settings"
-        const val THEME = "theme_mode"
-        const val DYNAMIC_COLOR = "dynamic_color"
-        const val SYNC_INTERVAL = "sync_interval_minutes"
-        const val NOTIFICATIONS = "notifications_enabled"
-        const val SWIPE_START = "swipe_start_to_end"
-        const val SWIPE_END = "swipe_end_to_start"
-        const val REMOTE_IMAGES = "load_remote_images"
-        const val TRUSTED_SENDERS = "trusted_image_senders"
-        const val CONFIRM_DELETE = "confirm_delete"
-        const val UNDO_SEND = "undo_send_seconds"
-        const val CONVERSATIONS = "conversation_view"
-        const val SNIPPETS = "show_snippets"
-        const val REPLY_ALL = "default_reply_all"
-        const val LAST_ACCOUNT = "last_account_id"
-        const val LAST_FOLDER = "last_folder_id"
+    companion object {
+        private const val PREFS_NAME = "upmmail_settings"
+        private const val THEME = "theme_mode"
+        private const val DYNAMIC_COLOR = "dynamic_color"
+        private const val PUSH = "push_enabled"
+        private const val SYNC_INTERVAL = "sync_interval_minutes"
+        private const val LANGUAGE = "language"
+        private const val LANGUAGE_IN_SYSTEM = "language_in_system"
+        private const val NOTIFICATIONS = "notifications_enabled"
+        private const val SWIPE_START = "swipe_start_to_end"
+        private const val SWIPE_END = "swipe_end_to_start"
+        private const val REMOTE_IMAGES = "load_remote_images"
+        private const val TRUSTED_SENDERS = "trusted_image_senders"
+        private const val CONFIRM_DELETE = "confirm_delete"
+        private const val UNDO_SEND = "undo_send_seconds"
+        private const val CONVERSATIONS = "conversation_view"
+        private const val SNIPPETS = "show_snippets"
+        private const val REPLY_ALL = "default_reply_all"
+        private const val LAST_ACCOUNT = "last_account_id"
+        private const val LAST_FOLDER = "last_folder_id"
 
-        fun read(prefs: SharedPreferences): AppSettings {
+        /**
+         * The stored [AppSettings.language], read without a repository: the app needs it in
+         * Application.attachBaseContext, before its container exists.
+         */
+        fun storedLanguage(context: Context): String = AppLanguage.normalize(prefsOf(context).getString(LANGUAGE, null))
+
+        /**
+         * Whether Android 13+ keeps the language already ([markLanguageInSystem]). Until then, a
+         * language chosen while the device ran an older version is still to be handed over.
+         */
+        fun isLanguageInSystem(context: Context): Boolean = prefsOf(context).getBoolean(LANGUAGE_IN_SYSTEM, false)
+
+        fun markLanguageInSystem(context: Context) {
+            prefsOf(context).edit().putBoolean(LANGUAGE_IN_SYSTEM, true).apply()
+        }
+
+        private fun prefsOf(context: Context): SharedPreferences =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        private fun read(prefs: SharedPreferences): AppSettings {
             val defaults = AppSettings()
             return AppSettings(
                 themeMode = enumOf(prefs.getString(THEME, null), defaults.themeMode),
                 dynamicColor = prefs.getBoolean(DYNAMIC_COLOR, defaults.dynamicColor),
+                pushEnabled = if (prefs.contains(PUSH)) {
+                    prefs.getBoolean(PUSH, defaults.pushEnabled)
+                } else {
+                    // Saved before push existed: on only with the default check interval, which push
+                    // keeps as its safety net; "Manually only" or a longer interval stays as chosen.
+                    prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes) == defaults.syncIntervalMinutes
+                },
                 syncIntervalMinutes = prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes).coerceAtLeast(0),
+                language = AppLanguage.normalize(prefs.getString(LANGUAGE, null)),
                 notificationsEnabled = prefs.getBoolean(NOTIFICATIONS, defaults.notificationsEnabled),
                 swipeStartToEnd = enumOf(prefs.getString(SWIPE_START, null), defaults.swipeStartToEnd),
                 swipeEndToStart = enumOf(prefs.getString(SWIPE_END, null), defaults.swipeEndToStart),
@@ -72,10 +102,12 @@ class PrefsSettingsRepository(context: Context) : SettingsRepository {
             )
         }
 
-        fun write(editor: SharedPreferences.Editor, settings: AppSettings): SharedPreferences.Editor = editor
+        private fun write(editor: SharedPreferences.Editor, settings: AppSettings): SharedPreferences.Editor = editor
             .putString(THEME, settings.themeMode.name)
             .putBoolean(DYNAMIC_COLOR, settings.dynamicColor)
+            .putBoolean(PUSH, settings.pushEnabled)
             .putInt(SYNC_INTERVAL, settings.syncIntervalMinutes)
+            .putString(LANGUAGE, settings.language)
             .putBoolean(NOTIFICATIONS, settings.notificationsEnabled)
             .putString(SWIPE_START, settings.swipeStartToEnd.name)
             .putString(SWIPE_END, settings.swipeEndToStart.name)
@@ -89,7 +121,7 @@ class PrefsSettingsRepository(context: Context) : SettingsRepository {
             .putLong(LAST_ACCOUNT, settings.lastAccountId)
             .putLong(LAST_FOLDER, settings.lastFolderId)
 
-        inline fun <reified E : Enum<E>> enumOf(value: String?, default: E): E =
+        private inline fun <reified E : Enum<E>> enumOf(value: String?, default: E): E =
             enumValues<E>().firstOrNull { it.name == value } ?: default
     }
 }

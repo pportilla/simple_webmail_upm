@@ -49,7 +49,10 @@ class MailNotifier(
 
     private val manager: NotificationManager = checkNotNull(context.getSystemService(NotificationManager::class.java))
 
-    /** Creates (or renames, after a language change) the notification channels. */
+    /**
+     * Creates (or renames, after a language change) the notification channels, including the
+     * silent one of the push service's ongoing notification.
+     */
     fun createChannels() {
         val newMail = NotificationChannel(
             CHANNEL_NEW_MAIL,
@@ -66,7 +69,16 @@ class MailNotifier(
         ).apply {
             description = context.getString(R.string.notif_channel_send_failures_description)
         }
-        manager.createNotificationChannels(listOf(newMail, failures))
+        // Minimum importance: no sound, no status bar icon, collapsed at the bottom of the shade.
+        val push = NotificationChannel(
+            CHANNEL_PUSH,
+            context.getString(R.string.notif_channel_push),
+            NotificationManager.IMPORTANCE_MIN,
+        ).apply {
+            description = context.getString(R.string.notif_channel_push_description)
+            setShowBadge(false)
+        }
+        manager.createNotificationChannels(listOf(newMail, failures, push))
     }
 
     // ------------------------------------------------------------------ new mail
@@ -363,6 +375,7 @@ class MailNotifier(
     companion object {
         const val CHANNEL_NEW_MAIL = "new_mail"
         const val CHANNEL_SEND_FAILURES = "send_failures"
+        const val CHANNEL_PUSH = "push"
 
         private const val TAG = "MailNotifier"
         private const val TAG_MESSAGE = "message"

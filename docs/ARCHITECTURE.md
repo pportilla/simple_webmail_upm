@@ -33,9 +33,9 @@ then the full address.
 | `data.db` | `SqlDatabase` abstraction, schema, DAOs, table-change observer | DAOs yes; only `AndroidSqlDatabase` touches Android |
 | `data.repository` | `Repositories.kt` (interfaces = UI contract) and their implementations | interfaces yes |
 | `data.security` | Keystore-backed password store | no |
-| `data.settings` | `SharedPreferences`-backed `SettingsRepository` | no |
+| `data.settings` | `SharedPreferences`-backed `SettingsRepository`, `AppLanguage` choices | `AppLanguage` yes |
 | `data` | `DefaultAppContainer`, `AttachmentProvider` | no |
-| `sync` | `SyncEngine` (pure), `SyncJobService` + scheduler (Android) | engine yes |
+| `sync` | `SyncEngine` and `PushWatcher` (pure), `SyncJobService` + scheduler, `PushService` + `PushController` (Android) | engine and watcher yes |
 | `notifications` | New-mail notifications, notification actions | no |
 | `ui.*` | Compose screens, one package per screen, plus `ui.components`, `ui.theme`, `ui.navigation` | no |
 
@@ -59,6 +59,15 @@ then the full address.
   appended to the Sent folder.
 - Background checks run as a periodic `JobScheduler` job (interval from settings). While the app
   is visible, the INBOX is polled every 2 minutes.
+- Instant push (the default, `AppSettings.pushEnabled`): `PushService`, a foreground service of
+  type `specialUse`, runs one `PushWatcher` per account. Each keeps an IMAP IDLE connection
+  (`ImapIdler`) to the INBOX and syncs it through `SyncEngine` (debounced, never concurrently)
+  when the server reports a change, so notifications take the usual path. Reconnection uses
+  exponential backoff; servers without IDLE are polled every 2 minutes. An inexact
+  `setAndAllowWhileIdle` alarm checks the connections in Doze. `PushController` starts the
+  service when Android allows it (app visible, boot, app update, periodic job when exempt from
+  battery optimisation). The periodic job stays on (15 minutes) as a safety net. Installs from
+  before push get it only if they kept the default 15-minute interval.
 
 ## Mail engine API (`mail` package)
 
@@ -103,6 +112,12 @@ class ImapClient(settings: ServerSettings, passwordProvider: () -> String) : jav
     suspend fun search(folder: String, query: String, limit: Int): List<Long>   // uids, newest first
     suspend fun findUidByMessageId(folder: String, messageId: String): Long?
     override fun close()
+}
+class ImapIdler(settings: ServerSettings, passwordProvider: () -> String, folderName: String = "INBOX") {
+    enum class Change { NEW_MESSAGES, MESSAGES_REMOVED, FLAGS_CHANGED }
+    val idleSupported: Boolean?                                               // null until logged in once
+    suspend fun run(onIdle: () -> Unit = {}, onChange: (Change) -> Unit)   // idles until cancelled; returns only without IDLE
+    suspend fun refresh(): Boolean                                            // NOOP round trip; a silent connection is closed
 }
 class SmtpClient(settings: ServerSettings, passwordProvider: () -> String) {
     suspend fun verify()
@@ -149,6 +164,13 @@ object MailErrors { fun map(t: Throwable): MailException }
 - ViewModels expose `StateFlow<XUiState>`. Screens collect them with `collectAsStateWithLifecycle()`.
 - Snackbars go through `LocalAppSnackbar.current.show(…)`. Every `Scaffold` uses
   `snackbarHost = { AppSnackbarHost() }`.
+- Language (`AppSettings.language`, chosen in Settings): Android 13+ keeps it as the per-app
+  language (`LocaleManager`), which the system applies to the whole process; `UpmMailApp` mirrors
+  it into the settings (on configuration changes and whenever `MainActivity` starts) and, once,
+  hands the system a language chosen before the device was updated from Android 12 or older. On Android 12 and older, `UpmMailApp` applies it itself: its
+  `getResources()` (used by notifications and other texts made outside the screens, so services
+  take their texts from the application context), `MainActivity.attachBaseContext` and the
+  default `Locale` (date formats); a change recreates the activity. `DefaultAppContainer.locale` signals changes (channel names, push notification).
 - Strings: shared ones are in `values/strings.xml`. Each feature has its own
   `values/strings_<feature>.xml` and `values-es/strings_<feature>.xml`, with keys prefixed by the
   feature (`mailbox_`, `message_`, `compose_`, `setup_`, `settings_`, `notif_`…).

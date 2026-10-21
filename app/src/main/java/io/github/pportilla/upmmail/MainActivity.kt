@@ -1,6 +1,7 @@
 package io.github.pportilla.upmmail
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -53,6 +54,11 @@ class MainActivity : ComponentActivity() {
      */
     private var pendingRequest by mutableStateOf<LaunchRequest?>(null)
 
+    override fun attachBaseContext(newBase: Context) {
+        // Android 12 and older have no per-app language: use the one chosen in the app.
+        super.attachBaseContext((newBase.applicationContext as? UpmMailApp)?.wrapInLanguage(newBase) ?: newBase)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -104,6 +110,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // The per-app language may have been changed in the system settings meanwhile.
+        (application as? UpmMailApp)?.mirrorSystemLanguage()
         appContainer.syncController.onAppForeground()
     }
 

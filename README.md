@@ -31,10 +31,14 @@ over IMAP and SMTP with TLS, so the mailbox is the same one you see in the UPM w
   online.
 - **Search**: instant local search with filters (unread, starred, attachments, folder), plus
   server-side search for older mail. Recent searches are remembered.
-- **Notifications** for new mail, with *Mark as read* and *Archive* actions. Background checks run
-  every 15/30/60 minutes or manually only.
+- **Notifications** for new mail, with *Mark as read* and *Archive* actions. New mail arrives
+  **instantly (push)**: the app keeps a connection to the server open with IMAP IDLE, shown by a
+  small silent notification that you can hide. You can also choose checks every 15/30/60 minutes,
+  or only when you open the app.
 - `mailto:` links and **share-to-email** from other apps.
 - Light/dark theme in UPM blue, optional Material You colours, English and Spanish UI.
+- **Language**: the app follows your phone's language, or choose English or Español in
+  *Settings > Appearance > Language* (on Android 13+ also in the system's app language settings).
 
 ## Install
 

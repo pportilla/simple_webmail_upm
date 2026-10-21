@@ -37,6 +37,9 @@ import java.util.concurrent.TimeUnit
  *   network once it is back,
  * - in-app timers that send due outbox messages immediately, and INBOX polling every two minutes
  *   while the app is visible.
+ *
+ * [onForeground] runs whenever the app becomes visible (it starts instant push, see
+ * [PushController]).
  */
 class AndroidSyncController(
     private val context: Context,
@@ -45,6 +48,7 @@ class AndroidSyncController(
     private val engine: SyncEngine,
     private val settings: SettingsRepository,
     private val flushScheduler: () -> FlushScheduler,
+    private val onForeground: () -> Unit = {},
 ) : SyncController {
 
     private val jobScheduler: JobScheduler = checkNotNull(context.getSystemService(JobScheduler::class.java))
@@ -104,6 +108,7 @@ class AndroidSyncController(
             pollJob?.cancel()
             pollJob = scope.launch(Dispatchers.IO) { pollWhileVisible() }
         }
+        onForeground()
     }
 
     override fun onAppBackground() {
@@ -134,6 +139,10 @@ class AndroidSyncController(
             delay(POLL_INTERVAL)
             if (!isOnline()) continue
             val current = selectedAccount(safely(emptyList()) { store.accounts.getAll() }) ?: continue
+            // Push (or a pull-to-refresh) may have synced it moments ago.
+            val inbox = safely(null) { store.folders.findByRole(current.id, FolderRole.INBOX) }
+            val age = inbox?.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
+            if (age < RECENT_POLL) continue
             quietly { engine.syncFolder(engine.inboxOf(current.id).id) }
         }
     }
@@ -298,6 +307,7 @@ class AndroidSyncController(
         private const val MIN_INTERVAL_MINUTES = 15
         private const val POLL_INTERVAL = 2 * 60_000L
         private const val RECENT_SYNC = 30_000L
+        private const val RECENT_POLL = POLL_INTERVAL / 2
         private const val REPLAN_DELAY = 2_000L
         private const val BACKOFF = 30_000L
     }

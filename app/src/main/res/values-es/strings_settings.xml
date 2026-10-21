@@ -8,6 +8,8 @@
     <string name="settings_theme_dark">Oscuro</string>
     <string name="settings_dynamic_color">Colores del fondo de pantalla</string>
     <string name="settings_dynamic_color_summary">Usa los colores de tu fondo de pantalla en lugar del azul UPM</string>
+    <string name="settings_language">Idioma</string>
+    <string name="settings_language_system">Predeterminado del sistema</string>
 
     <!-- Ajustes: lectura -->
     <string name="settings_section_reading">Lectura</string>
@@ -56,7 +58,8 @@
     <string name="settings_notifications_blocked">Las notificaciones están bloqueadas</string>
     <string name="settings_notifications_blocked_summary">Android no permite que UPM Mail muestre notificaciones. Toca para permitirlas.</string>
     <string name="settings_sync_interval">Buscar correo nuevo</string>
-    <string name="settings_sync_manual">Solo manualmente</string>
+    <string name="settings_sync_push">Al instante (push)</string>
+    <string name="settings_sync_manual">Solo al abrir la app</string>
     <plurals name="settings_sync_every_minutes">
         <item quantity="one">Cada minuto</item>
         <item quantity="many">Cada %1$d minutos</item>
@@ -67,6 +70,8 @@
         <item quantity="many">Cada %1$d horas</item>
         <item quantity="other">Cada %1$d horas</item>
     </plurals>
+    <string name="settings_background">Permitir actividad en segundo plano</string>
+    <string name="settings_background_summary">La optimización de batería puede retrasar el correo nuevo mientras el móvil está en reposo. Toca para que UPM Mail siga conectada.</string>
     <string name="settings_system_notifications">Ajustes de notificaciones del sistema</string>
     <string name="settings_system_notifications_summary">Sonidos, vibración y categorías de notificación</string>
     <string name="settings_cannot_open_system_settings">No se han podido abrir los ajustes del sistema.</string>

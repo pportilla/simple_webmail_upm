@@ -5,8 +5,16 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- New-mail notifications (asked at runtime on Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Keeps the periodic mail check scheduled across reboots (JobInfo.setPersisted). -->
+    <!-- Keeps the periodic mail check scheduled across reboots (JobInfo.setPersisted) and
+         restarts instant push after a reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Instant push: a foreground service keeps an IMAP IDLE connection open. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Keeps the CPU awake while new mail found by push is downloaded. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Lets the user exempt the app from battery optimisation, so push is not delayed in Doze. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Optional, asked at runtime: suggests device contacts when typing recipients. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
@@ -59,6 +67,30 @@
             android:name=".sync.SyncJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <service
+            android:name=".sync.PushService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Instant e-mail delivery: keeps an IMAP IDLE connection to the mail server open so that new messages are shown within seconds." />
+        </service>
+
+        <!-- Restarts instant push after a reboot or an app update. -->
+        <receiver
+            android:name=".sync.PushBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Keep-alive alarm of instant push. -->
+        <receiver
+            android:name=".sync.PushAlarmReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".notifications.NotificationActionReceiver"
