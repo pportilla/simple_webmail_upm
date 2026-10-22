@@ -8,8 +8,9 @@ import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.IndexStatus
 import io.github.pportilla.upmmail.model.IndexedMessage
 import io.github.pportilla.upmmail.model.SearchFilters
-import io.github.pportilla.upmmail.model.SearchKey
+import io.github.pportilla.upmmail.model.SearchQuery
 import kotlinx.coroutines.flow.Flow
+import java.time.ZoneId
 import java.util.Locale
 
 /** Bookkeeping of one folder of the header index (a `header_index_state` row). */
@@ -198,10 +199,10 @@ class HeaderIndexDao internal constructor(private val store: MailStore) {
             val id = sql.insert(Tables.HEADER_INDEX, rowValues(accountId, folderId, role, header, now), Conflict.IGNORE)
             if (id > 0) {
                 inserted++
-                val people = AddressCodec.people(listOfNotNull(header.from), header.to.take(MAX_FTS_RECIPIENTS), header.cc.take(MAX_FTS_RECIPIENTS))
+                val recipients = FtsPeople.recipients(header.to.take(MAX_FTS_RECIPIENTS), header.cc.take(MAX_FTS_RECIPIENTS))
                 sql.execSQL(
-                    "INSERT INTO header_index_fts (docid, subject, people) VALUES (?, ?, ?)",
-                    listOf(id, SearchText.fold(header.subject), SearchText.fold(people).take(MAX_FTS_PEOPLE)),
+                    "INSERT INTO header_index_fts (docid, subject, sender, recipients) VALUES (?, ?, ?, ?)",
+                    listOf(id, SearchText.fold(header.subject), FtsPeople.sender(header.from).take(MAX_FTS_PEOPLE), recipients.take(MAX_FTS_PEOPLE)),
                 )
             } else {
                 writeFlags(folderId, header.uid, header.flags)
@@ -334,53 +335,50 @@ class HeaderIndexDao internal constructor(private val store: MailStore) {
     // ---------------------------------------------------------------- search
 
     /**
-     * Full-text search over subject and people of the indexed headers; [query] is free user
-     * text. Words of at least [MIN_PREFIX] characters match as prefixes, shorter ones only as
-     * whole words ("SO", "CV": a one- or two-letter prefix would match most of the index).
-     * Filters work as in [MessageDao.search], and without a folder filter Trash and Junk are left
-     * out.
+     * Search of the indexed headers; [query] is the text of the search box ([SearchQuery.parse]).
+     * Words match anywhere (subject, sender, recipients), the other criteria as described in
+     * [FtsQuery]: `from:` the sender only, `to:` To and Cc only, `subject:` the subject only.
+     * The last word of each phrase matches as a prefix from [MIN_PREFIX] letters on, a shorter
+     * one only as a whole word ("SO", "CV": a one- or two-letter prefix would match most of the
+     * index). Filters work as in [MessageDao.search], and without a folder filter Trash and Junk
+     * are left out.
      *
-     * A short last word that matches nothing may still be being typed ("elecciones j"): then the
-     * other words are searched without it, so the matches do not vanish until its third letter.
+     * A short last word that matches nothing may still be being typed ("elecciones j",
+     * "from:ana.g"): then the query is searched without it, so the matches do not vanish until
+     * its third letter.
      *
      * Messages with a row in `messages` (hidden ones included) are left out: the cached copy is
-     * the one to show, and a hidden one is being moved or deleted. Newest first.
+     * the one to show, and a hidden one is being moved or deleted. Newest first, at most [limit]
+     * after every filter.
      */
     fun search(query: String, filters: SearchFilters, limit: Int): List<IndexedMessage> {
-        for (match in matchExpressions(query)) {
-            val candidates = sql.queryLong(
-                "SELECT COUNT(*) AS v FROM (SELECT docid FROM header_index_fts WHERE header_index_fts MATCH ? LIMIT ${MANY_CANDIDATES + 1})",
-                listOf(match),
-            ) ?: 0L
-            if (candidates > 0L) return matching(match, candidates, filters, limit)
-        }
-        return emptyList()
+        val parsed = SearchQuery.parse(query)
+        val shorter = withoutWordBeingTyped(query, parsed)
+        return search(if (shorter != null && !matchesAnything(parsed)) shorter else parsed, filters, limit)
     }
 
-    /**
-     * The MATCH expressions [search] tries in turn: [query] as typed, then, when its last word is
-     * shorter than [MIN_PREFIX], may still be being typed (no space after it) and a longer word
-     * comes before it, [query] without that word.
-     */
-    private fun matchExpressions(query: String): List<String> {
-        val exact = SearchText.matchExpression(query, MIN_PREFIX) ?: return emptyList()
-        val words = SearchText.words(query)
-        val typing = query.lastOrNull()?.isWhitespace() == false
-        val last = words.lastOrNull()
-        val earlier = words.dropLast(1)
-        if (!typing || last == null || last.length >= MIN_PREFIX || last in earlier || earlier.none { it.length >= MIN_PREFIX }) {
-            return listOf(exact)
+    /** [search] of a parsed query, taken as typed; dates are whole days of [zone]. */
+    fun search(
+        query: SearchQuery,
+        filters: SearchFilters,
+        limit: Int,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): List<IndexedMessage> {
+        val fts = FtsQuery.of(query, filters, MIN_PREFIX, zone) ?: return emptyList()
+        val where = StringBuilder("NOT EXISTS (SELECT 1 FROM messages m WHERE m.folder_id = h.folder_id AND m.uid = h.uid)")
+        val args = mutableListOf<Any?>()
+        // Few full-text matches: fetch them by id and sort. Many (a common word), or no words at
+        // all (only dates, flags or exclusions): walk the date index from the newest message down
+        // and stop at the limit instead of sorting them all.
+        var access = "INDEXED BY header_index_date"
+        fts.candidates(Tables.HEADER_INDEX_FTS)?.let { (candidates, matchArgs) ->
+            val count = sql.queryLong("SELECT COUNT(*) AS v FROM ($candidates LIMIT ${MANY_CANDIDATES + 1})", matchArgs) ?: 0L
+            if (count == 0L) return emptyList()
+            if (count <= MANY_CANDIDATES) access = "NOT INDEXED"
+            where.append(" AND h.id IN ($candidates)")
+            args.addAll(matchArgs)
         }
-        return listOfNotNull(exact, SearchText.matchExpression(earlier.joinToString(" "), MIN_PREFIX))
-    }
-
-    /** The rows of [match] (which has [candidates] full-text matches, counted up to a point) for [search]. */
-    private fun matching(match: String, candidates: Long, filters: SearchFilters, limit: Int): List<IndexedMessage> {
-        // Few matches: fetch them by id and sort. Many (a common word): walk the date index from
-        // the newest message down and stop at the limit instead of sorting them all.
-        val access = if (candidates > MANY_CANDIDATES) "INDEXED BY header_index_date" else "NOT INDEXED"
-        val where = StringBuilder("h.id IN (SELECT docid FROM header_index_fts WHERE header_index_fts MATCH ?)")
-        val args = mutableListOf<Any?>(match)
+        fts.appendFilters(where, args, "h", Tables.HEADER_INDEX_FTS)
         filters.accountId?.let { where.append(" AND h.account_id = ?"); args += it }
         if (filters.folderId != null) {
             where.append(" AND h.folder_id = ?")
@@ -388,13 +386,8 @@ class HeaderIndexDao internal constructor(private val store: MailStore) {
         } else {
             where.append(" AND f.role NOT IN ('TRASH', 'JUNK')")
         }
-        if (filters.unreadOnly) where.append(" AND h.is_read = 0")
-        if (filters.starredOnly) where.append(" AND h.is_starred = 1")
-        if (filters.withAttachments) where.append(" AND h.has_attachments = 1")
-        val safeLimit = limit.coerceAtLeast(1)
-        // Rows cached in `messages` are dropped below, so ask for more.
-        args += 2 * safeLimit + 50
-        val rows = sql.query(
+        args += limit.coerceAtLeast(1)
+        return sql.query(
             """
             SELECT $INDEXED_COLUMNS FROM header_index h $access CROSS JOIN folders f ON f.id = h.folder_id
             WHERE $where
@@ -403,8 +396,47 @@ class HeaderIndexDao internal constructor(private val store: MailStore) {
             args,
             ::mapIndexed,
         )
-        val cached = store.messages.existingKeys(rows.map { SearchKey(it.folderId, it.uid) })
-        return rows.filter { SearchKey(it.folderId, it.uid) !in cached }.take(safeLimit)
+    }
+
+    /** Whether the full-text conditions of [query] match any row at all (flags and dates aside). */
+    private fun matchesAnything(query: SearchQuery): Boolean {
+        val fts = FtsQuery.of(query, SearchFilters(), MIN_PREFIX, ZoneId.systemDefault()) ?: return false
+        val (candidates, args) = fts.candidates(Tables.HEADER_INDEX_FTS) ?: return true
+        return (sql.queryLong("SELECT COUNT(*) AS v FROM ($candidates LIMIT 1)", args) ?: 0L) > 0L
+    }
+
+    /**
+     * [query] without the last word of [text], when that word is still being typed (no space
+     * after it), shorter than [MIN_PREFIX] and the end of a search word or of a sender, recipient
+     * or subject value ("from:ana.g" becomes "from:ana"). Null otherwise, or when no word left
+     * would be searched as a prefix: an only word, or only short ones, are never dropped.
+     */
+    private fun withoutWordBeingTyped(text: String, query: SearchQuery): SearchQuery? {
+        val typed = text.takeLastWhile { !it.isWhitespace() }
+        if (typed.isEmpty() || '"' in typed) return null
+        val alone = SearchQuery.parse(typed)
+        val lists = listOf(
+            alone.words to query.words,
+            alone.subject to query.subject,
+            alone.from to query.from,
+            alone.to to query.to,
+        )
+        val kind = lists.indexOfFirst { it.first.isNotEmpty() }
+        if (kind < 0) return null
+        val value = lists[kind].first.singleOrNull() ?: return null
+        val values = lists[kind].second
+        val words = SearchText.words(value)
+        if (values.lastOrNull() != value || words.isEmpty() || words.last().length >= MIN_PREFIX) return null
+        val shortened = values.dropLast(1) + listOfNotNull(words.dropLast(1).takeIf { it.isNotEmpty() }?.joinToString(" "))
+        val shorter = when (kind) {
+            0 -> query.copy(words = shortened)
+            1 -> query.copy(subject = shortened)
+            2 -> query.copy(from = shortened)
+            else -> query.copy(to = shortened)
+        }
+        val prefixLeft = (shorter.words + shorter.subject + shorter.from + shorter.to)
+            .any { (SearchText.words(it).lastOrNull()?.length ?: 0) >= MIN_PREFIX }
+        return shorter.takeIf { prefixLeft }
     }
 
     fun get(indexId: Long): IndexedMessage? =
@@ -426,6 +458,18 @@ class HeaderIndexDao internal constructor(private val store: MailStore) {
                 ::mapIndexed,
             )
         }.sortedWith(compareByDescending<IndexedMessage> { it.date }.thenByDescending { it.indexId })
+
+    /** The [uids] of the folder that have a row here. */
+    fun existingUids(folderId: Long, uids: Collection<Long>): Set<Long> {
+        val result = HashSet<Long>()
+        for (chunk in uids.distinct().chunked(IN_CHUNK)) {
+            sql.query(
+                "SELECT uid FROM header_index WHERE folder_id = ? AND uid IN (${placeholders(chunk.size)})",
+                listOf<Any?>(folderId) + chunk,
+            ) { it.longOr("uid") }.forEach { result += it }
+        }
+        return result
+    }
 
     /** Rows of the account with Message-ID [messageId] (case-insensitive), newest first. Scans the account; rare. */
     fun findByMessageId(accountId: Long, messageId: String): List<IndexedMessage> =
@@ -594,12 +638,21 @@ class HeaderIndexDao internal constructor(private val store: MailStore) {
         fun capOf(role: FolderRole): Int = if (role == FolderRole.TRASH || role == FolderRole.JUNK) BIN_CAP else FOLDER_CAP
 
         /**
-         * Whether a complete index answers [query] for its folder, so the server need not be
-         * asked about the mail it holds: every word is at least [MIN_PREFIX] long and matched as
-         * a prefix. A shorter word only matches whole words here, while the server's header
-         * search also finds it inside longer ones ("cv" in "CVs").
+         * Whether a complete index answers [query] (the text of the search box) for its folder
+         * exactly, so the server need not be asked about the mail it holds. The index has the
+         * subject, sender, To and Cc and date of every message, so words, `from:`, `to:`,
+         * `subject:` and dates are answered, provided each word and value is matched as the
+         * server's header search would ([FtsQuery.matchesLikeServer]: a last word shorter than
+         * [MIN_PREFIX] only matches whole words here, while the server also finds it inside
+         * longer ones, "cv" in "CVs"). Not answered: excluded words (the server matches them as
+         * substrings), unread and starred (the index's flags may be out of date) and attachments
+         * (only guessed from the Content-Type here).
          */
-        fun answersFully(query: String): Boolean = SearchText.allTermsHaveLength(query, MIN_PREFIX)
+        fun answersFully(query: String): Boolean {
+            val parsed = SearchQuery.parse(query)
+            if (parsed.isEmpty || parsed.excluded.isNotEmpty() || parsed.unread || parsed.starred || parsed.hasAttachment) return false
+            return (parsed.words + parsed.from + parsed.to + parsed.subject).all { FtsQuery.matchesLikeServer(it, MIN_PREFIX) }
+        }
 
         /** Matches above which [search] walks the date index instead of sorting the matches. */
         private const val MANY_CANDIDATES = 2_000

@@ -3,6 +3,7 @@ package io.github.pportilla.upmmail.sync
 import io.github.pportilla.upmmail.data.db.IndexFolderState
 import io.github.pportilla.upmmail.mail.FolderProbe
 import io.github.pportilla.upmmail.mail.SearchRange
+import io.github.pportilla.upmmail.mail.ServerQuery
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.SearchPhase
@@ -42,6 +43,29 @@ internal data class PlannedStep(
     /** How many times this window was halved. */
     val depth: Int = 0,
 )
+
+/**
+ * The phases of [requested] that a server search of [query] runs: HEADERS as asked, TEXT (and
+ * SNIPPETS after it) only for a query with words. A query of senders, recipients, subject, dates
+ * and flags only, with or without exclusions, is answered by the HEADERS phase: the message text
+ * cannot add a match to it, and exclusions are looked for in the text in every phase
+ * ([ServerQuery.excludeInText]). Empty when there is nothing to search for ([query] is null).
+ */
+internal fun phasesToRun(query: ServerQuery?, requested: Set<SearchPhase>): Set<SearchPhase> {
+    if (query == null) return emptySet()
+    val result = HashSet<SearchPhase>(2)
+    if (SearchPhase.HEADERS in requested) result += SearchPhase.HEADERS
+    if (SearchPhase.TEXT in requested && query.hasWords) result += SearchPhase.TEXT
+    return result
+}
+
+/**
+ * Whether searching the message text can find more for the search box text [query] than the
+ * headers: only when it has words (see [phasesToRun]). For any other query, the TEXT phase of a
+ * request is skipped: the run finishes after its HEADERS phase (at once if it asked for TEXT
+ * only), with no TEXT or SNIPPETS progress, so there is no "Search message text" to offer.
+ */
+internal fun searchesMessageText(query: String): Boolean = ServerQuery.parse(query)?.hasWords == true
 
 /** Folder roles in the order a search (and the indexer) visits them; other folders keep drawer order. */
 internal val SEARCH_ROLE_ORDER = listOf(

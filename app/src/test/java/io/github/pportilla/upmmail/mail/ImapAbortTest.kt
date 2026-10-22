@@ -355,6 +355,60 @@ class ImapAbortTest {
     }
 
     @Test
+    fun wireFormatOfAdvancedCriteria() = runBlocking {
+        val server = server(handler = searchAnswering()).apply { exists = 50; uidNext = 51 }
+        val client = client(server)
+        val text = "informe from:ana from:luis to:bea subject:acta -borrador after:2026-06-01 before:2026-06-30 is:unread is:starred"
+        client.searchUids("INBOX", query(text), SearchRange.Seq(1, 50), 200)
+        client.searchUids("INBOX", query(text, ServerQuery.TEXT_FIELDS), null, 200)
+        // An attachment filter alone has no search key: every message of the window matches.
+        client.searchUids("INBOX", query("has:attachment"), SearchRange.Seq(1, 50), 200)
+        assertEquals(
+            listOf(
+                "UID SEARCH 1:50 UNSEEN FLAGGED SENTSINCE 31-May-2026 SENTBEFORE 2-Jul-2026 OR FROM ana FROM luis OR TO bea CC bea " +
+                    "SUBJECT acta OR OR OR SUBJECT informe FROM informe TO informe CC informe " +
+                    "NOT OR OR OR OR SUBJECT borrador FROM borrador TO borrador CC borrador BODY borrador ALL",
+                "UID SEARCH UNSEEN FLAGGED SENTSINCE 31-May-2026 SENTBEFORE 2-Jul-2026 OR FROM ana FROM luis OR TO bea CC bea " +
+                    "SUBJECT acta BODY informe NOT OR OR OR OR SUBJECT borrador FROM borrador TO borrador CC borrador BODY borrador ALL",
+                "UID SEARCH 1:50 ALL",
+            ),
+            server.commands.filter { FakeImapServer.verbOf(it) == "UID SEARCH" },
+        )
+    }
+
+    @Test
+    fun badCharsetFallbackCoversPeopleSubjectAndExclusions() = runBlocking {
+        val server = server {
+            if (command.contains("CHARSET UTF-8")) {
+                reply("$tag NO [BADCHARSET (US-ASCII)] Charset not supported")
+            } else {
+                reply("* SEARCH 4", "$tag OK Search done")
+            }
+        }.apply { exists = 5; uidNext = 6 }
+        val client = client(server)
+
+        val outcome = client.searchUids("INBOX", query("from:García to:Muñoz subject:revisión -canción"), null, 10)
+        assertEquals(listOf(4L), outcome.uids)
+        assertTrue(outcome.charsetRejected)
+        assertEquals(
+            "UID SEARCH OR FROM garcía FROM garcia OR OR OR TO muñoz CC muñoz TO munoz CC munoz OR SUBJECT revisión SUBJECT revision " +
+                "NOT OR OR OR OR OR OR OR OR OR SUBJECT canción FROM canción TO canción CC canción BODY canción " +
+                "SUBJECT cancion FROM cancion TO cancion CC cancion BODY cancion ALL",
+            server.commands.first { FakeImapServer.verbOf(it) == "UID SEARCH" }.replace("UID SEARCH CHARSET UTF-8", "UID SEARCH"),
+        )
+        assertEquals(
+            "UID SEARCH FROM garcia OR TO munoz CC munoz SUBJECT revision NOT OR OR OR OR SUBJECT cancion FROM cancion TO cancion CC cancion BODY cancion ALL",
+            server.commands.filter { FakeImapServer.verbOf(it) == "UID SEARCH" }[1],
+        )
+
+        // A subject word without an ASCII spelling cannot be left out.
+        val enye = client.searchUids("INBOX", query("from:ana subject:año"), null, 10)
+        assertEquals(emptyList<Long>(), enye.uids)
+        assertTrue(enye.charsetRejected)
+        assertEquals(3, server.count("UID SEARCH"))
+    }
+
+    @Test
     fun foldersOutsideThePersonalNamespaceAreMarked() = runBlocking {
         val server = server(capabilities = "IMAP4rev1 NAMESPACE").apply {
             namespace = "* NAMESPACE ((\"\" \"/\")) ((\"Other Users/\" \"/\")) ((\"Shared/\" \"/\"))"

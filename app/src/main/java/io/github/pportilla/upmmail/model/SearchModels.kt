@@ -210,6 +210,13 @@ data class ServerSearchProgress(
     val truncated: Boolean,
     /** The error that stopped the search (sign-in, certificate, network). */
     val error: MailException?,
+    /**
+     * Messages on the device (cached, or in the header index) that are not matches although the
+     * local search may find them: an excluded word is in their text, which the local search does
+     * not have for them (an index row, a cached message whose text was not downloaded). Found by
+     * the HEADERS phase of a query with exclusions; the local results leave them out.
+     */
+    val refuted: Set<SearchKey> = emptySet(),
 )
 
 /** Header index coverage of one account. */

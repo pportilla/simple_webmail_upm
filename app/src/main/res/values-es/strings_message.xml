@@ -39,6 +39,9 @@
     <string name="message_details_date">Fecha</string>
     <string name="message_write_to">Escribir a %1$s</string>
     <string name="message_copy_address">Copiar dirección</string>
+    <string name="message_address_options">Mostrar opciones</string>
+    <string name="message_search_from">Buscar mensajes de %1$s</string>
+    <string name="message_search_to">Buscar mensajes para %1$s</string>
     <string name="message_address_copied">Dirección copiada</string>
 
     <!-- Cuerpo -->

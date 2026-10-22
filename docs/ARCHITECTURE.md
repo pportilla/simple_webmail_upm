@@ -177,7 +177,8 @@ object MailErrors { fun map(t: Throwable): MailException }
 Search has to find old mail that was never downloaded, on a server that has no full-text index
 and can take a minute to scan one big folder. It combines three sources:
 
-1. **Cached messages** (`messages` + `messages_fts`): subject, people and the downloaded bodies.
+1. **Cached messages** (`messages` + `messages_fts`): subject, sender, recipients (To and Cc,
+   never Bcc, as in the index and on the server) and the downloaded bodies.
 2. **Header index** (`header_index` + `header_index_fts`, `HeaderIndexDao`): subject, sender
    and recipients, date, size and flags of up to 50,000 newest messages of every
    indexable folder (2,000 for Trash and Spam, 100,000 per account), about 625 bytes per
@@ -188,20 +189,63 @@ and can take a minute to scan one big folder. It combines three sources:
    uses prefix terms of 3 or more characters; shorter ones ("CV", "SO") match whole words only,
    and a short last word that matches nothing is ignored while it may still be being typed.
    Index writes notify only the index tables, so the mailbox lists never re-query for them.
-3. **Server search** (`ServerSearch`, `ServerQuery`, `SearchPlanning`): an AND over the words
-   (at most 5), each word matching any of its accent variants. The **HEADERS** phase (subject,
+3. **Server search** (`ServerSearch`, `ServerQuery`, `SearchPlanning`): the search box text,
+   read by `SearchQuery`, as one IMAP `UID SEARCH`: an AND over the words (at most 5), each
+   word matching any of its accent variants in any searched field, and over the other criteria,
+   cheapest first: `is:unread` (UNSEEN), `is:starred` (FLAGGED), `after:` and `before:`
+   (SENTSINCE and SENTBEFORE), `from:` (FROM, any of the values), `to:` (TO or CC, any of the
+   values), `subject:` (SUBJECT, all of them) and `-word` (NOT in subject, from, to, cc or the
+   text, in both phases; last, so a server reads the text only of messages that match the rest).
+   The server compares the day written in the Date header, in the sender's zone, while the device
+   uses its own zone: it is asked for a day more on each side, and the matches are kept by their
+   stored date, whole local days as in the local search (`ServerQuery.datesMatch`). Sender and
+   recipient values are also spelled with ñ as n, as in addresses ("Muñoz" finds
+   "jmunoz@upm.es"). A server that refuses `CHARSET UTF-8` gets the ASCII spellings of every
+   value, or nothing when one has none. `has:attachment` has no search key: the matches are
+   fetched with their BODYSTRUCTURE, 100 at a time, newest first, and only those with
+   attachments are kept (and added to the index with that answer), so the others never use up
+   the limit. The **HEADERS** phase (subject,
    from, to, cc) starts by itself when the device found fewer than 5 results. It searches every
    folder in scope, in windows of 10,000 messages, and skips a folder whose index is complete
-   and fresh (not for queries with a word shorter than 3 characters, which the server also
-   finds inside longer words). The **TEXT** phase (message bodies, plus the headers when the
+   and fresh when the index answers the query (`HeaderIndexDao.answersFully`; not for queries
+   with a word shorter than 3 characters, which the server also finds inside longer words).
+   The **TEXT** phase (message bodies, plus the headers when the
    query has several words, so one may be in the subject and another in the text) runs only on
-   request (the keyboard's search key or "Search message text"). It searches 2,000-message windows, newest first, in tiers: the
+   request (the keyboard's search key or "Search message text"), and only for a query with
+   words (`phasesToRun`, `searchesMessageText`): any other query is answered by the headers, so
+   a request for its text ends after the HEADERS phase, with no TEXT or snippets progress. It searches 2,000-message windows, newest first, in tiers: the
    newest window of every folder (INBOX, Sent and Archive first), then the next four windows of
-   each folder, then the rest. A window that times out is split in two. Results are emitted
+   each folder, then the rest. A window where the criteria of the headers alone (people,
+   subject, dates, flags) match nothing, as a quick header search of it shows, is skipped. A
+   window that times out is split in two. Results are emitted
    after every step. The snippets phase then downloads the previews of the newest five text
    matches. Trash and Spam are searched only on request. A server that cannot be reached (no
    connection, or two connections in a row that time out before logging in) ends the search
    with a connection error. A folder found renumbered is resynced apart from the search.
+
+   **Exclusions and the device.** The header index has no text, and a cached message may not have
+   its text downloaded, so the local search cannot check `-word` in it: `from:ana -borrador` lists
+   an index-only message from Ana whose text says "borrador". The HEADERS phase of a query with
+   exclusions therefore runs a second, cheap search per step, with the exclusions in the headers
+   only (`ServerQuery.headerExclusionsOnly`): the messages it matches and the real search does not
+   have an excluded word in their text. Those the device knows (cached or indexed) are reported as
+   `ServerSearchProgress.refuted` (at most 10,000 per search) and the search screen leaves them out
+   of the device section (`mergeSections`). Until a server search has run, such messages are shown.
+
+**Search screen** (`ui.search`). The search box text is the only state of the criteria:
+`SearchQuery.parse` reads it everywhere, and every control rewrites it (`SearchCriteria.kt`).
+The Unread, Starred and Has attachments chips are on exactly when the text has their operator,
+and toggling one adds or removes that operator. The other criteria (senders, recipients, subject,
+dates, excluded words) show as removable chips; removing one deletes only the tokens that set
+it, and the rest of the text stays as typed. The tune icon opens the advanced search panel, a
+full-screen form filled from the text: people with contact suggestions, subject, words, excluded
+words, date presets or a custom range, and the three flags. Its Search button writes the form back
+with `SearchQuery.format()`, which uses the English operators. A full address shows as the
+contact's name, taken from the matches or the contacts. A query without words has no
+"Search message text" button: the headers answer it, and the keyboard's search key then searches
+only the headers. An attachment filter alone is never sent to the server automatically. The
+message screen's details block offers "Search messages from/to" for From, To and Cc. These open
+the search screen with the text already filled in (the `query` route argument).
 
 Results are `SearchHit`s keyed by `SearchKey(folderId, uid)`. A `Cached` hit has a `messages`
 row. An `Indexed` hit exists only in the index; opening it downloads the message
@@ -314,6 +358,6 @@ Uninstalling always deletes the accounts, drafts, outbox and changes not yet sen
 | `mailbox` | `ui.mailbox.MailboxScreen` | Drawer (accounts, folders, outbox), list, swipe, multi-select, pull-to-refresh, paging |
 | `message/{messageId}` | `ui.message.MessageScreen` | Conversation view, HTML (sanitised WebView), attachments, actions |
 | `compose?...` | `ui.compose.ComposeScreen` | Recipient chips with autocomplete, Cc/Bcc, attachments, drafts, undo-send |
-| `search?accountId=&folderId=` | `ui.search.SearchScreen` | Instant search of cached mail and the header index, filters, progressive server search, "Index now" |
+| `search?accountId=&folderId=&query=` | `ui.search.SearchScreen` | Instant search of cached mail and the header index, criterion chips, advanced search panel, progressive server search, "Index now"; `query` (URI-encoded) opens it with that text searched |
 | `settings` | `ui.settings.SettingsScreen` | Appearance, behaviour, notifications, accounts, about |
 | `settings/account/{id}` | `ui.settings.AccountSettingsScreen` | Name, signature, server settings, password, remove |

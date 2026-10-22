@@ -8,8 +8,8 @@ object SearchText {
     private val combiningMarks = Regex("\\p{Mn}+")
     private val nonWord = Regex("[^\\p{L}\\p{N}]+")
 
-    /** Most terms used in one query; more would only slow the FTS query down. */
-    private const val MAX_TERMS = 12
+    /** Most terms used in one query or phrase; more would only slow the FTS query down. */
+    internal const val MAX_TERMS = 12
 
     /** Lower case without diacritics: "Pérez Núñez" -> "perez nunez". */
     fun fold(text: String): String =
@@ -22,21 +22,18 @@ object SearchText {
         fold(text).split(nonWord).filter { it.isNotEmpty() }
 
     /**
-     * A safe FTS4 MATCH expression for free text typed by the user: every word of at least
-     * [minPrefixLength] characters becomes a prefix term ("term*"), shorter ones must match a whole
-     * word, and terms are implicitly ANDed. All FTS syntax characters are dropped and the words are
-     * lower case, so they can never be read as operators (OR, NOT, NEAR). Returns null when nothing
-     * searchable is left. The default makes every word a prefix.
+     * A safe FTS4 phrase for text typed by the user: its words in order (at most [MAX_TERMS]), the
+     * last one a prefix when [prefixLast] (`"ana garcia*"` matches "Ana García López" and
+     * "ana.garcia@upm.es", whose words are ana, garcia, upm, es). A single word is a plain term.
+     * It holds only lower case letters, digits, spaces, quotes and the star, so nothing typed is
+     * ever read as an FTS operator (OR, NOT, NEAR, column filters). Null when [text] has no words.
      */
-    fun matchExpression(query: String, minPrefixLength: Int = 1): String? {
-        val terms = words(query).distinct().take(MAX_TERMS)
+    fun phrase(text: String, prefixLast: Boolean): String? {
+        val terms = words(text).take(MAX_TERMS)
         if (terms.isEmpty()) return null
-        return terms.joinToString(" ") { if (it.length >= minPrefixLength) "$it*" else it }
+        val star = if (prefixLast) "*" else ""
+        return if (terms.size == 1) terms[0] + star else terms.joinToString(" ", prefix = "\"", postfix = "$star\"")
     }
-
-    /** True if [query] has words (as split by [words]) and each has at least [length] characters. */
-    fun allTermsHaveLength(query: String, length: Int): Boolean =
-        words(query).let { terms -> terms.isNotEmpty() && terms.all { it.length >= length } }
 
     /**
      * True if every word of [query] is a prefix of some word of [candidates]

@@ -403,14 +403,24 @@ class HeaderIndexDaoTest {
                 }
                 append(' ').append(uid)
             }
-            val name = people[random.nextInt(people.size)]
-            val address = name.lowercase().replace(' ', '.').let { SearchText.fold(it) } + "@upm.es"
-            header(uid, subject = subject, from = EmailAddress(address, name), messageId = "<b$uid@upm.es>")
+            fun person(): EmailAddress = people[random.nextInt(people.size)].let { name ->
+                EmailAddress(SearchText.fold(name.lowercase().replace(' ', '.')) + "@upm.es", name)
+            }
+            val flags = RemoteFlags(seen = random.nextInt(10) > 0, flagged = random.nextInt(200) == 0)
+            val to = List(1 + random.nextInt(2)) { person() }
+            header(uid, subject = subject, from = person(), to = to, messageId = "<b$uid@upm.es>", flags = flags, attachments = random.nextInt(1_000) == 0)
         }
         headers.chunked(1_000).forEach { assertTrue(index.insertHeaders(archive, VALIDITY, it) > 0) }
         index.mergeSegments()
 
-        for (query in listOf("elecciones", "ele", "upm", "junta electoral", "de", "elecciones a")) {
+        val queries = listOf(
+            "elecciones", "ele", "upm", "junta electoral", "de", "elecciones a",
+            // Criteria without words: the newest matches first, fast however many there are.
+            "from:ana", "to:luis", "from:ana to:luis", "from:ana.perez@upm.es", "subject:elecciones", "is:starred",
+            "has:attachment", "is:unread from:marta", "after:2023-11-15 before:2023-11-20", "-reunion", "from:garcia -acta",
+            "from:\"jose nunez\" from:pablo subject:tesis", "elecciones to:elena -junta is:unread",
+        )
+        for (query in queries) {
             index.search(query, SearchFilters(), 200)
             val best = (1..3).minOf {
                 val start = System.nanoTime()
@@ -418,8 +428,12 @@ class HeaderIndexDaoTest {
                 assertTrue("$query finds something", hits.isNotEmpty())
                 (System.nanoTime() - start) / 1_000_000
             }
+            println("Search of 50,000 index rows for '$query': $best ms")
             assertTrue("'$query' took $best ms", best < 150)
         }
+        val newest = index.search("from:ana", SearchFilters(), 200)
+        assertEquals(200, newest.size)
+        assertEquals(headers.filter { it.from?.name == "Ana Pérez" }.sortedByDescending { it.sentDate }.take(200).map { it.uid }, newest.map { it.uid })
     }
 
     private companion object {

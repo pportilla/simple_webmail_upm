@@ -2,6 +2,7 @@ package io.github.pportilla.upmmail.ui.components
 
 import android.text.format.DateFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -43,6 +44,10 @@ fun formatFullDate(
     val timePart = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale).format(date)
     return "$datePart, $timePart"
 }
+
+/** A day without time, e.g. "21 oct 2026" or "Oct 21, 2026". */
+fun formatDay(date: LocalDate, locale: Locale = Locale.getDefault()): String =
+    DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale).format(date)
 
 /** True if [epochMillis] falls on the current day in [zone]. */
 fun isToday(epochMillis: Long, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Boolean =

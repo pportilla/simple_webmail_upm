@@ -52,6 +52,19 @@ class Sqlite318CompatTest {
             } finally {
                 db.close()
             }
+            // The upgrade of a database the version 2 app filled (its full-text tables are rebuilt).
+            val v2 = JdbcSqlDatabase.wrap(driver.connect("jdbc:sqlite::memory:", Properties()))
+            try {
+                v2.transaction { MailSchema.createVersion1(v2) }
+                v2.transaction { MailSchema.migrate(v2, 1, 2) }
+                val seeded = Version2Fixture.seed(v2, extraIndexRows = 3_000)
+                val counts = Version2Fixture.rowCounts(v2)
+                v2.transaction { MailSchema.migrate(v2, 2, MailSchema.VERSION) }
+                assertEquals(counts, Version2Fixture.rowCounts(v2))
+                Version2Fixture.assertMigrated(v2, seeded)
+            } finally {
+                v2.close()
+            }
         }
     }
 
@@ -123,6 +136,9 @@ internal object DaoScenario {
         assertEquals(4, messages.expandToThreads(listOf(ids[0])).size)
         assertEquals(4, messages.needingBody(inbox, 10, Long.MAX_VALUE).size)
         assertEquals(5, messages.searchHits("reunion", SearchFilters(), 10).size)
+        assertEquals(5, messages.searchHits("from:bea to:\"ana perez\" subject:reunion -nada after:2020-01-01 before:2100-01-01", SearchFilters(), 10).size)
+        assertEquals(listOf(90L, 4L), messages.searchHits("from:bea from:nadie to:ana is:unread", SearchFilters(), 2).map { it.key.uid })
+        assertTrue(messages.searchHits("reunion -antigua is:starred has:attachment", SearchFilters(), 10).isEmpty())
         assertEquals(listOf(90L, 1L), messages.cachedHits(inbox, listOf(1L, 90L, 999L)).map { it.key.uid }.sortedDescending())
         assertEquals(setOf(SearchKey(inbox, 1)), messages.existingKeys(listOf(SearchKey(inbox, 1), SearchKey(inbox, 999))))
         assertEquals(setOf(1L, 2L), messages.existingUids(inbox, listOf(1L, 2L, 999L)))
@@ -159,6 +175,14 @@ internal object DaoScenario {
         assertEquals(listOf(2_100L, 2_099L, 2_098L), index.search("ele", SearchFilters(accountId = accountId), 3).map { it.uid })
         assertEquals(listOf(2_100L), index.search("junta", SearchFilters(folderId = archive, unreadOnly = true, starredOnly = false), 1).map { it.uid })
         assertTrue(index.search("ju", SearchFilters(), 10).isEmpty())
+        // Every criterion of the search box: column MATCHes, INTERSECT, OR, exclusions, dates, flags.
+        assertEquals(listOf(2_100L, 2_099L), index.search("from:bea to:ana", SearchFilters(), 2).map { it.uid })
+        assertEquals(listOf(2_099L), index.search("from:\"bea gomez\" from:nadie subject:elecciones subject:2099", SearchFilters(), 5).map { it.uid })
+        assertEquals(listOf(2_098L), index.search("subject:\"junta electoral 2098\" to:ana.garcia@upm.es to:ana@upm.es", SearchFilters(), 5).map { it.uid })
+        assertEquals(listOf(2_100L, 2_098L), index.search("junta -elecciones -nada", SearchFilters(), 2).map { it.uid })
+        assertTrue(index.search("-elecciones is:unread has:attachment", SearchFilters(), 1).isEmpty())
+        assertEquals(listOf(2_100L), index.search("after:2020-01-01 before:2100-01-01 is:unread", SearchFilters(), 1).map { it.uid })
+        assertEquals("a value being typed", listOf(2_100L, 2_099L), index.search("to:ana from:bea.g", SearchFilters(), 2).map { it.uid })
 
         index.updateFlags(archive, mapOf(2L to RemoteFlags(flagged = true), 3L to RemoteFlags(deleted = true)))
         index.setFlag(archive, listOf(4L), LocalFlag.STARRED, true)

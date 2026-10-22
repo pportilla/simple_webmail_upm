@@ -264,7 +264,8 @@ class MessageDaoTest {
         assertEquals(listOf(3L), store.messages.search("cafeteria@upm", SearchFilters(), 10).map { it.uid })
         assertTrue(store.messages.search("reunion horario", SearchFilters(), 10).isEmpty())
         // FTS syntax in user input is neutralised instead of failing.
-        assertEquals(listOf(1L), store.messages.search("\"reunión\" -(depa*", SearchFilters(), 10).map { it.uid })
+        assertEquals(listOf(1L), store.messages.search("\"reunión\" (depa*", SearchFilters(), 10).map { it.uid })
+        assertEquals("-word excludes", listOf(3L, 2L), store.messages.search("de -(depa*", SearchFilters(), 10).map { it.uid })
         assertTrue(store.messages.search("*** \"", SearchFilters(), 10).isEmpty())
     }
 

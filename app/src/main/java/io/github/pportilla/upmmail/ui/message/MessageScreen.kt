@@ -96,6 +96,7 @@ import io.github.pportilla.upmmail.model.ComposeMode
 import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.SearchQuery
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
 import io.github.pportilla.upmmail.ui.components.FolderPickerDialog
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
@@ -300,6 +301,12 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                     snackbar.show(context.getString(R.string.message_address_copied))
                 }
+            },
+            onSearchFrom = { address ->
+                navigator.openSearch(accountId.takeIf { it > 0 }, null, SearchQuery(from = listOf(address.address)).format())
+            },
+            onSearchTo = { address ->
+                navigator.openSearch(accountId.takeIf { it > 0 }, null, SearchQuery(to = listOf(address.address)).format())
             },
             onLinkClick = ::handleLink,
             onOpenAttachment = viewModel::openAttachment,

@@ -31,7 +31,7 @@ object Tables {
  */
 object MailSchema {
     const val NAME = "upmmail.db"
-    const val VERSION = 2
+    const val VERSION = 3
 
     /** Version 1 exactly as shipped. Never edit: installed databases were created from it. */
     private val CREATE_V1 = listOf(
@@ -318,6 +318,152 @@ object MailSchema {
         """,
     )
 
+    /**
+     * Version 3: the people of both full-text tables split into a sender and a recipients column,
+     * so `from:` and `to:` match only their own side. FTS4 tables cannot gain columns: both are
+     * rebuilt (see [rebuildFullText]), without losing an entry or the indexed bodies. One pass
+     * over the tables; about a second per 50,000 index rows on a JVM (SearchMigrationTest).
+     */
+    private fun upgradeToVersion3(db: SqlDatabase) {
+        // Triggers go first: renaming a table that a trigger names fails on recent SQLite versions.
+        db.execSQL("DROP TRIGGER messages_fts_delete")
+        db.execSQL("DROP TRIGGER header_index_fts_delete")
+        db.execSQL("ALTER TABLE messages_fts RENAME TO messages_fts_v2")
+        db.execSQL("ALTER TABLE header_index_fts RENAME TO header_index_fts_v2")
+        // Folded text like before; docid = messages.id. Recipients are To and Cc, as in the index
+        // and the server's search: never Bcc, known for our own mail only.
+        db.execSQL("CREATE VIRTUAL TABLE messages_fts USING fts4(subject, sender, recipients, body, tokenize=unicode61)")
+        // docid = header_index.id. Recipients are To and Cc, of every folder.
+        db.execSQL("CREATE VIRTUAL TABLE header_index_fts USING fts4(subject, sender, recipients, tokenize=unicode61)")
+        rebuildFullText(db)
+        db.execSQL("DROP TABLE messages_fts_v2")
+        db.execSQL("DROP TABLE header_index_fts_v2")
+        // Persistent, as in version 2; set after the bulk copy so that it is not slowed down.
+        db.execSQL("INSERT INTO header_index_fts(header_index_fts) VALUES('automerge=8')")
+        db.execSQL(
+            """
+            CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
+                DELETE FROM messages_fts WHERE docid = old.id;
+            END
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TRIGGER header_index_fts_delete AFTER DELETE ON header_index BEGIN
+                DELETE FROM header_index_fts WHERE docid = old.id;
+            END
+            """.trimIndent(),
+        )
+    }
+
+    /**
+     * Fills the version 3 full-text tables from the renamed version 2 ones: one entry per row of
+     * `messages` and of `header_index` (an orphan entry is dropped, a missing one is made from
+     * the row).
+     *
+     * Messages keep their indexed body (it may be all that is left of a dropped body); their
+     * people come from the address columns. Index rows keep their subject and people texts; the
+     * people text has the sender first, and [FtsPeople.senderEnd] finds where it ends, so the
+     * recipients of every folder survive although `to_addr` holds them for the Sent folder only.
+     *
+     * The index may hold 100,000 rows per account, so the work per row is kept small: Kotlin
+     * only reads the people text and notes where to cut it, in a temporary table filled a page at
+     * a time, and one INSERT ... SELECT per table copies the texts inside SQLite, in docid order
+     * (out of order inserts make FTS4 flush its pending terms each time).
+     */
+    private fun rebuildFullText(db: SqlDatabase) {
+        db.execSQL("CREATE TEMP TABLE fts_rebuild (docid INTEGER PRIMARY KEY, cut INTEGER, subject TEXT, sender TEXT, recipients TEXT)")
+        var after = 0L
+        while (true) {
+            val rows = db.query(
+                "SELECT id, subject, from_addr, to_addr, cc_addr FROM messages WHERE id > ? ORDER BY id LIMIT ?",
+                listOf(after, REBUILD_PAGE),
+            ) { row ->
+                listOf<Any?>(
+                    row.longOr("id"),
+                    null,
+                    SearchText.fold(row.stringOrEmpty("subject")),
+                    FtsPeople.ofStored(row.string("from_addr")),
+                    FtsPeople.ofStored(row.string("to_addr"), row.string("cc_addr")),
+                )
+            }
+            insertRebuildRows(db, rows)
+            if (rows.size < REBUILD_PAGE) break
+            after = rows.last()[0] as Long
+        }
+        db.execSQL(
+            """
+            INSERT INTO messages_fts (docid, subject, sender, recipients, body)
+            SELECT r.docid, r.subject, r.sender, r.recipients, COALESCE(o.body, '')
+            FROM fts_rebuild r LEFT JOIN messages_fts_v2 o ON o.docid = r.docid
+            ORDER BY r.docid
+            """.trimIndent(),
+        )
+        db.execSQL("DELETE FROM fts_rebuild")
+
+        // Many rows share a sender: its words are worked out once.
+        val senderWords = HashMap<String, List<String>>()
+        after = 0L
+        while (true) {
+            val rows = db.query(
+                """
+                SELECT h.id, h.subject, h.from_addr, h.to_addr, o.people FROM header_index h
+                LEFT JOIN header_index_fts_v2 o ON o.docid = h.id
+                WHERE h.id > ? ORDER BY h.id LIMIT ?
+                """.trimIndent(),
+                listOf(after, REBUILD_PAGE),
+            ) { row ->
+                val id = row.longOr("id")
+                val fromAddr = row.stringOrEmpty("from_addr")
+                val people = row.string("people")
+                if (senderWords.size > SENDER_CACHE) senderWords.clear()
+                val end = if (people == null) -1 else FtsPeople.senderEnd(people, senderWords.getOrPut(fromAddr) { SearchText.words(fromAddr) })
+                when {
+                    // The usual case: the texts are cut and copied by SQLite (substr counts code points).
+                    end >= 0 -> listOf<Any?>(id, people!!.codePointCount(0, end), null, null, null)
+                    people != null -> listOf<Any?>(id, null, null, FtsPeople.ofStored(fromAddr), people)
+                    else -> listOf<Any?>(
+                        id, null, SearchText.fold(row.stringOrEmpty("subject")), FtsPeople.ofStored(fromAddr), FtsPeople.ofStored(row.string("to_addr")),
+                    )
+                }
+            }
+            insertRebuildRows(db, rows)
+            if (rows.size < REBUILD_PAGE) break
+            after = rows.last()[0] as Long
+        }
+        db.execSQL(
+            """
+            INSERT INTO header_index_fts (docid, subject, sender, recipients)
+            SELECT r.docid, COALESCE(r.subject, o.subject, ''),
+                COALESCE(r.sender, trim(substr(o.people, 1, r.cut))),
+                COALESCE(r.recipients, trim(substr(o.people, r.cut + 1)))
+            FROM fts_rebuild r LEFT JOIN header_index_fts_v2 o ON o.docid = r.docid
+            ORDER BY r.docid
+            """.trimIndent(),
+        )
+        db.execSQL("DROP TABLE fts_rebuild")
+    }
+
+    /** Inserts [rows] (docid, cut, subject, sender, recipients) into `fts_rebuild`, many per statement. */
+    private fun insertRebuildRows(db: SqlDatabase, rows: List<List<Any?>>) {
+        for (chunk in rows.chunked(REBUILD_ROWS_PER_INSERT)) {
+            db.execSQL(
+                "INSERT INTO fts_rebuild (docid, cut, subject, sender, recipients) VALUES " +
+                    List(chunk.size) { "(?, ?, ?, ?, ?)" }.joinToString(", "),
+                chunk.flatten(),
+            )
+        }
+    }
+
+    /** Rows read at a time by [rebuildFullText]. */
+    private const val REBUILD_PAGE = 1_000
+
+    /** Rows per INSERT into `fts_rebuild`: 5 arguments each, within SQLite's limit of 999. */
+    private const val REBUILD_ROWS_PER_INSERT = 150
+
+    /** Senders whose words [rebuildFullText] keeps at a time. */
+    private const val SENDER_CACHE = 20_000
+
     private val DROP = listOf(
         "DROP TRIGGER IF EXISTS header_index_fts_delete",
         "DROP TABLE IF EXISTS header_index_fts",
@@ -346,6 +492,7 @@ object MailSchema {
      */
     internal val MIGRATIONS: Map<Int, (SqlDatabase) -> Unit> = mapOf(
         1 to { db -> V1_TO_V2.forEach { db.execSQL(it.trimIndent()) } },
+        2 to ::upgradeToVersion3,
     )
 
     fun create(db: SqlDatabase) {

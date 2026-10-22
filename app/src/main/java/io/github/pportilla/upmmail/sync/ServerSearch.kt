@@ -12,6 +12,7 @@ import io.github.pportilla.upmmail.mail.ParsedBody
 import io.github.pportilla.upmmail.mail.RemoteMessage
 import io.github.pportilla.upmmail.mail.SearchRange
 import io.github.pportilla.upmmail.mail.ServerQuery
+import io.github.pportilla.upmmail.mail.toIndexedHeader
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.IndexedMessage
 import io.github.pportilla.upmmail.model.MailErrorKind
@@ -49,14 +50,23 @@ import java.util.concurrent.TimeUnit
 /**
  * Progressive server search over every folder in scope (see [ServerSearchRequest]).
  *
- * The query is an AND over its words, each matching any spelling variant in any searched field.
- * The HEADERS phase searches subject, from, to and cc of every folder; a folder whose header
- * index is complete is only asked about mail newer than the index (or not at all when the index
- * was checked a moment ago), unless the query has a word too short for the index to answer. The
- * TEXT phase searches message bodies (and the headers too when there are several words, which
- * may be in different parts) in windows of the newest messages first, splitting a window that
- * takes too long. A server that cannot be reached ends the search with a NETWORK error rather
- * than a timeout per folder. Results are emitted after every step;
+ * The search box text is read by [ServerQuery.parse]: an AND over its words, each matching any
+ * spelling variant in any searched field, and over its other criteria (senders, recipients,
+ * subject, exclusions, dates, unread, starred). The HEADERS phase searches subject, from, to and
+ * cc of every folder; a folder whose header index is complete is only asked about mail newer
+ * than the index (or not at all when the index was checked a moment ago), unless the index cannot
+ * answer the query ([HeaderIndexDao.answersFully]). Exclusions are checked in the headers and the
+ * text in both phases; the HEADERS phase also notes the messages of the device that only their
+ * text rules out ([ServerSearchProgress.refuted]), which the local search cannot know about.
+ * Dates are asked for with a day more on each side and the matches kept by the device's days
+ * ([ServerQuery.datesMatch]).
+ * The TEXT phase, only for a query with words ([phasesToRun]), searches message bodies (and the
+ * headers too when there are several words, which may be in different parts) in windows of the
+ * newest messages first, splitting a window that takes too long and skipping one where the
+ * criteria of the headers alone match nothing (a date range, a sender). Attachments have no IMAP
+ * search key: matches are kept by their BODYSTRUCTURE, a page at a time, until enough are found.
+ * A server that cannot be reached ends the search with a NETWORK error rather than a timeout per
+ * folder. Results are emitted after every step;
  * matches not cached in `messages` are added to the header index, never to the mailbox lists
  * (only the few previews of the SNIPPETS phase are downloaded, as detached rows).
  *
@@ -225,6 +235,10 @@ class ServerSearch internal constructor(
         /** Hits found by TEXT steps: candidates for previews. */
         private val textKeys = HashSet<SearchKey>()
 
+        /** Messages of the device ruled out by an excluded word in their text ([refute]); [refutedNow] as emitted. */
+        private val refuted = HashSet<SearchKey>()
+        private var refutedNow: Set<SearchKey> = emptySet()
+
         /** Accounts whose login changed or that were removed during the search: no longer searched. */
         private val invalidated: MutableSet<Long> = ConcurrentHashMap.newKeySet()
 
@@ -237,7 +251,8 @@ class ServerSearch internal constructor(
 
         suspend fun execute() {
             val query = ServerQuery.parse(request.query, ServerQuery.HEADER_FIELDS)
-            if (query == null) {
+            val phases = phasesToRun(query, request.phases)
+            if (query == null || phases.isEmpty()) {
                 emit(finished = true)
                 return
             }
@@ -252,7 +267,7 @@ class ServerSearch internal constructor(
                 }
             }
             try {
-                run(query, accounts)
+                run(query, accounts, phases)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -268,14 +283,14 @@ class ServerSearch internal constructor(
             emit(finished = true, error = stopError)
         }
 
-        private suspend fun run(query: ServerQuery, accounts: List<Long>) {
+        private suspend fun run(query: ServerQuery, accounts: List<Long>, phases: Set<SearchPhase>) {
             val plan = plan(accounts)
             if (stopped) return
-            if (SearchPhase.HEADERS in request.phases) {
+            if (SearchPhase.HEADERS in phases) {
                 headersPhase(plan, query.withFields(ServerQuery.HEADER_FIELDS))
                 if (stopped) return
             }
-            if (SearchPhase.TEXT in request.phases) {
+            if (SearchPhase.TEXT in phases) {
                 // One word is found in the headers by HEADERS; of several, each may be in another
                 // part ("elecciones" in the subject, "delegados" in the text).
                 val fields = if (query.words.size > 1) ServerQuery.HEADER_FIELDS + ServerQuery.TEXT_FIELDS else ServerQuery.TEXT_FIELDS
@@ -326,7 +341,7 @@ class ServerSearch internal constructor(
                 if (opened == null) continue
                 val trusted = if (indexAnswers) store.headerIndex.state(target.id) else null
                 val steps = headerSteps(target, opened.probe, trusted, HeaderIndexDao.capOf(target.role))
-                runSteps(ArrayDeque(steps), query, stepProgress = false)
+                runSteps(ArrayDeque(steps), query, stepProgress = false, precheck = null)
                 if (stopped) return
             }
         }
@@ -384,7 +399,7 @@ class ServerSearch internal constructor(
                 if (stopped) return
             }
             val windows = plan.mapNotNull { (target, _) -> probed[target.id]?.let { target to it.probe } }
-            runSteps(ArrayDeque(textSteps(windows)), query, stepProgress = true)
+            runSteps(ArrayDeque(textSteps(windows)), query, stepProgress = true, precheck = query.headerCriteria())
         }
 
         /** Downloads the newest few text matches that are not cached, so their rows show a preview. */
@@ -439,9 +454,10 @@ class ServerSearch internal constructor(
          * Runs [steps] in order. A step that takes too long is split in halves (and the folder's
          * later windows in the phase are planned at that size); one that cannot be split is
          * recorded, and after [MAX_TIMEOUTS_PER_FOLDER_PHASE] of those the rest of the folder in
-         * the phase is skipped.
+         * the phase is skipped. A step whose window has no message matching [precheck] (the
+         * criteria of the headers, cheap to search) is skipped.
          */
-        private suspend fun runSteps(steps: ArrayDeque<PlannedStep>, query: ServerQuery, stepProgress: Boolean) {
+        private suspend fun runSteps(steps: ArrayDeque<PlannedStep>, query: ServerQuery, stepProgress: Boolean, precheck: ServerQuery?) {
             var done = 0
             while (steps.isNotEmpty()) {
                 val current = steps.removeFirst()
@@ -454,9 +470,14 @@ class ServerSearch internal constructor(
                     folder = current.folder
                     emit()
                 }
+                if (precheck != null && nothingMatches(current, target, precheck)) continue
                 val deadline = if (current.phase == SearchPhase.TEXT) limits.textStepDeadline else limits.headerStepDeadline
+                val refutes = current.phase == SearchPhase.HEADERS && query.excluded.isNotEmpty() && refuted.size < MAX_REFUTED
+                // Without an IMAP key for attachments, every match of a step is checked; [refute]
+                // needs every match too.
+                val perStep = if (query.hasAttachment || refutes) Int.MAX_VALUE else PER_STEP_LIMIT
                 val searched = call(deadline, current.folder.accountId) {
-                    connection(current.folder.accountId).searchUids(current.folder.fullName, query, current.range, PER_STEP_LIMIT)
+                    connection(current.folder.accountId).searchUids(current.folder.fullName, query, current.range, perStep)
                 }
                 val outcome = when (searched) {
                     is Call.Done -> searched.value
@@ -480,29 +501,83 @@ class ServerSearch internal constructor(
                     problems += problem(current, StepOutcome.FAILED, MailException(MailErrorKind.SERVER, CHARSET_REJECTED))
                     continue
                 }
-                if (outcome.totalMatches > outcome.uids.size) truncated = true
-                if (outcome.uids.isEmpty()) continue
-                val found = when (val resolved = call(limits.headerStepDeadline, current.folder.accountId) { resolve(target, outcome.uids) }) {
-                    is Call.Done -> resolved.value
-                    Call.TimedOut -> {
-                        problems += problem(current, StepOutcome.TIMED_OUT, null)
-                        continue
+                if (refutes) refute(current, target, query, outcome.uids)
+                val uids = if (query.hasAttachment) outcome.uids else outcome.uids.take(PER_STEP_LIMIT)
+                if (outcome.totalMatches > uids.size) truncated = true
+                if (uids.isEmpty()) continue
+                // Matches filtered here (attachments) are looked at a page at a time, newest
+                // first, so the ones without attachments never use up the limit.
+                val pages = if (query.hasAttachment) uids.chunked(ATTACHMENT_PAGE) else listOf(uids)
+                for (page in pages) {
+                    val resolved = call(limits.headerStepDeadline, current.folder.accountId) { resolve(target, page, query.hasAttachment) }
+                    val found = when (resolved) {
+                        // The server was asked for a day more on each side: the device's days decide.
+                        is Call.Done -> resolved.value.filter { query.datesMatch(it.date) }
+                        Call.TimedOut -> {
+                            problems += problem(current, StepOutcome.TIMED_OUT, null)
+                            break
+                        }
+                        is Call.Failed -> {
+                            stepFailed(current, resolved.error, steps)
+                            if (stopped) return
+                            break
+                        }
                     }
-                    is Call.Failed -> {
-                        stepFailed(current, resolved.error, steps)
-                        if (stopped) return
-                        continue
+                    if (found.isEmpty()) continue
+                    if (current.phase == SearchPhase.TEXT) found.mapTo(textKeys) { it.key }
+                    hits = mergeHits(hits, found, limit = limit)
+                    if (hits.size >= limit) {
+                        truncated = true
+                        stopped = true
+                        return
                     }
+                    emit()
                 }
-                if (current.phase == SearchPhase.TEXT) found.mapTo(textKeys) { it.key }
-                hits = mergeHits(hits, found, limit = limit)
-                if (hits.size >= limit) {
-                    truncated = true
-                    stopped = true
-                    return
-                }
-                emit()
             }
+        }
+
+        /**
+         * Notes the messages of the device in the window of [step] that an excluded word of
+         * [query] rules out by their text alone: those matching the query with its exclusions
+         * checked in the headers only ([ServerQuery.headerExclusionsOnly]) but not in [matched],
+         * every match of the query in the window. The local search cannot see that for a header
+         * index row or a cached message whose text was not downloaded. One header search more per
+         * step; when it fails or takes too long nothing is ruled out. At most [MAX_REFUTED] are
+         * kept, the newest first, as the local results are.
+         */
+        private suspend fun refute(step: PlannedStep, target: Probed, query: ServerQuery, matched: List<Long>) {
+            val checked = call(limits.headerStepDeadline, step.folder.accountId) {
+                connection(step.folder.accountId).searchUids(step.folder.fullName, query.headerExclusionsOnly(), step.range, Int.MAX_VALUE)
+            }
+            val outcome = (checked as? Call.Done)?.value ?: return
+            if (outcome.uidValidity != target.probe.uidValidity) return
+            val kept = matched.toHashSet()
+            val candidates = outcome.uids.filter { it !in kept }
+            if (candidates.isEmpty()) return
+            val folderId = step.folder.id
+            val known = HashSet<Long>()
+            // Cached rows of another UIDVALIDITY are not these messages.
+            if (!target.stale) known += store.messages.existingUids(folderId, candidates)
+            if (target.indexed) known += store.headerIndex.existingUids(folderId, candidates)
+            val before = refuted.size
+            for (uid in candidates) {
+                if (refuted.size >= MAX_REFUTED) break
+                if (uid in known) refuted += SearchKey(folderId, uid)
+            }
+            if (refuted.size != before) refutedNow = refuted.toSet()
+        }
+
+        /**
+         * True when [criteria] (of the headers and flags only) match no message in the window of
+         * [step], so its message text need not be searched. Any doubt (no answer in time, a
+         * failure, values the server cannot search for) leaves the step to run.
+         */
+        private suspend fun nothingMatches(step: PlannedStep, target: Probed, criteria: ServerQuery): Boolean {
+            val checked = call(limits.headerStepDeadline, step.folder.accountId) {
+                connection(step.folder.accountId).searchUids(step.folder.fullName, criteria, step.range, 0)
+            }
+            val outcome = (checked as? Call.Done)?.value ?: return false
+            return outcome.uidValidity == target.probe.uidValidity && !outcome.charsetRejected && outcome.totalMatches == 0
         }
 
         private fun timedOut(current: PlannedStep, steps: ArrayDeque<PlannedStep>) {
@@ -589,13 +664,20 @@ class ServerSearch internal constructor(
          * Turns the matching [uids] of a folder (newest first) into hits: cached rows as they
          * are, the others from the header index, whose missing rows are fetched first. Flags of
          * rows the index already had are refreshed, and rows of messages gone meanwhile dropped.
+         * With [attachments], only messages with attachments are kept (see [withAttachments]).
          */
-        private suspend fun resolve(target: Probed, uids: List<Long>): List<SearchHit> {
+        private suspend fun resolve(target: Probed, uids: List<Long>, attachments: Boolean): List<SearchHit> {
             val mailbox = target.folder
             val existing = if (target.stale) emptySet() else store.messages.existingUids(mailbox.id, uids)
-            val found = ArrayList<SearchHit>(store.messages.cachedHits(mailbox.id, uids.filter { it in existing }))
+            val cached = store.messages.cachedHits(mailbox.id, uids.filter { it in existing })
+            // Cached rows know their attachments from the BODYSTRUCTURE.
+            val found = ArrayList<SearchHit>(if (attachments) cached.filter { it.hasAttachments } else cached)
             val rest = uids.filter { it !in existing }
             if (rest.isEmpty()) return found
+            if (attachments) {
+                found += withAttachments(target, rest)
+                return found
+            }
             if (!target.indexed) {
                 // A folder the index leaves out (Drafts, a virtual folder): its matches become
                 // detached rows, unless the cache is of another UIDVALIDITY.
@@ -627,6 +709,39 @@ class ServerSearch internal constructor(
             val indexed = store.headerIndex.findByUids(mailbox.id, stillThere + missing)
             indexed.mapTo(found) { SearchHit.Indexed(it) }
             return found
+        }
+
+        /**
+         * The messages of [uids] (not cached) that have attachments, by their BODYSTRUCTURE: the
+         * header index only guesses from the top-level type, so these are fetched. As in
+         * [resolve], the matches the index lacks are added to it (with the BODYSTRUCTURE answer),
+         * the flags of the rows it has are refreshed, and in a folder the index leaves out the
+         * matches become detached rows.
+         */
+        private suspend fun withAttachments(target: Probed, uids: List<Long>): List<SearchHit> {
+            val mailbox = target.folder
+            if (!target.indexed && target.stale) return emptyList()
+            val fetched = connection(mailbox.accountId).fetchByUids(mailbox.fullName, uids)
+            if (fetched.uidValidity != target.probe.uidValidity) return emptyList()
+            val matching = fetched.messages.filter { !it.flags.deleted && it.hasAttachments }
+            if (!target.indexed) {
+                if (matching.isEmpty()) return emptyList()
+                if (!store.storeFetchedOutsideSync(mailbox, fetched.uidValidity, matching, clock())) return emptyList()
+                return store.messages.cachedHits(mailbox.id, matching.map { it.uid })
+            }
+            val known = store.headerIndex.findByUids(mailbox.id, uids).mapTo(HashSet()) { it.uid }
+            if (known.isNotEmpty()) {
+                // Rows marked \Deleted are removed by updateFlags; expunged ones here.
+                store.headerIndex.updateFlags(mailbox.id, fetched.messages.filter { it.uid in known }.associate { it.uid to it.flags })
+                val present = fetched.messages.mapTo(HashSet()) { it.uid }
+                val gone = known.filter { it !in present }
+                if (gone.isNotEmpty()) store.headerIndex.deleteUids(mailbox.id, gone)
+            }
+            val missing = matching.filter { it.uid !in known }
+            if (missing.isNotEmpty()) index(target, missing.map { it.toIndexedHeader() })
+            // A row the index had keeps its guess; the hit says what the BODYSTRUCTURE says.
+            return store.headerIndex.findByUids(mailbox.id, matching.map { it.uid })
+                .map { SearchHit.Indexed(it.copy(hasAttachments = true)) }
         }
 
         /** Adds [headers] to the index; the state row is created again if a sync reset it meanwhile. */
@@ -709,6 +824,7 @@ class ServerSearch internal constructor(
                     finished = finished,
                     truncated = truncated,
                     error = error,
+                    refuted = refutedNow,
                 ),
             )
         }
@@ -717,6 +833,12 @@ class ServerSearch internal constructor(
     companion object {
         /** Matches kept per step; the rest of a step's matches are dropped (the result is truncated). */
         const val PER_STEP_LIMIT = 200
+
+        /** Matches whose attachments are checked per server call. */
+        const val ATTACHMENT_PAGE = 100
+
+        /** Messages of the device a search rules out at most ([ServerSearchProgress.refuted]). */
+        const val MAX_REFUTED = 10_000
 
         /** Longest wait for one HEADERS step (or EXAMINE, STATUS, a header fetch). */
         const val HEADER_STEP_DEADLINE = 45_000L

@@ -11,7 +11,9 @@ import io.github.pportilla.upmmail.model.MessageSummary
 import io.github.pportilla.upmmail.model.SearchFilters
 import io.github.pportilla.upmmail.model.SearchHit
 import io.github.pportilla.upmmail.model.SearchKey
+import io.github.pportilla.upmmail.model.SearchQuery
 import kotlinx.coroutines.flow.Flow
+import java.time.ZoneId
 
 /** Identity and state of a cached message, as needed by actions and the sync engine. */
 data class MessageRef(
@@ -270,7 +272,7 @@ class MessageDao internal constructor(private val store: MailStore) {
             val id = sql.insert(Tables.MESSAGES, values, Conflict.IGNORE)
             if (id > 0) {
                 inserted += id
-                insertFts(id, message.subject, AddressCodec.people(listOfNotNull(message.from), message.to, message.cc), "")
+                insertFts(id, message)
                 if (feedContacts) {
                     val people = listOfNotNull(message.from) + message.to + message.cc
                     store.contacts.recordSeen(people, values["date"] as Long, ownAddresses)
@@ -549,10 +551,16 @@ class MessageDao internal constructor(private val store: MailStore) {
         dropped
     }
 
-    private fun insertFts(id: Long, subject: String, people: String, body: String) {
+    /** The message's full-text entry; the body is added by [storeBody]. */
+    private fun insertFts(id: Long, message: RemoteMessage) {
         sql.execSQL(
-            "INSERT INTO messages_fts (docid, subject, people, body) VALUES (?, ?, ?, ?)",
-            listOf(id, SearchText.fold(subject), SearchText.fold(people), SearchText.fold(body)),
+            "INSERT INTO messages_fts (docid, subject, sender, recipients, body) VALUES (?, ?, ?, ?, '')",
+            listOf(
+                id,
+                SearchText.fold(message.subject),
+                FtsPeople.sender(message.from),
+                FtsPeople.recipients(message.to, message.cc),
+            ),
         )
     }
 
@@ -647,18 +655,34 @@ class MessageDao internal constructor(private val store: MailStore) {
     // ---------------------------------------------------------------- search
 
     /**
-     * Full-text search over subject, people and body (or snippet). [query] is free user text;
-     * see [SearchText.matchExpression]. Without a folder filter, Trash and Junk are left out and
-     * copies of one message in several folders are returned once.
+     * Search of the cached messages; [query] is the text of the search box ([SearchQuery.parse]).
+     * Words match as prefixes anywhere (subject, sender, recipients and the indexed body or
+     * snippet), the other criteria as described in [FtsQuery]; accents and case never matter.
+     * Without a folder filter, Trash and Junk are left out and copies of one message in several
+     * folders are returned once. Newest first, at most [limit] after every filter.
      */
     fun search(query: String, filters: SearchFilters, limit: Int): List<MessageSummary> =
         searchHits(query, filters, limit).map { it.message }
 
     /** [search] as search hits, which carry the Message-ID used to merge them with other sources. */
-    fun searchHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit.Cached> {
-        val match = SearchText.matchExpression(query) ?: return emptyList()
-        val where = StringBuilder("m.id IN (SELECT docid FROM messages_fts WHERE messages_fts MATCH ?) AND m.hidden = 0")
-        val args = mutableListOf<Any?>(match)
+    fun searchHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit.Cached> =
+        searchHits(SearchQuery.parse(query), filters, limit)
+
+    /** [searchHits] of a parsed query; dates are whole days of [zone]. */
+    fun searchHits(
+        query: SearchQuery,
+        filters: SearchFilters,
+        limit: Int,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): List<SearchHit.Cached> {
+        val fts = FtsQuery.of(query, filters, minPrefix = 1, zone) ?: return emptyList()
+        val where = StringBuilder("m.hidden = 0")
+        val args = mutableListOf<Any?>()
+        fts.candidates(Tables.MESSAGES_FTS)?.let { (candidates, matchArgs) ->
+            where.append(" AND m.id IN ($candidates)")
+            args.addAll(matchArgs)
+        }
+        fts.appendFilters(where, args, "m", Tables.MESSAGES_FTS)
         filters.accountId?.let { where.append(" AND m.account_id = ?"); args += it }
         if (filters.folderId != null) {
             where.append(" AND m.folder_id = ?")
@@ -666,22 +690,30 @@ class MessageDao internal constructor(private val store: MailStore) {
         } else {
             where.append(" AND f.role NOT IN ('TRASH', 'JUNK')")
         }
-        if (filters.unreadOnly) where.append(" AND m.is_read = 0")
-        if (filters.starredOnly) where.append(" AND m.is_starred = 1")
-        if (filters.withAttachments) where.append(" AND m.has_attachments = 1")
-        args += limit.coerceAtLeast(1) * 2
-        val rows = sql.query(
-            """
-            SELECT $SUMMARY_COLUMNS, m.message_id_header AS mid, 1 AS thread_count
-            FROM messages m JOIN folders f ON f.id = m.folder_id
-            WHERE $where
-            ORDER BY m.date DESC, m.id DESC LIMIT ?
-            """.trimIndent(),
-            args,
-        ) { row -> SearchHit.Cached(mapSummary(row), row.string("mid")) }
+        // Copies of a message are dropped after the query: read on until the limit is reached.
+        val safeLimit = limit.coerceAtLeast(1)
+        val page = safeLimit * 2
+        val result = ArrayList<SearchHit.Cached>()
         val seen = HashSet<String>()
-        return rows.filter { hit -> hit.messageIdHeader?.lowercase()?.let { seen.add(it) } ?: true }
-            .take(limit.coerceAtLeast(1))
+        var offset = 0
+        while (true) {
+            val rows = sql.query(
+                """
+                SELECT $SUMMARY_COLUMNS, m.message_id_header AS mid, 1 AS thread_count
+                FROM messages m JOIN folders f ON f.id = m.folder_id
+                WHERE $where
+                ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?
+                """.trimIndent(),
+                args + page + offset,
+            ) { row -> SearchHit.Cached(mapSummary(row), row.string("mid")) }
+            for (hit in rows) {
+                if (hit.messageIdHeader?.lowercase()?.let { seen.add(it) } == false) continue
+                result += hit
+                if (result.size == safeLimit) return result
+            }
+            if (rows.size < page) return result
+            offset += page
+        }
     }
 
     /** The rows of [uids] in the folder as search hits, newest first; hidden rows are left out. */

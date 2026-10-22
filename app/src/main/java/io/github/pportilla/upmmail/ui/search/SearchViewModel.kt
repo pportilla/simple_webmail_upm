@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.repository.AppContainer
 import io.github.pportilla.upmmail.model.Account
+import io.github.pportilla.upmmail.model.ContactSuggestion
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.HitOpenResult
 import io.github.pportilla.upmmail.model.IndexStatus
@@ -19,8 +20,10 @@ import io.github.pportilla.upmmail.model.MailException
 import io.github.pportilla.upmmail.model.SearchHit
 import io.github.pportilla.upmmail.model.SearchKey
 import io.github.pportilla.upmmail.model.SearchPhase
+import io.github.pportilla.upmmail.model.SearchQuery
 import io.github.pportilla.upmmail.model.ServerSearchProgress
 import io.github.pportilla.upmmail.model.ServerSearchScope
+import io.github.pportilla.upmmail.sync.searchesMessageText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -44,6 +47,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /** Everything the search screen draws (the query text itself lives in [SearchViewModel.query]). */
 data class SearchUiState(
@@ -76,7 +80,18 @@ data class SearchUiState(
     val openingKey: SearchKey? = null,
     /** Flag filters are on and some shown matches have flags from the header index, possibly out of date. */
     val approximateFlags: Boolean = false,
+    /** Removable chips of the criteria in the search text (the flags are [filters]). */
+    val chips: List<CriterionChip> = emptyList(),
+    /** Contact names of the full addresses in the search text, by [nameKey]. */
+    val names: Map<String, String> = emptyMap(),
+    /** The server can search the message text for the current text (it has words). */
+    val searchesText: Boolean = true,
+    /** Show the one-line operator tip with the recent searches. */
+    val operatorTip: Boolean = false,
 )
+
+/** Contact suggestions for the text typed in a person field of the advanced search panel. */
+data class PersonSuggestions(val field: PersonField, val text: String, val items: List<ContactSuggestion>)
 
 /** One-shot events for the screen. */
 sealed interface SearchEvent {
@@ -93,16 +108,23 @@ sealed interface SearchEvent {
  * own section: the headers of every folder are searched by themselves when the device has few
  * matches, the message text on request (or the keyboard's search key).
  *
+ * The search text is the only state of the criteria (see SearchCriteria.kt): the flag chips, the
+ * criterion chips and the advanced search panel all read it and rewrite it.
+ *
  * @param accountId account to search, null for all accounts.
  * @param folderId folder the screen was opened from (offered as scope), null for none.
+ * @param initialQuery search text to start with (e.g. "from:ana@upm.es" from a message), searched at once.
  * @param coroutineScope replaces viewModelScope in tests.
+ * @param today the local date, for the date presets.
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class SearchViewModel(
     private val container: AppContainer,
     accountId: Long?,
     folderId: Long?,
+    initialQuery: String? = null,
     coroutineScope: CoroutineScope? = null,
+    private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
     private val scope: CoroutineScope = coroutineScope ?: viewModelScope
@@ -113,7 +135,8 @@ class SearchViewModel(
     private val folderId: Long? = folderId?.takeIf { it > 0 }
 
     private val queryFlow = MutableStateFlow("")
-    private val filters = MutableStateFlow(SearchFilterState(thisFolderOnly = this.folderId != null))
+    // The scope is the screen's own; the flag filters are read from the search text.
+    private val thisFolderOnly = MutableStateFlow(this.folderId != null)
     private val refreshTick = MutableStateFlow(0)
     private val local = MutableStateFlow(LocalResults("", emptyList()))
     private val session = MutableStateFlow<ServerSession?>(null)
@@ -121,7 +144,13 @@ class SearchViewModel(
     private val recents = MutableStateFlow<List<String>>(emptyList())
     private val scopeFolder = MutableStateFlow<Folder?>(null)
     private val folders = MutableStateFlow<Map<Long, Folder>>(emptyMap())
+    private val names = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val suggestionRequest = MutableStateFlow<Pair<PersonField, String>?>(null)
+    private val suggestionResults = MutableStateFlow<PersonSuggestions?>(null)
     private val eventChannel = Channel<SearchEvent>(Channel.BUFFERED)
+
+    /** Addresses already looked up in the contacts, found or not. */
+    private val contactLookups = HashSet<String>()
 
     private var serverJob: Job? = null
     private var autoJob: Job? = null
@@ -146,6 +175,13 @@ class SearchViewModel(
     /** The text in the search field. */
     val query: String get() = queryField.text
 
+    /** The advanced search panel's fields while it is open; null when it is closed. */
+    var advanced: AdvancedSearchForm? by mutableStateOf(null)
+        private set
+
+    /** Contact suggestions for the person field being typed in the panel. */
+    val suggestions: StateFlow<PersonSuggestions?> = suggestionResults
+
     private val accounts: StateFlow<List<Account>> = container.accountRepository.accounts
         .catch { emit(emptyList()) }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
@@ -160,16 +196,19 @@ class SearchViewModel(
 
     private val searchInputs = combine(
         queryFlow.debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MILLIS }.map(::normalizeQuery).distinctUntilChanged(),
-        filters.map { it.copy(thisFolderOnly = it.thisFolderOnly && this.folderId != null) }.distinctUntilChanged(),
+        thisFolderOnly.map { it && this.folderId != null }.distinctUntilChanged(),
         refreshTick,
-    ) { q, f, _ -> q to f }
+    ) { q, thisFolder, _ -> q to filterStateOf(SearchQuery.parse(q), thisFolder) }
 
     val uiState: StateFlow<SearchUiState> = combine(
-        combine(local, session, filters, queryFlow, opening, ::Quint),
+        combine(local, session, thisFolderOnly, queryFlow, opening, ::Quint),
         combine(recents, scopeFolder, folders, accounts, container.settingsRepository.settings, ::Quint),
-        indexStatuses,
-    ) { (localResults, serverSession, filterState, rawQuery, openingKey), (recentList, openedFrom, folderMap, accountList, settings), statuses ->
+        combine(indexStatuses, names, ::Pair),
+    ) { (localResults, serverSession, folderOnly, rawQuery, openingKey), (recentList, openedFrom, folderMap, accountList, settings), (statuses, nameMap) ->
         val current = normalizeQuery(rawQuery)
+        val parsed = SearchQuery.parse(current)
+        // The flag chips show what the text asks for; only the scope is the screen's own.
+        val filterState = filterStateOf(parsed, folderOnly)
         val server = serverSession?.takeIf { it.query == current }
         val sections = mergeSections(
             local = localResults.items,
@@ -177,6 +216,7 @@ class SearchViewModel(
             localKeysAtStart = server?.localKeys.orEmpty(),
             localMidsAtStart = server?.localMids.orEmpty(),
             filters = filterState,
+            refuted = server?.allRefuted.orEmpty(),
         )
         val shownLocal = if (current.isEmpty()) emptyList() else sections.local
         val shownServer = if (current.isEmpty()) emptyList() else sections.fromServer
@@ -198,6 +238,10 @@ class SearchViewModel(
             index = indexSummary(statuses, searchedAccounts(openedFrom, filterState)),
             openingKey = openingKey,
             approximateFlags = flagsApproximate(filterState, shownLocal + shownServer),
+            chips = criterionChips(parsed, today()),
+            names = nameMap,
+            searchesText = current.isEmpty() || searchesMessageText(current),
+            operatorTip = showOperatorTip(recentList),
         )
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
@@ -225,12 +269,26 @@ class SearchViewModel(
                     local.value = results
                     loadFolders(results.items)
                     scheduleAutoSearch(results)
+                    scope.launch { loadNames(results) }
                 }
         }
         scope.launch {
             folderId?.let { id -> scopeFolder.value = runCatchingNonCancel { mail.getFolder(id) } }
         }
+        scope.launch {
+            suggestionRequest
+                .debounce { if (it == null) 0L else SUGGEST_DEBOUNCE_MILLIS }
+                .distinctUntilChanged()
+                .mapLatest { request ->
+                    val (field, text) = request ?: return@mapLatest null
+                    val exclude = advanced?.people(field).orEmpty().mapTo(HashSet(), ::nameKey)
+                    val items = runCatchingNonCancel { container.contactRepository.suggest(text.trim(), exclude, SUGGESTION_LIMIT) }
+                    items?.let { PersonSuggestions(field, text, it) }
+                }
+                .collect { suggestionResults.value = it }
+        }
         reloadRecentSearches()
+        initialQuery?.let(::normalizeQuery)?.takeIf { it.isNotEmpty() }?.let(::setQuery)
     }
 
     /** The user edited the field (text, cursor or selection). */
@@ -257,12 +315,15 @@ class SearchViewModel(
         if (current.isEmpty()) reloadRecentSearches()
     }
 
-    /** Keyboard search key: remember the query and search the message text on the server too. */
+    /**
+     * Keyboard search key: remember the query and search the message text on the server too
+     * (only the headers when the text cannot add matches: no words to look for).
+     */
     fun onSubmit() {
         val current = normalizeQuery(query)
         if (current.isEmpty()) return
         rememberQuery(current)
-        startServerSearch(setOf(SearchPhase.TEXT))
+        startServerSearch(setOf(if (searchesMessageText(current)) SearchPhase.TEXT else SearchPhase.HEADERS))
     }
 
     /** A recent search was tapped: search it again. */
@@ -276,16 +337,96 @@ class SearchViewModel(
         scope.launch { runCatchingNonCancel { mail.clearRecentSearches() } }
     }
 
-    fun setUnreadOnly(value: Boolean) = filters.update { it.copy(unreadOnly = value) }
+    /** A flag chip was toggled: its operator is added to the text or removed from it. */
+    fun setFlag(flag: SearchFlag, on: Boolean) {
+        val updated = withFlag(query, flag, on)
+        if (updated != query) setQuery(updated)
+    }
 
-    fun setStarredOnly(value: Boolean) = filters.update { it.copy(starredOnly = value) }
+    fun setUnreadOnly(value: Boolean) = setFlag(SearchFlag.UNREAD, value)
 
-    fun setWithAttachments(value: Boolean) = filters.update { it.copy(withAttachments = value) }
+    fun setStarredOnly(value: Boolean) = setFlag(SearchFlag.STARRED, value)
+
+    fun setWithAttachments(value: Boolean) = setFlag(SearchFlag.ATTACHMENT, value)
+
+    /** The close icon of a criterion chip: the criterion leaves the text. */
+    fun removeChip(chip: CriterionChip) {
+        val updated = withoutChip(query, chip)
+        if (updated != query) setQuery(updated)
+    }
+
+    // ------------------------------------------------------------------ advanced search panel
+
+    /** Opens the panel showing the criteria of the current text. */
+    fun openAdvancedSearch() {
+        advanced = AdvancedSearchForm.of(SearchQuery.parse(query), today())
+        clearSuggestions()
+    }
+
+    fun closeAdvancedSearch() {
+        advanced = null
+        clearSuggestions()
+    }
+
+    /** A field of the panel other than the person inputs changed: [change] applies to the current fields. */
+    fun updateAdvancedSearch(change: (AdvancedSearchForm) -> AdvancedSearchForm) {
+        advanced?.let { advanced = change(it) }
+    }
+
+    /** Text typed in a person field: contacts matching it are suggested. */
+    fun onPersonInput(field: PersonField, text: String) {
+        val form = advanced ?: return
+        val updated = form.withInput(field, text)
+        advanced = updated
+        val typed = updated.input(field)
+        if (typed.isBlank()) clearSuggestions() else suggestionRequest.value = field to typed
+    }
+
+    /** A suggested contact was picked: its address is the value, its name the label. */
+    fun pickSuggestion(field: PersonField, suggestion: ContactSuggestion) {
+        val form = advanced ?: return
+        val address = suggestion.address
+        address.name?.trim()?.takeIf { it.isNotEmpty() }?.let { name -> names.update { it + (nameKey(address.address) to name) } }
+        advanced = form.withPerson(field, address.address)
+        clearSuggestions()
+    }
+
+    /** The typed text of a person field becomes a value of its own (keyboard Next or Enter). */
+    fun commitPersonInput(field: PersonField) {
+        val form = advanced ?: return
+        advanced = form.commitInput(field)
+        clearSuggestions()
+    }
+
+    fun removePerson(field: PersonField, index: Int) {
+        val form = advanced ?: return
+        advanced = form.withoutPerson(field, index)
+    }
+
+    /** "Clear": every field of the panel is emptied (the search itself changes on "Search"). */
+    fun clearAdvancedSearch() {
+        if (advanced != null) advanced = AdvancedSearchForm()
+        clearSuggestions()
+    }
+
+    /** "Search": the panel's criteria replace the search text, which is searched and remembered. */
+    fun applyAdvancedSearch() {
+        val form = advanced ?: return
+        val text = form.toQuery(today()).format()
+        closeAdvancedSearch()
+        setQuery(text)
+        normalizeQuery(text).takeIf { it.isNotEmpty() }?.let(::rememberQuery)
+    }
+
+    private fun clearSuggestions() {
+        suggestionRequest.value = null
+        suggestionResults.value = null
+    }
 
     /** Switches between "this folder" and "all folders"; a server search belongs to one scope. */
     fun setThisFolderOnly(value: Boolean) {
-        if (folderId == null || filters.value.thisFolderOnly == value) return
-        filters.update { it.copy(thisFolderOnly = value) }
+        if (folderId == null || thisFolderOnly.value == value) return
+        thisFolderOnly.value = value
         cancelAutoSearch()
         cancelServerSearch()
         cancelOpening()
@@ -444,7 +585,7 @@ class SearchViewModel(
      * every account with the last one used first.
      */
     private suspend fun serverScope(): ServerSearchScope? {
-        if (filters.value.thisFolderOnly && folderId != null) {
+        if (thisFolderOnly.value && folderId != null) {
             val folder = scopeFolder.value ?: runCatchingNonCancel { mail.getFolder(folderId) } ?: return null
             return ServerSearchScope(listOf(folder.accountId), folderId = folder.id)
         }
@@ -518,6 +659,25 @@ class SearchViewModel(
 
     private suspend fun reloadRecentSearchesNow() {
         runCatchingNonCancel { mail.recentSearches() }?.let { list -> recents.value = list.filter { it.isNotBlank() }.distinct() }
+    }
+
+    /**
+     * Names for the full addresses in the search text of [results], for the chips ("From: Ana
+     * García" rather than the address): as the matching messages spell them, else from the contacts.
+     */
+    private suspend fun loadNames(results: LocalResults) {
+        val parsed = SearchQuery.parse(results.query)
+        val wanted = (parsed.from + parsed.to).filter(::isFullAddress).mapTo(HashSet(), ::nameKey)
+        wanted.removeAll(names.value.keys)
+        if (wanted.isEmpty()) return
+        val found = HashMap(namesFromHits(wanted, results.items))
+        for (key in wanted) {
+            if (key in found || !contactLookups.add(key)) continue
+            val contacts = runCatchingNonCancel { container.contactRepository.suggest(key, emptySet(), NAME_LOOKUP_LIMIT) }.orEmpty()
+            contacts.firstOrNull { nameKey(it.address.address) == key }?.address?.name?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { found[key] = it }
+        }
+        if (found.isNotEmpty()) names.update { it + found }
     }
 
     /** Looks up the folders of [hits] not known yet. */

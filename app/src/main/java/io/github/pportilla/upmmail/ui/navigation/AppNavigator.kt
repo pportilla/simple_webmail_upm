@@ -35,7 +35,11 @@ interface AppNavigator {
 
     fun openCompose(args: ComposeArgs = ComposeArgs())
 
-    fun openSearch(accountId: Long?, folderId: Long?)
+    /**
+     * Opens the search of [accountId] (every account when null), offering [folderId] as the
+     * "This folder" scope; with [query] the search box starts with that text, already searched.
+     */
+    fun openSearch(accountId: Long?, folderId: Long?, query: String? = null)
 
     fun openSettings()
 

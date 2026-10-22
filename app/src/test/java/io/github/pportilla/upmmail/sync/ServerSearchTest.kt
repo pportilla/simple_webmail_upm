@@ -14,6 +14,7 @@ import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.SearchFilters
 import io.github.pportilla.upmmail.model.SearchHit
+import io.github.pportilla.upmmail.model.SearchKey
 import io.github.pportilla.upmmail.model.SearchPhase
 import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.model.ServerSearchProgress
@@ -21,7 +22,15 @@ import io.github.pportilla.upmmail.model.ServerSearchRequest
 import io.github.pportilla.upmmail.model.ServerSearchScope
 import io.github.pportilla.upmmail.model.ServerSettings
 import io.github.pportilla.upmmail.model.StepOutcome
+import jakarta.activation.DataHandler
+import jakarta.mail.Flags
+import jakarta.mail.Message
+import jakarta.mail.Session
+import jakarta.mail.internet.InternetAddress
+import jakarta.mail.internet.MimeBodyPart
 import jakarta.mail.internet.MimeMessage
+import jakarta.mail.internet.MimeMultipart
+import jakarta.mail.util.ByteArrayDataSource
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -36,7 +45,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Date
+import java.util.Properties
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -81,6 +93,28 @@ class ServerSearchTest : SyncTestBase() {
         passwords.set(fake.id, password)
         store.folders.applyServerList(fake.id, listOf(FolderListEntry("INBOX", "INBOX", '/', emptySet(), true, 0, FolderRole.INBOX)))
         return fake to store.folders.findByRole(fake.id, FolderRole.INBOX)!!
+    }
+
+    /** Noon of a day of June 2026, in the device's time zone. */
+    private fun june(day: Int): Date = Date.from(LocalDate.of(2026, 6, day).atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant())
+
+    /** From Bea, with the parts made by [content]. */
+    private fun multipartMessage(subject: String, content: MimeMultipart): MimeMessage =
+        MimeMessage(Session.getInstance(Properties())).apply {
+            setFrom(InternetAddress("bea@alumnos.upm.es", "Bea Gómez"))
+            setRecipients(Message.RecipientType.TO, InternetAddress.parse(anaEmail))
+            setSubject(subject, "UTF-8")
+            setContent(content)
+            sentDate = Date(1_700_000_000_000L)
+            saveChanges()
+        }
+
+    private fun textPart(text: String, subtype: String = "plain") = MimeBodyPart().apply { setText(text, "UTF-8", subtype) }
+
+    private fun pdfPart() = MimeBodyPart().apply {
+        dataHandler = DataHandler(ByteArrayDataSource(ByteArray(300) { 7 }, "application/pdf"))
+        fileName = "acta.pdf"
+        disposition = MimeBodyPart.ATTACHMENT
     }
 
     private fun header(uid: Long, subject: String) =
@@ -357,6 +391,253 @@ class ServerSearchTest : SyncTestBase() {
         assertNull(done.error)
         assertEquals(setOf("Convocatoria de elecciones"), subjects(done))
         assertTrue("one word: the text only", run(request("curso", phases = setOf(SearchPhase.TEXT), snippets = false)).last().hits.size == 1)
+    }
+
+    @Test
+    fun peopleSubjectAndDatesFindUncachedMailInEveryFolder() = runBlocking {
+        storeOnServer(
+            "Archivo",
+            listOf(
+                message("Acta de la junta", from = "Ana García <agarcia@upm.es>", date = june(10), messageId = "<a1@test>"),
+                message("Acta del claustro", from = "Bea Gómez <bea@alumnos.upm.es>", date = june(11), messageId = "<a2@test>"),
+                message("Presupuesto", from = "Ana García <agarcia@upm.es>", date = june(1), messageId = "<a3@test>"),
+            ),
+        )
+        appendMessages(
+            "INBOX",
+            listOf(message("Revisión del acta", from = "José Garcia <jgarcia@upm.es>", to = "Carlos Ruiz <cruiz@upm.es>", date = june(20), messageId = "<i1@test>")),
+        )
+        engine.syncFolderList(account.id)
+
+        val bySender = run(request("from:agarcia@upm.es from:jgarcia@upm.es subject:acta")).last()
+        assertNull(bySender.error)
+        assertEquals(setOf("Acta de la junta", "Revisión del acta"), subjects(bySender))
+        assertEquals(setOf("Revisión del acta"), subjects(run(request("de:agarcia@upm.es de:JGarcia@upm.es asunto:acta desde:15/6/2026")).last()))
+        assertEquals(setOf("Presupuesto", "Revisión del acta"), subjects(run(request("from:agarcia@upm.es from:jgarcia@upm.es -junta")).last()))
+        assertEquals(setOf("Revisión del acta"), subjects(run(request("to:cruiz@upm.es")).last()))
+        assertEquals(setOf("Acta de la junta", "Acta del claustro"), subjects(run(request("subject:acta before:2026-06-15")).last()))
+        assertEquals(setOf("Presupuesto"), subjects(run(request("after:2026-06-01 before:2026-06-01")).last()))
+    }
+
+    @Test
+    fun theDevicesDaysDecideAmongTheMatchesOfTheWiderServerRange() = runBlocking {
+        fun at(month: Int, day: Int, hour: Int, minute: Int): Date =
+            Date.from(LocalDate.of(2026, month, day).atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant())
+        storeOnServer(
+            "Archivo",
+            listOf(
+                message("Informe de mayo", date = at(5, 31, 23, 30), messageId = "<d1@test>"),
+                message("Informe de junio", date = at(6, 1, 0, 10), messageId = "<d2@test>"),
+                message("Informe de fin de junio", date = at(6, 30, 23, 50), messageId = "<d3@test>"),
+                message("Informe de julio", date = at(7, 1, 0, 5), messageId = "<d4@test>"),
+            ),
+        )
+        engine.syncFolderList(account.id)
+
+        // The server is asked from 31 May to 1 July (a day more on each side) and finds all four.
+        val june = run(request("informe after:1/6/2026 before:30/6/2026")).last()
+        assertNull(june.error)
+        assertEquals(setOf("Informe de junio", "Informe de fin de junio"), subjects(june))
+        assertEquals(setOf("Informe de mayo"), subjects(run(request("informe before:31/5/2026")).last()))
+        assertEquals(setOf("Informe de julio"), subjects(run(request("informe after:1/7/2026")).last()))
+    }
+
+    @Test
+    fun unreadAndStarredAreAskedOfTheServer() = runBlocking {
+        appendMessages("INBOX", listOf(message("Elecciones a rector", messageId = "<r@test>")))
+        appendMessages("INBOX", listOf(message("Elecciones leídas", messageId = "<l@test>")), Flags(Flags.Flag.SEEN))
+        appendMessages("INBOX", listOf(message("Elecciones destacadas", messageId = "<d@test>")), Flags(Flags.Flag.FLAGGED))
+        engine.syncFolderList(account.id)
+
+        val unread = run(request("elecciones is:unread")).last()
+        assertEquals(setOf("Elecciones a rector", "Elecciones destacadas"), subjects(unread))
+        assertTrue(unread.hits.none { it.isRead })
+        val starred = run(request("es:destacado")).last()
+        assertEquals(setOf("Elecciones destacadas"), subjects(starred))
+        assertTrue(starred.hits.single().isStarred)
+    }
+
+    @Test
+    fun exclusionsAreCheckedInTheTextInEveryPhase() = runBlocking {
+        storeOnServer(
+            "Archivo",
+            listOf(
+                message("Acta uno", body = "Las elecciones", messageId = "<1@test>"),
+                message("Acta borrador", body = "Las elecciones", messageId = "<2@test>"),
+                message("Acta tres", body = "Las elecciones, en borrador", messageId = "<3@test>"),
+            ),
+        )
+        engine.syncFolderList(account.id)
+
+        val headers = run(request("acta -borrador")).last()
+        assertNull(headers.error)
+        assertEquals(setOf("Acta uno"), subjects(headers))
+        assertTrue("nothing on the device to rule out yet", headers.refuted.isEmpty())
+        val text = run(request("elecciones -borrador", phases = setOf(SearchPhase.TEXT), snippets = false)).last()
+        assertNull(text.error)
+        assertEquals(setOf("Acta uno"), subjects(text))
+        assertEquals("people alone", setOf("Acta uno"), subjects(run(request("from:bea@alumnos.upm.es -borrador")).last()))
+    }
+
+    @Test
+    fun deviceResultsWithAnExcludedWordInTheTextAreRuledOut() = runBlocking {
+        storeOnServer(
+            "Archivo",
+            listOf(
+                message("Acta uno", body = "Las elecciones", messageId = "<1@test>"),
+                message("Acta borrador", body = "Las elecciones", messageId = "<2@test>"),
+                message("Acta tres", body = "Las elecciones, en borrador", messageId = "<3@test>"),
+                message("Informe", body = "Otro borrador", messageId = "<4@test>"),
+            ),
+        )
+        engine.syncFolderList(account.id)
+        val archivo = store.folders.findByFullName(account.id, "Archivo")!!.id
+        // Every message gets into the header index, which cannot see their text.
+        assertEquals(4, run(request("from:bea@alumnos.upm.es")).last().hits.size)
+        assertEquals(setOf(1L, 3L), store.headerIndex.search("acta -borrador", SearchFilters(), 10).map { it.uid }.toSet())
+
+        val done = run(request("acta -borrador")).last()
+        assertNull(done.error)
+        assertEquals(setOf("Acta uno"), subjects(done))
+        // "Acta borrador" fails in its headers, "Informe" matches no word: only the text rules out "Acta tres".
+        assertEquals(setOf(SearchKey(archivo, 3)), done.refuted)
+        assertEquals(setOf(SearchKey(archivo, 3), SearchKey(archivo, 4)), run(request("from:bea@alumnos.upm.es -borrador")).last().refuted)
+        assertTrue("no exclusions, nothing ruled out", run(request("acta")).last().refuted.isEmpty())
+    }
+
+    @Test
+    fun attachmentsAreCheckedByTheirStructureWithoutStarvingTheLimit() = runBlocking {
+        // Archivo: 250 messages from Bea, the ones with attachments among the oldest, beyond the
+        // newest 200 matches a step keeps.
+        val archive = (1..250).map { seq ->
+            when (seq) {
+                10, 20, 30 -> message("Con adjunto $seq", messageId = "<adj-$seq@test>", attachment = "acta.pdf" to ByteArray(500) { 1 })
+                // multipart/mixed, but only text: the index guesses an attachment.
+                240 -> multipartMessage("Mixto sin adjunto", MimeMultipart("mixed").apply {
+                    addBodyPart(textPart("Hola"))
+                    addBodyPart(textPart("Pie de firma"))
+                })
+                // An attachment inside multipart/alternative, as some mailers send it: the index misses it.
+                245 -> multipartMessage("Informe alternativa", MimeMultipart("alternative").apply {
+                    addBodyPart(textPart("Ver el acta"))
+                    addBodyPart(MimeBodyPart().apply {
+                        setContent(MimeMultipart("mixed").apply {
+                            addBodyPart(textPart("<p>Ver el acta</p>", "html"))
+                            addBodyPart(pdfPart())
+                        })
+                    })
+                })
+                else -> message("Informe $seq", messageId = "<inf-$seq@test>")
+            }
+        }
+        storeOnServer("Archivo", archive)
+        appendMessages(
+            "INBOX",
+            listOf(
+                message("Bandeja con adjunto", messageId = "<b1@test>", attachment = "notas.pdf" to ByteArray(500) { 2 }),
+                message("Bandeja sin adjunto", messageId = "<b2@test>"),
+            ),
+        )
+        engine.syncFolderList(account.id)
+        val inbox = engine.inboxOf(account.id).id
+        engine.syncFolder(inbox)
+        assertEquals(2, store.messages.count(inbox))
+        val archivo = store.folders.findByFullName(account.id, "Archivo")!!.id
+        // The index already has the message whose attachment it cannot see.
+        assertEquals(setOf("Informe alternativa"), subjects(run(request("subject:alternativa")).last()))
+        assertFalse(store.headerIndex.findByUids(archivo, listOf(245L)).single().hasAttachments)
+
+        val expected = setOf("Con adjunto 10", "Con adjunto 20", "Con adjunto 30", "Informe alternativa", "Bandeja con adjunto")
+        for (text in listOf("from:bea@alumnos.upm.es has:attachment", "tiene:adjunto")) {
+            val done = run(request(text)).last()
+            assertNull(done.error)
+            assertFalse(done.truncated)
+            assertEquals(text, expected, subjects(done))
+            assertTrue(done.hits.all { it.hasAttachments })
+            assertTrue(done.hits.single { it.display.subject == "Bandeja con adjunto" } is SearchHit.Cached)
+        }
+        // New matches enter the index with what their structure says.
+        assertTrue(store.headerIndex.findByUids(archivo, listOf(10L)).single().hasAttachments)
+        assertTrue(store.headerIndex.findByUids(archivo, listOf(240L)).isEmpty())
+
+        val limited = run(request("from:bea@alumnos.upm.es has:attachment", limit = 2)).last()
+        assertEquals(2, limited.hits.size)
+        assertTrue(limited.truncated)
+    }
+
+    @Test
+    fun queriesWithoutWordsNeverSearchTheText() = runBlocking {
+        val server = FakeImapServer {
+            if (FakeImapServer.verbOf(command) == "UID SEARCH") reply("* SEARCH", "$tag OK Search done") else reply("$tag BAD Unexpected command")
+        }.apply {
+            exists = 10
+            uidNext = 11
+        }
+        val (fake, _) = fakeAccount(server)
+        val search = ownSearch()
+
+        val progress = run(request("from:ana after:2026-06-01 is:unread", fake.id, phases = setOf(SearchPhase.HEADERS, SearchPhase.TEXT)), search)
+        val done = progress.last()
+        assertTrue(done.finished)
+        assertNull(done.error)
+        assertTrue(progress.none { it.phase == SearchPhase.TEXT || it.phase == SearchPhase.SNIPPETS })
+        assertEquals(
+            listOf("UID SEARCH 1:10 UNSEEN SENTSINCE 31-May-2026 FROM ana ALL"),
+            server.commands.filter { FakeImapServer.verbOf(it) == "UID SEARCH" },
+        )
+
+        // Exclusions alone do not call for the text either; a text-only request ends at once.
+        val accepted = server.accepted.get()
+        val textOnly = run(request("from:ana -borrador", fake.id, phases = setOf(SearchPhase.TEXT)), search)
+        assertEquals(1, textOnly.size)
+        assertTrue(textOnly.single().finished)
+        assertEquals(accepted, server.accepted.get())
+        assertTrue(server.commands.none { "BODY" in it })
+    }
+
+    @Test
+    fun textWindowsWhereTheHeaderCriteriaMatchNothingAreSkipped() = runBlocking {
+        val textWindows = CopyOnWriteArrayList<String>()
+        val checks = CopyOnWriteArrayList<String>()
+        val server = FakeImapServer {
+            when {
+                FakeImapServer.verbOf(command) != "UID SEARCH" -> reply("$tag BAD Unexpected command")
+                "BODY" in command -> {
+                    textWindows += command
+                    reply("* SEARCH", "$tag OK Search done")
+                }
+                else -> {
+                    checks += command
+                    // Only the newest window has mail of the dates asked for.
+                    reply(if ("4001:6000" in command) "* SEARCH 5000" else "* SEARCH", "$tag OK Search done")
+                }
+            }
+        }.apply {
+            exists = 6_000
+            uidNext = 6_001
+        }
+        val (fake, _) = fakeAccount(server)
+        val search = ownSearch()
+
+        val progress = run(request("informe after:2026-06-01", fake.id, phases = setOf(SearchPhase.TEXT), snippets = false), search)
+        assertNull(progress.last().error)
+        assertEquals(
+            listOf(
+                "UID SEARCH 4001:6000 SENTSINCE 31-May-2026 ALL",
+                "UID SEARCH 2001:4000 SENTSINCE 31-May-2026 ALL",
+                "UID SEARCH 1:2000 SENTSINCE 31-May-2026 ALL",
+            ),
+            checks,
+        )
+        assertEquals(listOf("UID SEARCH 4001:6000 SENTSINCE 31-May-2026 BODY informe ALL"), textWindows)
+        assertEquals(3, progress.filter { it.phase == SearchPhase.TEXT }.maxOf { it.totalSteps })
+
+        // Words alone: every window is searched, with no check first.
+        checks.clear()
+        textWindows.clear()
+        assertNull(run(request("informe", fake.id, phases = setOf(SearchPhase.TEXT), snippets = false), search).last().error)
+        assertTrue(checks.isEmpty())
+        assertEquals(3, textWindows.size)
     }
 
     @Test

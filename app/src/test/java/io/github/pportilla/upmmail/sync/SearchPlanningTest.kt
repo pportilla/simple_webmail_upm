@@ -3,11 +3,13 @@ package io.github.pportilla.upmmail.sync
 import io.github.pportilla.upmmail.data.db.IndexFolderState
 import io.github.pportilla.upmmail.mail.FolderProbe
 import io.github.pportilla.upmmail.mail.SearchRange
+import io.github.pportilla.upmmail.mail.ServerQuery
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.SearchPhase
 import io.github.pportilla.upmmail.model.ServerSearchScope
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -195,5 +197,21 @@ class SearchPlanningTest {
             listOf(SearchRange.Seq(601, 1_200), SearchRange.Seq(1, 600)),
             refine(step.copy(range = SearchRange.Seq(1, 1_200)), 2).map { it.range },
         )
+    }
+
+    @Test
+    fun theTextIsSearchedOnlyForQueriesWithWords() {
+        val both = setOf(SearchPhase.HEADERS, SearchPhase.TEXT)
+        assertEquals(both, phasesToRun(ServerQuery.parse("informe from:ana"), both))
+        assertEquals(setOf(SearchPhase.TEXT), phasesToRun(ServerQuery.parse("informe"), setOf(SearchPhase.TEXT)))
+        for (text in listOf("from:ana", "to:bea subject:acta", "after:2026-06-01 is:unread", "from:ana -borrador", "has:attachment", "from:ana x")) {
+            assertEquals(text, setOf(SearchPhase.HEADERS), phasesToRun(ServerQuery.parse(text), both))
+            assertEquals(text, emptySet<SearchPhase>(), phasesToRun(ServerQuery.parse(text), setOf(SearchPhase.TEXT)))
+            assertFalse(text, searchesMessageText(text))
+        }
+        assertEquals("nothing to search for", emptySet<SearchPhase>(), phasesToRun(ServerQuery.parse("from:"), both))
+        assertTrue(searchesMessageText("informe"))
+        assertTrue(searchesMessageText("\"junta electoral\" de:ana"))
+        assertFalse(searchesMessageText("   "))
     }
 }

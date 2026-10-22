@@ -37,6 +37,9 @@
     <string name="message_details_date">Date</string>
     <string name="message_write_to">Write to %1$s</string>
     <string name="message_copy_address">Copy address</string>
+    <string name="message_address_options">Show options</string>
+    <string name="message_search_from">Search messages from %1$s</string>
+    <string name="message_search_to">Search messages to %1$s</string>
     <string name="message_address_copied">Address copied</string>
 
     <!-- Body -->

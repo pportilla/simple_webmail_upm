@@ -158,12 +158,18 @@ fun AppNavHost(
                     type = NavType.LongType
                     defaultValue = Routes.NONE
                 },
+                navArgument(Routes.ARG_QUERY) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { entry ->
             SearchScreen(
                 accountId = entry.arguments?.getLong(Routes.ARG_ACCOUNT_ID)?.takeIf { it != Routes.NONE },
                 folderId = entry.arguments?.getLong(Routes.ARG_FOLDER_ID)?.takeIf { it != Routes.NONE },
                 navigator = rememberEntryNavigator(navController, entry, guard, finish),
+                initialQuery = entry.arguments?.getString(Routes.ARG_QUERY),
             )
         }
         composable(Routes.SETTINGS) { entry ->

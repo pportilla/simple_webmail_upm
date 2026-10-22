@@ -1,6 +1,7 @@
 package io.github.pportilla.upmmail.ui.message
 
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.automirrored.outlined.ReplyAll
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.MarkEmailUnread
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -91,6 +94,10 @@ internal class MessageCardActions(
     val onTrustSender: (String) -> Unit,
     val onAddressClick: (EmailAddress) -> Unit,
     val onAddressLongClick: (EmailAddress) -> Unit,
+    /** Searches the messages sent by the address. */
+    val onSearchFrom: (EmailAddress) -> Unit,
+    /** Searches the messages sent to the address (To or Cc). */
+    val onSearchTo: (EmailAddress) -> Unit,
     val onLinkClick: (Uri) -> Unit,
     val onOpenAttachment: (Attachment) -> Unit,
     val onShareAttachment: (Attachment) -> Unit,
@@ -399,9 +406,12 @@ private fun MessageDetailsBlock(item: MessageItemUi, actions: MessageCardActions
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            summary.from?.let { DetailAddresses(stringResource(R.string.message_details_from), listOf(it), actions) }
-            DetailAddresses(stringResource(R.string.message_details_to), summary.to, actions)
-            DetailAddresses(stringResource(R.string.message_details_cc), detail.cc, actions)
+            summary.from?.let {
+                DetailAddresses(stringResource(R.string.message_details_from), listOf(it), actions, actions.onSearchFrom, R.string.message_search_from)
+            }
+            DetailAddresses(stringResource(R.string.message_details_to), summary.to, actions, actions.onSearchTo, R.string.message_search_to)
+            DetailAddresses(stringResource(R.string.message_details_cc), detail.cc, actions, actions.onSearchTo, R.string.message_search_to)
+            // Searches match To and Cc only: no search for Bcc and Reply-To addresses.
             DetailAddresses(stringResource(R.string.message_details_bcc), detail.bcc, actions)
             DetailAddresses(stringResource(R.string.message_details_reply_to), detail.replyTo, actions)
             DetailRow(stringResource(R.string.message_details_date)) {
@@ -429,34 +439,75 @@ private fun DetailRow(label: String, content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * The addresses of one header. Tapping one offers to write to it, to search its messages (with
+ * [onSearch], labelled [searchLabel]) and to copy it; a long press copies it straight away.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DetailAddresses(label: String, addresses: List<EmailAddress>, actions: MessageCardActions) {
+private fun DetailAddresses(
+    label: String,
+    addresses: List<EmailAddress>,
+    actions: MessageCardActions,
+    onSearch: ((EmailAddress) -> Unit)? = null,
+    @StringRes searchLabel: Int = 0,
+) {
     if (addresses.isEmpty()) return
     DetailRow(label) {
         addresses.forEach { address ->
             val name = address.name?.takeIf { it.isNotBlank() }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .combinedClickable(
-                        onClickLabel = stringResource(R.string.message_write_to, address.address),
-                        onLongClickLabel = stringResource(R.string.message_copy_address),
-                        onLongClick = { actions.onAddressLongClick(address) },
-                        onClick = { actions.onAddressClick(address) },
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .combinedClickable(
+                            onClickLabel = stringResource(R.string.message_address_options),
+                            onLongClickLabel = stringResource(R.string.message_copy_address),
+                            onLongClick = { actions.onAddressLongClick(address) },
+                            onClick = { menuOpen = true },
+                        )
+                        .padding(vertical = 2.dp),
+                ) {
+                    if (name != null) {
+                        Text(text = name, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = address.address,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(text = address.address, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.message_write_to, address.displayName)) },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            actions.onAddressClick(address)
+                        },
                     )
-                    .padding(vertical = 2.dp),
-            ) {
-                if (name != null) {
-                    Text(text = name, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        text = address.address,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (onSearch != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(searchLabel, address.displayName)) },
+                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onSearch(address)
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.message_copy_address)) },
+                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            actions.onAddressLongClick(address)
+                        },
                     )
-                } else {
-                    Text(text = address.address, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }

@@ -33,6 +33,15 @@ internal const val AUTO_SERVER_DELAY_MILLIS = 800L
 /** About what indexing one message downloads (its headers), for the mobile-data warning. */
 internal const val INDEX_BYTES_PER_MESSAGE = 900L
 
+/** Wait this long after the last keystroke in a person field before suggesting contacts. */
+internal const val SUGGEST_DEBOUNCE_MILLIS = 150L
+
+/** Contacts suggested under a person field of the advanced search panel. */
+internal const val SUGGESTION_LIMIT = 5
+
+/** Contacts looked at to find the name of an address in the search text. */
+internal const val NAME_LOOKUP_LIMIT = 5
+
 /** Row key prefixes of the two result sections; see [hitKey]. */
 internal const val SECTION_LOCAL = "local"
 internal const val SECTION_SERVER = "server"
@@ -79,7 +88,9 @@ internal data class HitSections(
  * the server search started (neither the same message, [localKeysAtStart], nor a copy of it,
  * [localMidsAtStart]). When the local search runs again later (opened matches are cached by
  * then) those messages stay in the server section, with the fresher local copy, instead of
- * jumping between sections. The local section is the rest. Flag filters apply to both.
+ * jumping between sections. The local section is the rest, but for the device results the
+ * server ruled out ([refuted]: an excluded word in a text the device does not have). Flag
+ * filters apply to both.
  */
 internal fun mergeSections(
     local: List<SearchHit>,
@@ -87,6 +98,7 @@ internal fun mergeSections(
     localKeysAtStart: Set<SearchKey>,
     localMidsAtStart: Set<String>,
     filters: SearchFilterState,
+    refuted: Set<SearchKey> = emptySet(),
 ): HitSections {
     val freshByKey = local.associateBy { it.key }
     val serverKeys = HashSet<SearchKey>()
@@ -102,7 +114,8 @@ internal fun mergeSections(
         fromServer += fresh
     }
     val localSection = local.filter { hit ->
-        hit.key !in serverKeys && messageIdOf(hit)?.let { it in serverMids } != true && matchesFilters(hit, filters)
+        hit.key !in serverKeys && hit.key !in refuted && messageIdOf(hit)?.let { it in serverMids } != true &&
+            matchesFilters(hit, filters)
     }
     return HitSections(localSection, fromServer.filter { matchesFilters(it, filters) }, fromServer.size)
 }
@@ -111,9 +124,13 @@ internal fun mergeSections(
 internal fun messageIdOf(hit: SearchHit): String? =
     hit.messageIdHeader?.trim()?.lowercase(Locale.ROOT)?.takeIf { it.isNotEmpty() }
 
-/** Whether the server's headers should be searched by themselves, for few local results. */
+/**
+ * Whether the server's headers should be searched by themselves, for few local results. Not for
+ * an attachment filter alone: with no IMAP criterion, that search fetches the structure of every
+ * message of every folder.
+ */
 internal fun shouldAutoSearch(query: String, localCount: Int, alreadySearched: Boolean): Boolean =
-    !alreadySearched && localCount < AUTO_SERVER_MAX_LOCAL && ServerQuery.parse(query) != null
+    !alreadySearched && localCount < AUTO_SERVER_MAX_LOCAL && ServerQuery.parse(query)?.hasImapCriteria == true
 
 /** Key of a result row: unique across both sections. */
 internal fun hitKey(section: String, key: SearchKey): String = "$section-${key.folderId}-${key.uid}"
@@ -191,6 +208,8 @@ data class SearchPart(val bins: Boolean, val phase: SearchPhase)
  * @property problems of the finished runs, per part; replaced when the part runs again.
  * @property error that ended the last run; [failedRequests] is what Retry runs again then.
  * @property dropped matches found gone when opened.
+ * @property refuted device results the finished runs ruled out (see [ServerSearchProgress.refuted]);
+ *   [allRefuted] includes the running one's.
  */
 data class ServerSession(
     val id: Long,
@@ -210,8 +229,16 @@ data class ServerSession(
     val error: Throwable? = null,
     val failedRequests: List<ServerSearchRequest> = emptyList(),
     val dropped: Set<SearchKey> = emptySet(),
+    val refuted: Set<SearchKey> = emptySet(),
 ) {
     val running: Boolean get() = queue.isNotEmpty()
+
+    /** Device results ruled out so far, by the running search too: the local section leaves them out. */
+    val allRefuted: Set<SearchKey>
+        get() {
+            val current = progress?.refuted.orEmpty()
+            return if (current.isEmpty()) refuted else refuted + current
+        }
 
     /** Every match so far, the running search's included, newest first. */
     val allHits: List<SearchHit>
@@ -271,10 +298,12 @@ data class ServerSession(
         val found = last?.hits.orEmpty()
         val merged = if (found.isEmpty()) hits else mergeHits(hits, found)
         val truncatedNow = truncated || last?.truncated == true
+        val ruledOut = last?.refuted.orEmpty().let { if (it.isEmpty()) refuted else refuted + it }
         val error = failure ?: last?.error
         if (error != null) {
             return copy(
                 hits = merged,
+                refuted = ruledOut,
                 queue = emptyList(),
                 progress = null,
                 truncated = truncatedNow,
@@ -296,6 +325,7 @@ data class ServerSession(
         val full = found.size >= request.limit
         return copy(
             hits = merged,
+            refuted = ruledOut,
             queue = if (full) emptyList() else rest,
             progress = null,
             done = if (bins) done else done + phases,
@@ -311,6 +341,7 @@ data class ServerSession(
         val current = progress?.hits.orEmpty()
         return copy(
             hits = if (current.isEmpty()) hits else mergeHits(hits, current),
+            refuted = allRefuted,
             queue = emptyList(),
             progress = null,
             stopped = true,

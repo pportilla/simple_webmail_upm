@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.data.repository
 
+import io.github.pportilla.upmmail.data.db.HeaderIndexDao
 import io.github.pportilla.upmmail.model.HitOpenResult
 import io.github.pportilla.upmmail.model.SearchFilters
 import io.github.pportilla.upmmail.model.SearchHit
@@ -97,6 +98,33 @@ class SearchRepositoryTest : SyncTestBase() {
         assertEquals(status.total, status.indexed)
         assertTrue(status.complete)
         assertFalse(status.running)
+    }
+
+    @Test
+    fun deviceResultsHonourTheSearchOperatorsInBothSources() = runBlocking {
+        val luis = "Luis Pérez <luis.perez@upm.es>"
+        val older = listOf(
+            message("Acta de la junta", from = luis, date = date(1), messageId = "<op-1@test>"),
+            message("Presupuesto", from = "Carlos Núñez <carlos@upm.es>", to = "$luis, $anaEmail", date = date(2), messageId = "<op-2@test>"),
+        ) + (3..10).map { i -> message("Aviso $i", date = date(i), messageId = "<op-$i@test>") }
+        val newer = (11..59).map { i -> message("Message $i", date = date(i), messageId = "<op-$i@test>") }
+        val newest = message("Acta final", from = luis, date = date(100), messageId = "<op-60@test>")
+        storeOnServer("INBOX", older + newer + newest)
+        engine.syncFolderList(account.id)
+        val inbox = engine.inboxOf(account.id).id
+        engine.syncFolder(inbox)
+        engine.headerIndexer.run(IndexBudget.bulk(clock.now(), charging = true))
+        val mail = repository()
+
+        val fromLuis = mail.searchLocalHits("from:luis", SearchFilters())
+        assertEquals("the cached and the indexed one", listOf(SearchKey(inbox, 60), SearchKey(inbox, 1)), fromLuis.map { it.key })
+        assertEquals(listOf(SearchHit.Cached::class, SearchHit.Indexed::class), fromLuis.map { it::class })
+        assertEquals("a recipient outside Sent, known from the index", listOf(SearchKey(inbox, 2)), mail.searchLocalHits("to:luis.perez@upm.es", SearchFilters()).map { it.key })
+        assertEquals(listOf(SearchKey(inbox, 1)), mail.searchLocalHits("from:luis subject:junta -final", SearchFilters()).map { it.key })
+        assertEquals(listOf(SearchKey(inbox, 60)), mail.searchLocalHits("de:\"luis perez\" asunto:acta", SearchFilters(), limit = 1).map { it.key })
+        assertEquals("searchLocal is the cache only", listOf(60L), mail.searchLocal("from:luis", SearchFilters()).map { it.uid })
+        assertTrue(mail.searchLocalHits("from:luis is:starred", SearchFilters()).isEmpty())
+        assertTrue(HeaderIndexDao.answersFully("from:luis subject:junta"))
     }
 
     @Test

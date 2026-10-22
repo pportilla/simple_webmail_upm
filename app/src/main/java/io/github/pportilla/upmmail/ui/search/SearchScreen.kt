@@ -3,9 +3,13 @@ package io.github.pportilla.upmmail.ui.search
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,38 +29,29 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ManageSearch
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.FolderCopy
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.MarkEmailUnread
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.NorthWest
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
-import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -87,6 +82,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -109,26 +105,29 @@ import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.components.errorMessage
 import io.github.pportilla.upmmail.ui.components.folderDisplayName
-import io.github.pportilla.upmmail.ui.components.folderIcon
 import io.github.pportilla.upmmail.ui.components.formatFileSize
 import io.github.pportilla.upmmail.ui.mailbox.MailboxEmptyState
 import io.github.pportilla.upmmail.ui.mailbox.MessageListItem
 import io.github.pportilla.upmmail.ui.mailbox.showsRecipients
+import io.github.pportilla.upmmail.sync.searchesMessageText
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 
 /**
  * Mail search: instant results from this device while typing (the cache and the header index),
  * flag filters, a folder scope and a progressive search on the server below them, with its
- * progress and a Stop button. With an empty query it shows recent searches.
+ * progress and a Stop button. With an empty query it shows recent searches. The criteria of the
+ * text show as chips under the field, and the tune icon opens the advanced search panel.
  *
  * @param accountId account to search, null for every account.
  * @param folderId folder the search was opened from, offered as the "This folder" scope.
+ * @param initialQuery search text to open with, searched at once (the keyboard stays hidden).
  */
 @Composable
-fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
+fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator, initialQuery: String? = null) {
     val container = appContainer()
-    val viewModel = viewModel { SearchViewModel(container, accountId, folderId) }
+    val viewModel = viewModel { SearchViewModel(container, accountId, folderId, initialQuery = initialQuery) }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = LocalAppSnackbar.current
     val currentNavigator by rememberUpdatedState(navigator)
@@ -138,8 +137,9 @@ fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
     val resultsState = rememberLazyListState()
     val recentsState = rememberLazyListState()
 
-    // Focus the field (and show the keyboard) only the first time, not when coming back from a result.
-    var autoFocused by rememberSaveable { mutableStateOf(false) }
+    // Focus the field (and show the keyboard) only the first time, not when coming back from a
+    // result, and not when the screen opens with a search to show.
+    var autoFocused by rememberSaveable { mutableStateOf(!initialQuery.isNullOrBlank()) }
     LaunchedEffect(Unit) {
         if (!autoFocused) {
             autoFocused = true
@@ -147,6 +147,9 @@ fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
+
+    val advanced = viewModel.advanced
+    BackHandler(enabled = advanced != null) { viewModel.closeAdvancedSearch() }
 
     LaunchedEffect(viewModel, snackbar) {
         viewModel.events.collect { event ->
@@ -200,90 +203,134 @@ fun SearchScreen(accountId: Long?, folderId: Long?, navigator: AppNavigator) {
         keyboard?.hide()
         focusManager.clearFocus()
     }
+    val openAdvanced = {
+        hideKeyboard()
+        viewModel.openAdvancedSearch()
+    }
 
-    Scaffold(
-        topBar = {
-            SearchTopBar(
-                field = viewModel.queryField,
-                state = state,
-                focusRequester = focusRequester,
-                onFieldChange = viewModel::onQueryFieldChange,
-                onClear = { viewModel.setQuery("") },
-                onSubmit = {
-                    viewModel.onSubmit()
-                    hideKeyboard()
-                },
-                onBack = navigator::back,
-                onUnreadChange = viewModel::setUnreadOnly,
-                onStarredChange = viewModel::setStarredOnly,
-                onAttachmentsChange = viewModel::setWithAttachments,
-                onScopeChange = viewModel::setThisFolderOnly,
-            )
-        },
-        snackbarHost = { AppSnackbarHost() },
-        contentWindowInsets = WindowInsets.safeDrawing,
-    ) { innerPadding ->
-        val query = viewModel.query
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            if (query.isBlank()) {
-                RecentSearches(
-                    recents = state.recentSearches,
-                    listState = recentsState,
-                    onSearch = { text ->
-                        viewModel.onRecentSearch(text)
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            // While the panel covers the screen, what is under it is hidden from accessibility services.
+            modifier = if (advanced != null) Modifier.clearAndSetSemantics { } else Modifier,
+            topBar = {
+                SearchTopBar(
+                    field = viewModel.queryField,
+                    state = state,
+                    focusRequester = focusRequester,
+                    onFieldChange = viewModel::onQueryFieldChange,
+                    onClear = { viewModel.setQuery("") },
+                    onSubmit = {
+                        viewModel.onSubmit()
                         hideKeyboard()
                     },
-                    onFill = { text ->
-                        viewModel.setQuery("$text ")
-                        focusRequester.requestFocusSafely()
-                    },
-                    onClear = viewModel::clearRecentSearches,
+                    onBack = navigator::back,
+                    onAdvanced = openAdvanced,
+                    onFlagChange = viewModel::setFlag,
+                    onRemoveChip = viewModel::removeChip,
+                    onScopeChange = viewModel::setThisFolderOnly,
                 )
-            } else {
-                SearchResults(
-                    state = state,
-                    listState = resultsState,
-                    onOpen = { hit ->
-                        when (hit) {
-                            is SearchHit.Cached -> {
-                                viewModel.onCachedResultOpened()
-                                navigator.openMessage(hit.message.id)
-                            }
-                            is SearchHit.Indexed -> viewModel.openIndexedHit(hit)
-                        }
-                    },
-                    actions = ServerActions(
-                        searchHeaders = {
+            },
+            snackbarHost = { AppSnackbarHost() },
+            contentWindowInsets = WindowInsets.safeDrawing,
+        ) { innerPadding ->
+            val query = viewModel.query
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            ) {
+                if (query.isBlank()) {
+                    RecentSearches(
+                        recents = state.recentSearches,
+                        showTip = state.operatorTip,
+                        onTip = openAdvanced,
+                        listState = recentsState,
+                        onSearch = { text ->
+                            viewModel.onRecentSearch(text)
                             hideKeyboard()
-                            viewModel.searchServerHeaders()
                         },
-                        searchText = {
-                            hideKeyboard()
-                            viewModel.searchServerText()
+                        onFill = { text ->
+                            viewModel.setQuery("$text ")
+                            focusRequester.requestFocusSafely()
                         },
-                        searchBins = viewModel::searchServerBins,
-                        stop = viewModel::stopServerSearch,
-                        retry = viewModel::retryServerSearch,
-                        indexNow = {
-                            val remaining = state.index?.remainingBytes ?: 0L
-                            if (context.isOnMeteredNetwork()) confirmIndexBytes = remaining else viewModel.indexNow(allowMetered = false)
-                        },
-                    ),
-                )
-                if (state.searching) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.TopCenter),
+                        onClear = viewModel::clearRecentSearches,
                     )
+                } else {
+                    SearchResults(
+                        state = state,
+                        listState = resultsState,
+                        onOpen = { hit ->
+                            when (hit) {
+                                is SearchHit.Cached -> {
+                                    viewModel.onCachedResultOpened()
+                                    navigator.openMessage(hit.message.id)
+                                }
+                                is SearchHit.Indexed -> viewModel.openIndexedHit(hit)
+                            }
+                        },
+                        actions = ServerActions(
+                            searchHeaders = {
+                                hideKeyboard()
+                                viewModel.searchServerHeaders()
+                            },
+                            searchText = {
+                                hideKeyboard()
+                                viewModel.searchServerText()
+                            },
+                            searchBins = viewModel::searchServerBins,
+                            stop = viewModel::stopServerSearch,
+                            retry = viewModel::retryServerSearch,
+                            indexNow = {
+                                val remaining = state.index?.remainingBytes ?: 0L
+                                if (context.isOnMeteredNetwork()) confirmIndexBytes = remaining else viewModel.indexNow(allowMetered = false)
+                            },
+                        ),
+                    )
+                    if (state.searching) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.TopCenter),
+                        )
+                    }
                 }
             }
         }
+        // The last form stays on screen while the panel fades out.
+        val shownForm = rememberLast(advanced)
+        AnimatedVisibility(
+            visible = advanced != null,
+            enter = fadeIn() + slideInVertically { it / 12 },
+            exit = fadeOut() + slideOutVertically { it / 12 },
+        ) {
+            AdvancedSearchPanel(
+                form = shownForm ?: AdvancedSearchForm(),
+                suggestions = suggestions,
+                names = state.names,
+                actions = remember(viewModel) {
+                    AdvancedSearchActions(
+                        onChange = viewModel::updateAdvancedSearch,
+                        onPersonInput = viewModel::onPersonInput,
+                        onPickSuggestion = viewModel::pickSuggestion,
+                        onCommitPerson = viewModel::commitPersonInput,
+                        onRemovePerson = viewModel::removePerson,
+                        onSearch = viewModel::applyAdvancedSearch,
+                        onClear = viewModel::clearAdvancedSearch,
+                        onClose = viewModel::closeAdvancedSearch,
+                    )
+                },
+            )
+        }
     }
+}
+
+/** [value], or the last non-null value it had (so content can stay while it animates away). */
+@Composable
+private fun <T : Any> rememberLast(value: T?): T? {
+    val holder = remember { arrayOfNulls<Any>(1) }
+    if (value != null) holder[0] = value
+    @Suppress("UNCHECKED_CAST")
+    return holder[0] as T?
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -296,9 +343,9 @@ private fun SearchTopBar(
     onClear: () -> Unit,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
-    onUnreadChange: (Boolean) -> Unit,
-    onStarredChange: (Boolean) -> Unit,
-    onAttachmentsChange: (Boolean) -> Unit,
+    onAdvanced: () -> Unit,
+    onFlagChange: (SearchFlag, Boolean) -> Unit,
+    onRemoveChip: (CriterionChip) -> Unit,
     onScopeChange: (Boolean) -> Unit,
 ) {
     val scope = state.scopeFolder
@@ -348,15 +395,20 @@ private fun SearchTopBar(
                         Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.search_clear))
                     }
                 }
+                IconButton(onClick = onAdvanced) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = stringResource(R.string.search_advanced),
+                        // Tinted while the text has criteria the panel shows.
+                        tint = if (state.chips.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                    )
+                }
             }
-            FilterChips(
-                filters = state.filters,
-                scopeFolderName = scope?.let { folderDisplayName(it) },
-                scopeFolderIcon = scope?.let { folderIcon(it.role) },
-                onUnreadChange = onUnreadChange,
-                onStarredChange = onStarredChange,
-                onAttachmentsChange = onAttachmentsChange,
+            SearchChipsRow(
+                state = state,
                 onScopeChange = onScopeChange,
+                onFlagChange = onFlagChange,
+                onRemoveChip = onRemoveChip,
             )
             if (state.approximateFlags) {
                 Text(
@@ -372,113 +424,10 @@ private fun SearchTopBar(
 }
 
 @Composable
-private fun FilterChips(
-    filters: SearchFilterState,
-    scopeFolderName: String?,
-    scopeFolderIcon: androidx.compose.ui.graphics.vector.ImageVector?,
-    onUnreadChange: (Boolean) -> Unit,
-    onStarredChange: (Boolean) -> Unit,
-    onAttachmentsChange: (Boolean) -> Unit,
-    onScopeChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (scopeFolderName != null) {
-            var menuOpen by remember { mutableStateOf(false) }
-            Box {
-                AssistChip(
-                    onClick = { menuOpen = true },
-                    label = {
-                        Text(
-                            if (filters.thisFolderOnly) {
-                                stringResource(R.string.search_scope_this_folder)
-                            } else {
-                                stringResource(R.string.search_scope_all_folders)
-                            },
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (filters.thisFolderOnly && scopeFolderIcon != null) scopeFolderIcon else Icons.Outlined.FolderCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(FilterChipDefaults.IconSize),
-                        )
-                    },
-                    trailingIcon = {
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize))
-                    },
-                )
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.search_scope_this_folder_named, scopeFolderName)) },
-                        leadingIcon = { if (filters.thisFolderOnly) Icon(Icons.Filled.Check, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onScopeChange(true)
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.search_scope_all_folders)) },
-                        leadingIcon = { if (!filters.thisFolderOnly) Icon(Icons.Filled.Check, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onScopeChange(false)
-                        },
-                    )
-                }
-            }
-        }
-        ToggleChip(
-            selected = filters.unreadOnly,
-            label = stringResource(R.string.search_filter_unread),
-            icon = Icons.Outlined.MarkEmailUnread,
-            onChange = onUnreadChange,
-        )
-        ToggleChip(
-            selected = filters.starredOnly,
-            label = stringResource(R.string.search_filter_starred),
-            icon = Icons.Outlined.StarOutline,
-            onChange = onStarredChange,
-        )
-        ToggleChip(
-            selected = filters.withAttachments,
-            label = stringResource(R.string.search_filter_attachments),
-            icon = Icons.Outlined.AttachFile,
-            onChange = onAttachmentsChange,
-        )
-    }
-}
-
-@Composable
-private fun ToggleChip(
-    selected: Boolean,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onChange: (Boolean) -> Unit,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = { onChange(!selected) },
-        label = { Text(label) },
-        leadingIcon = {
-            Icon(
-                imageVector = if (selected) Icons.Filled.Check else icon,
-                contentDescription = null,
-                modifier = Modifier.size(FilterChipDefaults.IconSize),
-            )
-        },
-    )
-}
-
-@Composable
 private fun RecentSearches(
     recents: List<String>,
+    showTip: Boolean,
+    onTip: () -> Unit,
     listState: LazyListState,
     onSearch: (String) -> Unit,
     onFill: (String) -> Unit,
@@ -488,17 +437,23 @@ private fun RecentSearches(
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             item(key = "hint") {
                 Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                    MailboxEmptyState(
-                        icon = Icons.Outlined.Search,
-                        title = stringResource(R.string.search_empty_title),
-                        body = stringResource(R.string.search_empty_body),
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        MailboxEmptyState(
+                            icon = Icons.Outlined.Search,
+                            title = stringResource(R.string.search_empty_title),
+                            body = stringResource(R.string.search_empty_body),
+                        )
+                        if (showTip) OperatorTip(onClick = onTip, center = true)
+                    }
                 }
             }
         }
         return
     }
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        if (showTip) {
+            item(key = "tip") { OperatorTip(onClick = onTip, center = false) }
+        }
         item(key = "header") {
             Row(
                 modifier = Modifier
@@ -532,6 +487,33 @@ private fun RecentSearches(
     }
 }
 
+/** The one-line operator tip; tapping it opens the advanced search panel. */
+@Composable
+private fun OperatorTip(onClick: () -> Unit, center: Boolean) {
+    Row(
+        modifier = Modifier
+            .then(if (center) Modifier else Modifier.fillMaxWidth())
+            .clickable(onClickLabel = stringResource(R.string.search_advanced), onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Lightbulb,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.search_tip),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** What the server part of the results can ask for. */
 private class ServerActions(
     val searchHeaders: () -> Unit,
@@ -560,7 +542,7 @@ private fun SearchResults(
                 MailboxEmptyState(
                     icon = Icons.Outlined.SearchOff,
                     title = stringResource(R.string.search_no_local_title),
-                    body = stringResource(R.string.search_no_local_body),
+                    body = stringResource(if (state.searchesText) R.string.search_no_local_body else R.string.search_no_local_body_headers),
                     modifier = Modifier.padding(top = 24.dp),
                 )
             }
@@ -601,7 +583,7 @@ private fun SearchResultRow(hit: SearchHit, state: SearchUiState, onOpen: (Searc
             showRecipients = showsRecipients(folder?.role),
             showSnippet = state.showSnippets,
             ownAddress = state.accountAddresses[hit.accountId],
-            highlightQuery = state.resultsQuery,
+            highlightQuery = remember(state.resultsQuery) { highlightText(state.resultsQuery) },
             folderLabel = if (!state.filters.thisFolderOnly && folder != null) folderDisplayName(folder) else null,
         )
         if (opening) {
@@ -701,6 +683,7 @@ private fun progressText(progress: ServerSearchProgress?): String {
 private fun ServerFooter(server: ServerSession, state: SearchUiState, actions: ServerActions) {
     val problems = server.allProblems
     val finished = !server.running && server.error == null
+    val textSearchable = remember(server.query) { searchesMessageText(server.query) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -717,16 +700,18 @@ private fun ServerFooter(server: ServerSession, state: SearchUiState, actions: S
             }
             if (problems.any(::charsetRejected)) NoteText(stringResource(R.string.search_server_charset_failed))
             if (server.truncated) NoteText(stringResource(R.string.search_server_truncated, server.allHits.size))
-            val textDone = SearchPhase.TEXT in server.done
+            // Without words to look for, the headers answer the whole query: the text cannot add matches.
+            val headersDone = SearchPhase.HEADERS in server.done
+            val complete = SearchPhase.TEXT in server.done || (headersDone && !textSearchable)
             when {
-                textDone && state.serverOnlyCount == 0 && !server.stopped -> NoteText(
+                complete && state.serverOnlyCount == 0 && !server.stopped -> NoteText(
                     state.serverFolder?.let { stringResource(R.string.search_server_nothing_more, folderDisplayName(it)) }
                         ?: stringResource(R.string.search_server_nothing_more_all),
                 )
-                !textDone && SearchPhase.HEADERS in server.done -> NoteText(stringResource(R.string.search_server_headers_done))
+                !complete && headersDone -> NoteText(stringResource(R.string.search_server_headers_done))
             }
         }
-        if (!server.textRequested) {
+        if (!server.textRequested && textSearchable) {
             ServerButton(
                 label = stringResource(R.string.search_server_search_text),
                 icon = Icons.AutoMirrored.Outlined.ManageSearch,

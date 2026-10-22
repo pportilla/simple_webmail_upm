@@ -13,6 +13,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.util.Date
 
 /** The search and index functions of ImapClient against GreenMail. */
@@ -101,6 +103,93 @@ class ImapSearchTest : GreenMailTestBase() {
         assertEquals(listOf(uids[2], uids[0]), client.searchUids("INBOX", query("acta"), null, 10).uids)
         // GreenMail refuses a phrase with spaces in FROM/TO/CC (real servers take any string).
         assertEquals(listOf(uids[2]), client.searchUids("INBOX", query("\"acta de la\"", setOf(SearchField.SUBJECT)), null, 10).uids)
+    }
+
+    /** Uids of the messages of INBOX matching [text], newest first. */
+    private suspend fun ImapClient.find(text: String, fields: Set<SearchField> = ServerQuery.HEADER_FIELDS): List<Long> =
+        searchUids("INBOX", query(text, fields), null, 50).uids
+
+    private fun localDate(year: Int, month: Int, day: Int, hour: Int, minute: Int): Date =
+        Date.from(LocalDateTime.of(year, month, day, hour, minute).atZone(ZoneId.systemDefault()).toInstant())
+
+    @Test
+    fun peopleAndSubjectAreSearchedInTheirOwnFields() = client { client ->
+        // GreenMail compares FROM, TO and CC with whole addresses; real servers match any part of
+        // the address or the name (ImapAbortTest shows what is sent for names and accents).
+        append(
+            "INBOX",
+            plainMessage("Acta de la junta", from = "Ana García <agarcia@upm.es>", to = "carlos@upm.es"),
+            plainMessage("Convocatoria", body = "Adjunto el acta", from = "Bea Gómez <bea@alumnos.upm.es>", cc = "Carlos Ruiz <cruiz@upm.es>"),
+            plainMessage("Re: acta", from = "Jose Garcia <jgarcia@upm.es>", to = "Íñigo Muñoz <imunoz@upm.es>"),
+            plainMessage("Revisión de notas", from = "Carlos Ruiz <cruiz@upm.es>"),
+        )
+        val (u1, u2, u3, u4) = client.searchAllUids("INBOX").uids.toList()
+
+        // Several senders are any of them.
+        assertEquals(listOf(u1), client.find("from:agarcia@upm.es"))
+        assertEquals(listOf(u3, u1), client.find("de:AGARCIA@upm.es from:jgarcia@upm.es"))
+        // Recipients are To or Cc.
+        assertEquals(listOf(u2, u1), client.find("to:carlos@upm.es to:cruiz@upm.es"))
+        assertEquals("not the sender", listOf(u2), client.find("para:cruiz@upm.es"))
+
+        // Only the subject, also when the words are looked for in the text.
+        assertEquals(listOf(u3, u1), client.find("subject:acta"))
+        assertEquals(listOf(u2), client.find("acta", ServerQuery.TEXT_FIELDS))
+        assertEquals(listOf(u3, u1), client.find("subject:acta", ServerQuery.TEXT_FIELDS))
+        assertEquals(listOf(u1), client.find("subject:\"acta de la\""))
+        // Spanish accents both ways.
+        assertEquals(listOf(u4), client.find("asunto:revision"))
+        assertEquals(listOf(u4), client.find("subject:REVISIÓN"))
+
+        // Everything together.
+        assertEquals(listOf(u1), client.find("from:agarcia@upm.es to:carlos@upm.es"))
+        assertEquals(listOf(u3), client.find("from:agarcia@upm.es from:jgarcia@upm.es subject:acta -junta"))
+        assertEquals(listOf(u1), client.find("junta from:agarcia@upm.es from:cruiz@upm.es"))
+        assertEquals(emptyList<Long>(), client.find("from:bea@alumnos.upm.es subject:acta"))
+    }
+
+    @Test
+    fun unreadStarredAndExcludedWords() = client { client ->
+        append("INBOX", plainMessage("Elecciones a rector", body = "Votad"), plainMessage("Elecciones: borrador del censo", body = "Revisad"))
+        append("INBOX", plainMessage("Elecciones leídas", body = "Censo definitivo"), flags = Flags(Flags.Flag.SEEN))
+        append("INBOX", plainMessage("Elecciones destacadas", body = "El borrador"), flags = Flags(Flags.Flag.FLAGGED))
+        val (unread, draft, read, starred) = client.searchAllUids("INBOX").uids.toList()
+
+        assertEquals(listOf(starred, draft, unread), client.find("elecciones is:unread"))
+        assertEquals(listOf(starred), client.find("es:destacado"))
+        assertEquals(listOf(starred), client.find("is:unread is:starred elecciones"))
+        // Exclusions: nowhere in the message, the text included, in the headers search too.
+        assertEquals(listOf(read, unread), client.find("elecciones -borrador"))
+        assertEquals(listOf(read, unread), client.find("elecciones -borrador", ServerQuery.TEXT_FIELDS + ServerQuery.HEADER_FIELDS))
+        assertEquals(listOf(read), client.find("censo -borrador", ServerQuery.TEXT_FIELDS))
+        assertEquals(listOf(starred, unread), client.find("-censo"))
+        // As the header index checks them: in the headers only.
+        val headersOnly = client.searchUids("INBOX", query("elecciones -borrador").headerExclusionsOnly(), null, 50).uids
+        assertEquals(listOf(starred, read, unread), headersOnly)
+    }
+
+    @Test
+    fun datesAskForADayMoreOnEachSide() = client { client ->
+        // The search keeps the whole local days (ServerSearchTest); the server is asked for more,
+        // as it may read the Date header's day in the sender's zone.
+        append(
+            "INBOX",
+            plainMessage("Mayo", date = localDate(2026, 5, 30, 23, 30)),
+            plainMessage("Último de mayo", date = localDate(2026, 5, 31, 23, 30)),
+            plainMessage("Primero de junio", date = localDate(2026, 6, 1, 0, 10)),
+            plainMessage("Fin de junio", date = localDate(2026, 6, 30, 23, 50)),
+            plainMessage("Julio", date = localDate(2026, 7, 1, 0, 5)),
+            plainMessage("Dos de julio", date = localDate(2026, 7, 2, 0, 5)),
+        )
+        val uids = client.searchAllUids("INBOX").uids.toList()
+        val (may, mayLast, juneFirst, juneLast, july) = uids
+        val julySecond = uids[5]
+
+        assertEquals(listOf(july, juneLast, juneFirst, mayLast), client.find("after:2026-06-01 before:2026-06-30"))
+        assertEquals(listOf(julySecond, july, juneLast, juneFirst, mayLast), client.find("desde:1/6/2026"))
+        assertEquals(listOf(juneFirst, mayLast, may), client.find("hasta:31/5/2026"))
+        assertEquals(listOf(juneLast), client.find("junio after:2026-06-03"))
+        assertEquals(emptyList<Long>(), client.find("after:2026-07-04"))
     }
 
     @Test

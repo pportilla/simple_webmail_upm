@@ -1,6 +1,7 @@
 package io.github.pportilla.upmmail.data.db
 
 import io.github.pportilla.upmmail.data.files.LocalFiles
+import io.github.pportilla.upmmail.model.EmailAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -15,11 +16,16 @@ class HelpersTest {
     val temp = TemporaryFolder()
 
     @Test
-    fun foldingAndMatchExpressions() {
+    fun foldingAndPhrases() {
         assertEquals("perez nunez", SearchText.fold("Pérez NÚÑEZ"))
-        assertEquals("reunion* depart*", SearchText.matchExpression("Reunión  DEPART"))
-        assertEquals("a* b*", SearchText.matchExpression("\"a\" :(b*) -a"))
-        assertNull(SearchText.matchExpression("  \"*()  "))
+        assertEquals("reunion*", SearchText.phrase("Reunión", prefixLast = true))
+        assertEquals("cv", SearchText.phrase("CV", prefixLast = false))
+        assertEquals("\"ana garcia upm es*\"", SearchText.phrase("Ana.García@UPM.es", prefixLast = true))
+        assertEquals("\"acta de la\"", SearchText.phrase("acta de la", prefixLast = false))
+        assertEquals("FTS syntax is dropped", "\"a b*\"", SearchText.phrase("\"a\" :(b*)", prefixLast = true))
+        assertEquals("operators stay lower case words", "\"a or b*\"", SearchText.phrase("a OR b", prefixLast = true))
+        assertNull(SearchText.phrase("  \"*()  ", prefixLast = true))
+        assertEquals("at most 12 words", 12, SearchText.phrase((1..20).joinToString(" ") { "w$it" }, prefixLast = false)!!.split(' ').size)
         assertTrue(SearchText.matchesWordPrefixes("ana per", "Ana Pérez", "ana.perez@upm.es"))
         assertTrue(SearchText.matchesWordPrefixes("perez@", null, "ana.perez@upm.es"))
         assertFalse(SearchText.matchesWordPrefixes("nap", "Ana Pérez", "ana.perez@upm.es"))
@@ -27,16 +33,34 @@ class HelpersTest {
     }
 
     @Test
-    fun shortTermsCanBeExactWords() {
-        assertEquals("reunion* de depart*", SearchText.matchExpression("Reunión de DEPART", minPrefixLength = 3))
-        assertEquals("acta* a la", SearchText.matchExpression("acta a la", minPrefixLength = 3))
-        assertEquals("the default keeps every word a prefix", "a* la*", SearchText.matchExpression("a la"))
-        assertNull(SearchText.matchExpression(" () ", minPrefixLength = 3))
-        assertTrue(SearchText.allTermsHaveLength("Junta electoral", 3))
-        assertFalse(SearchText.allTermsHaveLength("de la Junta", 3))
-        assertTrue("letters are counted after folding", SearchText.allTermsHaveLength("año", 3))
-        assertFalse(SearchText.allTermsHaveLength("CV", 3))
-        assertFalse(SearchText.allTermsHaveLength(" () ", 1))
+    fun theIndexMatchesLikeTheServerFromThreeLettersOrAWholeAddress() {
+        assertTrue(FtsQuery.matchesLikeServer("Junta", 3))
+        assertTrue("letters are counted after folding", FtsQuery.matchesLikeServer("año", 3))
+        assertTrue("only the last word continues", FtsQuery.matchesLikeServer("acta de la junta", 3))
+        assertFalse(FtsQuery.matchesLikeServer("CV", 3))
+        assertFalse(FtsQuery.matchesLikeServer("junta de", 3))
+        assertTrue("a whole address", FtsQuery.matchesLikeServer("ana.garcia@upm.es", 3))
+        assertFalse("part of an address", FtsQuery.matchesLikeServer("ana.garcia@upm.e", 3))
+        assertTrue(FtsQuery.matchesLikeServer("garcia@", 3))
+        assertFalse(FtsQuery.matchesLikeServer(" () ", 1))
+    }
+
+    @Test
+    fun versionTwoPeopleTextsSplitAfterTheSender() {
+        val from = AddressCodec.encode(EmailAddress("ana.garcia@upm.es", "García, Ana"))
+        val people = SearchText.fold(
+            AddressCodec.people(listOf(EmailAddress("ana.garcia@upm.es", "García, Ana")), listOf(EmailAddress("luis@upm.es", "Luis Núñez"))),
+        )
+        assertEquals("garcia, ana ana.garcia@upm.es" to "luis nunez luis@upm.es", FtsPeople.split(people, from))
+        assertEquals("no sender", "" to "luis@upm.es", FtsPeople.split("luis@upm.es", ""))
+        assertEquals("a sender only", "bea bea@upm.es" to "", FtsPeople.split("bea bea@upm.es", "Bea <bea@upm.es>"))
+        assertEquals("cut inside the sender", "bea" to "", FtsPeople.split("bea", "Bea <bea@upm.es>"))
+        assertEquals("an address the codec cannot read", "mailer-daemon" to "ana@upm.es", FtsPeople.split("mailer-daemon ana@upm.es", "<MAILER-DAEMON>"))
+        assertEquals(
+            "words that do not line up keep everything as recipients",
+            "\"otro\" <otro@upm.es>" to "bea bea@upm.es luis@upm.es",
+            FtsPeople.split("bea bea@upm.es luis@upm.es", "\"Otro\" <otro@upm.es>"),
+        )
     }
 
     @Test

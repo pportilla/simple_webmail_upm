@@ -1,6 +1,7 @@
 package io.github.pportilla.upmmail.ui.navigation
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
@@ -16,12 +17,13 @@ internal object Routes {
     const val ARG_KEY = "key"
     const val ARG_ACCOUNT_ID = "accountId"
     const val ARG_FOLDER_ID = "folderId"
+    const val ARG_QUERY = "query"
 
     const val SETUP = "setup?$ARG_ADD={$ARG_ADD}"
     const val MAILBOX = "mailbox"
     const val MESSAGE = "message/{$ARG_MESSAGE_ID}"
     const val COMPOSE = "compose?$ARG_KEY={$ARG_KEY}"
-    const val SEARCH = "search?$ARG_ACCOUNT_ID={$ARG_ACCOUNT_ID}&$ARG_FOLDER_ID={$ARG_FOLDER_ID}"
+    const val SEARCH = "search?$ARG_ACCOUNT_ID={$ARG_ACCOUNT_ID}&$ARG_FOLDER_ID={$ARG_FOLDER_ID}&$ARG_QUERY={$ARG_QUERY}"
     const val SETTINGS = "settings"
     const val ACCOUNT_SETTINGS = "settings/account/{$ARG_ACCOUNT_ID}"
 
@@ -34,8 +36,11 @@ internal object Routes {
 
     fun compose(key: String) = "compose?$ARG_KEY=$key"
 
-    fun search(accountId: Long?, folderId: Long?) =
-        "search?$ARG_ACCOUNT_ID=${accountId ?: NONE}&$ARG_FOLDER_ID=${folderId ?: NONE}"
+    /** The search route; [query] (any text: quotes, spaces, "&") is encoded and left out when blank. */
+    fun search(accountId: Long?, folderId: Long?, query: String? = null): String {
+        val base = "search?$ARG_ACCOUNT_ID=${accountId ?: NONE}&$ARG_FOLDER_ID=${folderId ?: NONE}"
+        return if (query.isNullOrBlank()) base else "$base&$ARG_QUERY=${Uri.encode(query)}"
+    }
 
     fun accountSettings(accountId: Long) = "settings/account/$accountId"
 }
@@ -147,8 +152,8 @@ internal class NavControllerNavigator(
         }
     }
 
-    override fun openSearch(accountId: Long?, folderId: Long?) {
-        navigate(Routes.search(accountId, folderId))
+    override fun openSearch(accountId: Long?, folderId: Long?, query: String?) {
+        navigate(Routes.search(accountId, folderId, query))
     }
 
     override fun openSettings() {

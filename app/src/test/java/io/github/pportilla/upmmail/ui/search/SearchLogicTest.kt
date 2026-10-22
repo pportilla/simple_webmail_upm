@@ -163,6 +163,36 @@ class SearchLogicTest {
     }
 
     @Test
+    fun deviceResultsTheServerRuledOutAreLeftOut() {
+        // "-borrador": index-only 3 and cached 2 (text not downloaded) have it in their text.
+        val local = listOf(indexed(3), cached(2), cached(1))
+        val shown = local.mapTo(HashSet()) { it.key }
+        val refuted = setOf(SearchKey(2, 3), SearchKey(1, 2))
+        val sections = mergeSections(local, listOf(indexed(4)), shown, emptySet(), SearchFilterState(), refuted = refuted)
+        assertEquals(listOf(SearchKey(1, 1)), sections.local.map { it.key })
+        assertEquals(listOf(SearchKey(2, 4)), sections.fromServer.map { it.key })
+    }
+
+    @Test
+    fun ruledOutResultsAddUpOverTheRuns() {
+        val running = session().request(setOf(SearchPhase.HEADERS)).request(setOf(SearchPhase.TEXT))
+        val headers = running.queue.first()
+        val during = running.onProgress(progress(headers).copy(finished = false, refuted = setOf(SearchKey(2, 3))))
+        assertEquals("the running search's count at once", setOf(SearchKey(2, 3)), during.allRefuted)
+        val headersDone = progress(headers, hits = listOf(indexed(4))).copy(refuted = setOf(SearchKey(2, 3), SearchKey(2, 5)))
+        val afterHeaders = during.onFinished(headers, headersDone)
+        assertEquals(setOf(SearchKey(2, 3), SearchKey(2, 5)), afterHeaders.refuted)
+        val text = afterHeaders.queue.single()
+        val afterText = afterHeaders.onFinished(text, progress(text, hits = listOf(indexed(6))))
+        assertEquals("kept by a run that rules nothing out", setOf(SearchKey(2, 3), SearchKey(2, 5)), afterText.allRefuted)
+        val textFailed = progress(text, error = MailException(MailErrorKind.NETWORK, "down")).copy(refuted = setOf(SearchKey(2, 7)))
+        val failed = afterHeaders.onFinished(text, textFailed)
+        assertEquals(setOf(SearchKey(2, 3), SearchKey(2, 5), SearchKey(2, 7)), failed.refuted)
+        val stopped = afterHeaders.onProgress(progress(text).copy(finished = false, refuted = setOf(SearchKey(2, 8)))).stop()
+        assertEquals(setOf(SearchKey(2, 3), SearchKey(2, 5), SearchKey(2, 8)), stopped.refuted)
+    }
+
+    @Test
     fun theServerIsSearchedByItselfOnlyForFewLocalResults() {
         assertTrue(shouldAutoSearch("elecciones", localCount = 0, alreadySearched = false))
         assertTrue(shouldAutoSearch("elecciones", localCount = AUTO_SERVER_MAX_LOCAL - 1, alreadySearched = false))

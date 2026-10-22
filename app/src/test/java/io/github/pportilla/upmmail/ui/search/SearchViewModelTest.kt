@@ -13,6 +13,8 @@ import io.github.pportilla.upmmail.data.repository.SyncController
 import io.github.pportilla.upmmail.data.repository.UndoHandle
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.AppSettings
+import io.github.pportilla.upmmail.model.ContactSource
+import io.github.pportilla.upmmail.model.ContactSuggestion
 import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.Folder
 import io.github.pportilla.upmmail.model.FolderRole
@@ -27,6 +29,7 @@ import io.github.pportilla.upmmail.model.SearchFilters
 import io.github.pportilla.upmmail.model.SearchHit
 import io.github.pportilla.upmmail.model.SearchKey
 import io.github.pportilla.upmmail.model.SearchPhase
+import io.github.pportilla.upmmail.model.SearchQuery
 import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.model.ServerSearchProgress
 import io.github.pportilla.upmmail.model.ServerSearchRequest
@@ -54,6 +57,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -68,8 +72,14 @@ class SearchViewModelTest {
         val progress = Channel<ServerSearchProgress>(Channel.UNLIMITED)
         var cancelled = false
 
-        fun emit(hits: List<SearchHit>, finished: Boolean = false, phase: SearchPhase? = SearchPhase.HEADERS, error: MailException? = null) {
-            progress.trySend(ServerSearchProgress(request, phase, null, 1, 3, hits, emptyList(), finished, false, error))
+        fun emit(
+            hits: List<SearchHit>,
+            finished: Boolean = false,
+            phase: SearchPhase? = SearchPhase.HEADERS,
+            error: MailException? = null,
+            refuted: Set<SearchKey> = emptySet(),
+        ) {
+            progress.trySend(ServerSearchProgress(request, phase, null, 1, 3, hits, emptyList(), finished, false, error, refuted))
             if (finished) progress.close()
         }
     }
@@ -77,6 +87,7 @@ class SearchViewModelTest {
     private class FakeMail : MailRepository {
         val local = HashMap<String, List<SearchHit>>()
         val localQueries = ArrayList<String>()
+        val localFilters = ArrayList<SearchFilters>()
         val runs = ArrayList<ServerRun>()
         val folders = HashMap<Long, Folder>()
         val index = MutableStateFlow<List<IndexStatus>>(emptyList())
@@ -86,6 +97,7 @@ class SearchViewModelTest {
 
         override suspend fun searchLocalHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit> {
             localQueries += query
+            localFilters += filters
             return local[query].orEmpty()
         }
 
@@ -160,9 +172,26 @@ class SearchViewModelTest {
         override suspend fun downloadAttachment(attachmentId: Long): Result<File> = error("unused")
     }
 
+    /** Contacts suggested by word prefix of the name or address, like the real repository. */
+    private class FakeContacts : ContactRepository {
+        val contacts = ArrayList<EmailAddress>()
+        val queries = ArrayList<String>()
+
+        override suspend fun suggest(query: String, exclude: Set<String>, limit: Int): List<ContactSuggestion> {
+            queries += query
+            val text = query.lowercase()
+            return contacts
+                .filter { it.address !in exclude }
+                .filter { c -> listOfNotNull(c.name, c.address).any { it.lowercase().split(' ', '.', '@').any { w -> w.startsWith(text) } || it.lowercase() == text } }
+                .take(limit)
+                .map { ContactSuggestion(it, ContactSource.HISTORY) }
+        }
+    }
+
     private class FakeContainer(
         accounts: List<Account>,
         override val mailRepository: MailRepository,
+        override val contactRepository: ContactRepository,
         settings: AppSettings,
         override val applicationScope: CoroutineScope,
     ) : AppContainer {
@@ -191,15 +220,16 @@ class SearchViewModelTest {
         }
 
         override val composeRepository: ComposeRepository get() = error("unused")
-        override val contactRepository: ContactRepository get() = error("unused")
         override val syncController: SyncController get() = error("unused")
     }
 
     private val mail = FakeMail().apply { folders[inbox.id] = inbox }
+    private val contacts = FakeContacts()
+    private val today = LocalDate.of(2026, 10, 22)
 
-    private fun TestScope.viewModel(accountId: Long? = null, folderId: Long? = null): SearchViewModel {
-        val container = FakeContainer(listOf(staff, student), mail, AppSettings(lastAccountId = 2), backgroundScope)
-        val vm = SearchViewModel(container, accountId, folderId, backgroundScope)
+    private fun TestScope.viewModel(accountId: Long? = null, folderId: Long? = null, initialQuery: String? = null): SearchViewModel {
+        val container = FakeContainer(listOf(staff, student), mail, contacts, AppSettings(lastAccountId = 2), backgroundScope)
+        val vm = SearchViewModel(container, accountId, folderId, initialQuery, coroutineScope = backgroundScope, today = { today })
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect { } }
         runCurrent()
         return vm
@@ -259,6 +289,24 @@ class SearchViewModelTest {
         runCurrent()
         assertEquals(setOf(SearchPhase.TEXT), mail.runs.last().request.phases)
         assertEquals(listOf("elecciones"), mail.recents)
+    }
+
+    @Test
+    fun localResultsTheServerRuledOutLeaveTheList() = runTest {
+        // The index cannot see the text of 5; the server finds "borrador" in it.
+        mail.local["from:ana -borrador"] = listOf(indexed(5), cached(1))
+        val vm = viewModel()
+        vm.type("from:ana -borrador")
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + AUTO_SERVER_DELAY_MILLIS + 10)
+        assertEquals(listOf(SearchKey(20, 5), SearchKey(10, 1)), vm.uiState.value.localResults.map { it.key })
+        val run = mail.runs.single()
+        run.emit(listOf(cached(1)), refuted = setOf(SearchKey(20, 5)))
+        runCurrent()
+        assertEquals(listOf(SearchKey(10, 1)), vm.uiState.value.localResults.map { it.key })
+        run.emit(listOf(cached(1)), finished = true, phase = null, refuted = setOf(SearchKey(20, 5)))
+        runCurrent()
+        assertEquals(listOf(SearchKey(10, 1)), vm.uiState.value.localResults.map { it.key })
+        assertTrue(vm.uiState.value.serverResults.isEmpty())
     }
 
     @Test
@@ -397,5 +445,159 @@ class SearchViewModelTest {
         assertTrue(all.uiState.value.index!!.running)
         all.indexNow(allowMetered = false)
         assertEquals(1, mail.indexStarts)
+    }
+
+    @Test
+    fun anInitialQueryIsSearchedAtOnceAndItsAddressShowsAsAName() = runTest {
+        val fromAna = SearchHit.Cached(message(3).copy(from = EmailAddress("ana.garcia@upm.es", "Ana García")), "<c3@upm.es>")
+        mail.local["from:ana.garcia@upm.es"] = listOf(fromAna)
+        val vm = viewModel(initialQuery = " from:ana.garcia@upm.es ")
+        assertEquals("from:ana.garcia@upm.es", vm.query)
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + 1)
+        assertEquals(listOf("from:ana.garcia@upm.es"), mail.localQueries)
+        val state = vm.uiState.value
+        assertEquals(listOf(SearchKey(10, 3)), state.localResults.map { it.key })
+        assertEquals(listOf<CriterionChip>(CriterionChip.Person(PersonField.FROM, "ana.garcia@upm.es")), state.chips)
+        assertEquals("the sender of a match names the address", "Ana García", personLabel("ana.garcia@upm.es", state.names))
+        assertTrue("found on a match, not looked up", contacts.queries.isEmpty())
+        assertFalse("people only: the server has no message text to search", state.searchesText)
+
+        // An address on no match is looked up in the contacts once.
+        contacts.contacts += EmailAddress("carlos@upm.es", "Carlos Pérez")
+        vm.type("to:carlos@upm.es")
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + 1)
+        assertEquals("Carlos Pérez", vm.uiState.value.names["carlos@upm.es"])
+        assertEquals(listOf("carlos@upm.es"), contacts.queries)
+    }
+
+    @Test
+    fun theFlagChipsAreTheOperatorsOfTheText() = runTest {
+        val vm = viewModel()
+        vm.type("examen")
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + 1)
+        vm.setUnreadOnly(true)
+        assertEquals("examen is:unread", vm.query)
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + 1)
+        assertTrue(vm.uiState.value.filters.unreadOnly)
+        assertEquals("examen is:unread", mail.localQueries.last())
+        assertTrue("the local search gets the flag too", mail.localFilters.last().unreadOnly)
+
+        // Typed by hand, in Spanish: the chip shows it, and turning the chip off removes it.
+        vm.type("examen es:destacado")
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + 1)
+        val state = vm.uiState.value
+        assertTrue(state.filters.starredOnly)
+        assertFalse(state.filters.unreadOnly)
+        vm.setStarredOnly(false)
+        assertEquals("examen", vm.query)
+        runCurrent()
+        assertFalse(vm.uiState.value.filters.starredOnly)
+
+        vm.type("from:ana -spam examen")
+        vm.removeChip(CriterionChip.Excluded("spam"))
+        assertEquals("from:ana examen", vm.query)
+        vm.removeChip(CriterionChip.Person(PersonField.FROM, "ana"))
+        assertEquals("examen", vm.query)
+        runCurrent()
+        assertTrue(vm.uiState.value.chips.isEmpty())
+    }
+
+    @Test
+    fun theAdvancedPanelEditsTheQueryAndSuggestsContacts() = runTest {
+        contacts.contacts += EmailAddress("carlos@upm.es", "Carlos Pérez")
+        contacts.contacts += EmailAddress("carmen@upm.es", "Carmen Ruiz")
+        val vm = viewModel()
+        vm.type("from:ana subject:examen notas")
+        vm.openAdvancedSearch()
+        val opened = vm.advanced!!
+        assertEquals(listOf("ana"), opened.from)
+        assertEquals("examen", opened.subject)
+        assertEquals("notas", opened.words)
+
+        vm.onPersonInput(PersonField.TO, "car")
+        advanceTimeBy(SUGGEST_DEBOUNCE_MILLIS + 1)
+        val suggestions = vm.suggestions.value!!
+        assertEquals(PersonField.TO, suggestions.field)
+        assertEquals(listOf("carlos@upm.es", "carmen@upm.es"), suggestions.items.map { it.address.address })
+        vm.pickSuggestion(PersonField.TO, suggestions.items.first())
+        assertNull(vm.suggestions.value)
+        assertEquals(listOf("carlos@upm.es"), vm.advanced!!.to)
+        assertEquals("", vm.advanced!!.toInput)
+
+        vm.updateAdvancedSearch { it.copy(date = DateChoice.LAST_7_DAYS, hasAttachment = true, words = "") }
+        vm.applyAdvancedSearch()
+        runCurrent()
+        assertNull(vm.advanced)
+        val text = "from:ana to:carlos@upm.es subject:examen after:2026-10-16 has:attachment"
+        assertEquals(text, vm.query)
+        assertEquals("searched and remembered", listOf(text), mail.recents)
+        val state = vm.uiState.value
+        assertTrue(state.filters.withAttachments)
+        assertEquals(
+            listOf(
+                CriterionChip.Person(PersonField.FROM, "ana"),
+                CriterionChip.Person(PersonField.TO, "carlos@upm.es"),
+                CriterionChip.Subject("examen"),
+                CriterionChip.Dates(LocalDate.of(2026, 10, 16), null, DateChoice.LAST_7_DAYS),
+            ),
+            state.chips,
+        )
+        assertEquals("the picked contact names its chip", "Carlos Pérez", state.names["carlos@upm.es"])
+
+        // Opened again, the panel shows the same search; Clear then Search empties it.
+        vm.openAdvancedSearch()
+        assertEquals(
+            SearchQuery.parse(text),
+            vm.advanced!!.toQuery(today),
+        )
+        assertEquals(DateChoice.LAST_7_DAYS, vm.advanced!!.date)
+        vm.clearAdvancedSearch()
+        assertTrue(vm.advanced!!.isEmpty)
+        vm.applyAdvancedSearch()
+        assertEquals("", vm.query)
+
+        // Closing drops the edits.
+        vm.type("examen")
+        vm.openAdvancedSearch()
+        vm.onPersonInput(PersonField.FROM, "ana,")
+        assertEquals(listOf("ana"), vm.advanced!!.from)
+        vm.closeAdvancedSearch()
+        assertNull(vm.advanced)
+        assertEquals("examen", vm.query)
+    }
+
+    @Test
+    fun aQueryWithoutWordsSearchesOnlyTheServersHeaders() = runTest {
+        mail.local["from:ana"] = (1L..6L).map(::cached)
+        val vm = viewModel()
+        vm.type("from:ana")
+        advanceTimeBy(SEARCH_DEBOUNCE_MILLIS + 1)
+        assertFalse(vm.uiState.value.searchesText)
+        vm.onSubmit()
+        runCurrent()
+        assertEquals(setOf(SearchPhase.HEADERS), mail.runs.single().request.phases)
+        assertFalse(vm.uiState.value.server!!.textRequested)
+    }
+
+    @Test
+    fun anAttachmentFilterAloneWaitsForTheUser() = runTest {
+        val vm = viewModel()
+        vm.setWithAttachments(true)
+        assertEquals("has:attachment", vm.query)
+        advanceTimeBy(5_000)
+        assertEquals(listOf("has:attachment"), mail.localQueries)
+        assertTrue(mail.runs.isEmpty())
+    }
+
+    @Test
+    fun theOperatorTipShowsUntilAnOperatorIsUsed() = runTest {
+        mail.recents += "elecciones"
+        val vm = viewModel()
+        runCurrent()
+        assertTrue(vm.uiState.value.operatorTip)
+        vm.type("de:ana")
+        vm.onSubmit()
+        runCurrent()
+        assertFalse(vm.uiState.value.operatorTip)
     }
 }
