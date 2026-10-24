@@ -76,6 +76,9 @@ The final machine-readable record is `release-output/family-release-2/validation
 | Packaging | Version 2, expected package, API 26/36, backup disabled and non-debuggable confirmed. Language splitting is disabled so both languages remain available offline. |
 | Text/assets | Native EN/ES privacy XML parsed; store text meets character limits; changed-file whitespace checks passed. |
 
+The 213 main/test Kotlin files match the source-hash snapshot recorded before the final build
+(`release-output/family-release-2/source-code-snapshot.json`). This covers those files only, not
+XML, Gradle or dependencies, and is not a cryptographic source-to-binary attestation.
 The full suite covers the final Kotlin/Java source. The final resource-only wording corrections
 were then repackaged and lint checked. Real UPM sign-in and external-provider mail delivery
 remain unverified; local fixture tests must not be presented as those checks.
@@ -133,6 +136,14 @@ The private key is `/home/gablo/.config/upm-mail/upload-key.jks`; signing config
 securely. They must not appear in public artifacts or the release kit. Google's distribution
 certificate may differ from this upload certificate.
 
+The final private owner kit is
+`/home/gablo/mail_upm/release-output/family-release-2/upm-mail-1.0.0-v2-play-kit.zip`, with an adjacent
+`.zip.sha256` file. It contains the exact AAB/universal APK, public certificate, validation and scoped
+QA/video evidence, final policies and metadata, plus the owner's private terms/action and Console
+state records. It excludes the signing key, passwords, browser sessions and raw test fixtures.
+`SHA256SUMS` inside the ZIP verifies every other entry. Keep this handoff private because the
+Console record includes the owner-supplied tester addresses.
+
 The previous version-1 bundle, 611-test report, `runtime-smoke/` universal APK and older handoff
 ZIP are superseded evidence. Do not use them to describe version 2 or upload them by mistake.
 
@@ -167,7 +178,8 @@ ZIP are superseded evidence. Do not use them to describe version 2 or upload the
   No completed 12-person/14-day test or production-access approval is claimed.
 - **App access remains unresolved.** The owner declined reviewer mailbox credentials and offered
   the public support email. Console explicitly requires reviewer access to all functionality and
-  says reviewers cannot contact the owner for access. A support address cannot truthfully satisfy
+  says reviewers cannot contact the owner for access. This prerequisite was freshly confirmed
+  at **12:17 UTC on 24 October 2026**. A support address cannot truthfully satisfy
   that attestation. No review mailbox or full-function offline demo is configured; no external
   account was provisioned. The audience form is disabled until sign-in details are completed.
 - Data safety is saved as a **draft**, with submission blocked by the unfinished audience form.

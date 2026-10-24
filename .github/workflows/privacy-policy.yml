@@ -22,12 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-      - name: Prepare public policy only
+      - name: Read published review evidence
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: _published
+      - name: Prepare public policy and preserve review evidence
         run: |
           mkdir -p _site
           cp docs/privacy.html _site/privacy.html
           cp docs/privacy.html _site/index.html
           cp docs/acceptable-use.html _site/acceptable-use.html
+          if [ -d _published/foreground-service ]; then
+            cp -R _published/foreground-service _site/foreground-service
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
