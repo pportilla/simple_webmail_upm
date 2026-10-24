@@ -27,6 +27,8 @@ data class Account(
     val color: Int,
     val notificationsEnabled: Boolean,
     val sortOrder: Int,
+    /** Explicit local sample account. Only the sample-account action creates this flag. */
+    val isDemo: Boolean = false,
 )
 
 enum class FolderRole { INBOX, DRAFTS, SENT, ARCHIVE, TRASH, JUNK, OTHER }

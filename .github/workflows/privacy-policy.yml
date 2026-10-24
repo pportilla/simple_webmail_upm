@@ -33,6 +33,7 @@ jobs:
           cp docs/privacy.html _site/privacy.html
           cp docs/privacy.html _site/index.html
           cp docs/acceptable-use.html _site/acceptable-use.html
+          cp docs/demo-review.html _site/demo-review.html
           if [ -d _published/foreground-service ]; then
             cp -R _published/foreground-service _site/foreground-service
           fi

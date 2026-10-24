@@ -103,6 +103,13 @@ class ComposeViewModelTest {
 
     private class FakeContacts : ContactRepository {
         val queries = mutableListOf<Pair<String, Set<String>>>()
+        val accountQueries = mutableListOf<Long>()
+        val accountResults = mutableMapOf<Long, List<ContactSuggestion>>()
+
+        override suspend fun suggestForAccount(accountId: Long, query: String, exclude: Set<String>, limit: Int): List<ContactSuggestion> {
+            accountQueries += accountId
+            return accountResults[accountId] ?: suggest(query, exclude, limit)
+        }
 
         override suspend fun suggest(query: String, exclude: Set<String>, limit: Int): List<ContactSuggestion> {
             queries += query to exclude
@@ -282,6 +289,24 @@ class ComposeViewModelTest {
     // ------------------------------------------------------------------ recipients
 
     @Test
+    fun `switching account clears real suggestions and requests only the selected sample contacts`() = runTest {
+        val sample = student.copy(isDemo = true, email = "review@example.invalid")
+        contacts.accountResults[sample.id] = listOf(ContactSuggestion(EmailAddress("tutor@example.invalid", "Sample tutor"), ContactSource.HISTORY))
+        val vm = viewModel(accounts = listOf(staff, sample), settings = AppSettings(lastAccountId = staff.id))
+        vm.onRecipientFocusChanged(RecipientKind.TO, true)
+        vm.type(RecipientKind.TO, "tu")
+        advanceTimeBy(200); runCurrent()
+        assertEquals(staff.id, contacts.accountQueries.last())
+        assertTrue(vm.uiState.value.suggestions!!.items.any { it.address.address == "luis@upm.es" })
+
+        vm.selectAccount(sample.id)
+        assertNull(vm.uiState.value.suggestions)
+        advanceTimeBy(200); runCurrent()
+        assertEquals(sample.id, contacts.accountQueries.last())
+        assertEquals(listOf("tutor@example.invalid"), vm.uiState.value.suggestions!!.items.map { it.address.address })
+    }
+
+    @Test
     fun `typing a comma makes a chip and suggestions exclude added addresses`() = runTest {
         val vm = viewModel()
         vm.onRecipientFocusChanged(RecipientKind.TO, true)
@@ -447,6 +472,41 @@ class ComposeViewModelTest {
     }
 
     // ------------------------------------------------------------------ sending
+
+    @Test
+    fun `sample send outcome follows chosen account and remains explicit after navigation`() = runTest {
+        val sample = staff.copy(id = 3, email = "review@example.invalid", isDemo = true)
+        val vm = viewModel(args = ComposeArgs(accountId = staff.id), accounts = listOf(staff, sample))
+        vm.selectAccount(sample.id)
+        runCurrent()
+        val events = vm.collectEvents(this)
+        vm.type(RecipientKind.TO, "person@upm.es")
+        vm.onSubjectChange(TextFieldValue("Practice message"))
+        vm.send()
+        vm.selectAccount(staff.id) // Finished compose cannot change the submitted account.
+        settle()
+        val exit = (events.single() as ComposeEvent.Exit).exit as ComposeExit.Sending
+        assertTrue(exit.isDemo)
+        assertEquals(sample.id, compose.sent.single().first.accountId)
+    }
+
+    @Test
+    fun `real account with example address is never labeled as simulated`() = runTest {
+        val real = staff.copy(email = "real@example.invalid", isDemo = false)
+        val sample = student.copy(isDemo = true)
+        val vm = viewModel(args = ComposeArgs(accountId = sample.id), accounts = listOf(real, sample))
+        vm.selectAccount(real.id)
+        runCurrent()
+        val events = vm.collectEvents(this)
+        vm.type(RecipientKind.TO, "person@upm.es")
+        vm.onSubjectChange(TextFieldValue("Real account draft"))
+        vm.send()
+        settle()
+        val exit = (events.single() as ComposeEvent.Exit).exit as ComposeExit.Sending
+        assertFalse(exit.isDemo)
+        assertEquals(real.id, compose.sent.single().first.accountId)
+    }
+
 
     @Test
     fun `send validates recipients`() = runTest {

@@ -157,6 +157,9 @@ class MailNotifier(
         store.accounts.get(accountId)?.let { updateSummary(it, alert = false, removed = gone.mapTo(HashSet()) { it.id }) }
     }
 
+    private fun accountLabel(account: Account): String =
+        if (account.isDemo) context.getString(R.string.demo_account_label, account.email) else account.email
+
     private fun buildMessageNotification(account: Account, message: MessageSummary, hasArchive: Boolean): Notification {
         val sender = message.from?.displayName?.takeIf { it.isNotBlank() } ?: context.getString(R.string.unknown_sender)
         val subject = message.subject.ifBlank { context.getString(R.string.no_subject) }
@@ -172,7 +175,7 @@ class MailNotifier(
             .setContentTitle(sender)
             .setContentText(subject)
             .setStyle(Notification.BigTextStyle().bigText(bigText))
-            .setSubText(account.email)
+            .setSubText(accountLabel(account))
             .setWhen(message.date)
             .setShowWhen(true)
             .setCategory(Notification.CATEGORY_EMAIL)
@@ -238,7 +241,7 @@ class MailNotifier(
         }
         val count = children.size
         val title = context.resources.getQuantityString(R.plurals.notif_new_messages, count, count)
-        val style = Notification.InboxStyle().setSummaryText(account.email)
+        val style = Notification.InboxStyle().setSummaryText(accountLabel(account))
         val newestFirst = children.sortedByDescending { it.time }
         newestFirst.take(MAX_SUMMARY_LINES).forEach { child -> style.addLine(summaryLine(child.sender, child.subject)) }
         val senders = newestFirst.map { it.sender }.filter { it.isNotBlank() }.distinct().joinToString(", ")
@@ -247,7 +250,7 @@ class MailNotifier(
             .setColor(account.color)
             .setContentTitle(title)
             .setContentText(senders)
-            .setSubText(account.email)
+            .setSubText(accountLabel(account))
             .setStyle(style)
             .setNumber(count)
             .setWhen(newestFirst.first().time)
@@ -271,7 +274,7 @@ class MailNotifier(
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(account.color)
             .setContentTitle(context.resources.getQuantityString(R.plurals.notif_new_messages, count, count))
-            .setSubText(account.email)
+            .setSubText(accountLabel(account))
             .build()
 
     private fun senderOf(notification: Notification): String =
@@ -300,11 +303,12 @@ class MailNotifier(
         val safetyRevision = store.safety.state.value.revision
         if (!adultNotificationsAllowed() || !hasPermission()) return
         if ((item.draft.to + item.draft.cc + item.draft.bcc).any { store.safety.isSenderBlocked(it.address) }) return
+        val account = store.accounts.get(item.accountId) ?: return
         val subject = item.draft.subject.ifBlank { context.getString(R.string.no_subject) }
         val reason = item.lastError
             ?.let { error -> MailErrorKind.entries.firstOrNull { it.name == error } }
             ?.let { context.getString(it.messageRes()) }
-        val text = context.getString(R.string.notif_send_failed_text, subject)
+        val text = if (account.isDemo) subject else context.getString(R.string.notif_send_failed_text, subject)
         val intent = Intent(context, MainActivity::class.java)
             .setAction(ACTION_OPEN_OUTBOX)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -318,7 +322,8 @@ class MailNotifier(
         )
         val notification = Notification.Builder(context, CHANNEL_SEND_FAILURES)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.notif_send_failed_title))
+            .setContentTitle(context.getString(if (account.isDemo) R.string.demo_outbox_failed else R.string.notif_send_failed_title))
+            .setSubText(accountLabel(account))
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(text, reason).joinToString("\n")))
             .setCategory(Notification.CATEGORY_ERROR)

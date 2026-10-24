@@ -13,6 +13,7 @@ import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
 import io.github.pportilla.upmmail.model.ServerSettings
+import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.sync.MailClientProvider
 import io.github.pportilla.upmmail.sync.SyncEngine
 import io.github.pportilla.upmmail.sync.mailResult
@@ -101,6 +102,7 @@ class AccountRepositoryImpl(
     private val checker: CredentialChecker = EngineCredentialChecker,
     /** Called after an account was removed (e.g. to cancel its notifications). */
     private val onAccountRemoved: (Long) -> Unit = {},
+    private val onDemoArrivalRequested: (Long) -> Unit = { throw UnsupportedOperationException("Sample arrival is unavailable") },
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : AccountRepository {
 
@@ -109,6 +111,50 @@ class AccountRepositoryImpl(
     }
 
     override suspend fun getAccount(id: Long): Account? = db { store.safety.requireAccountManagement(); store.accounts.get(id) }
+
+    override suspend fun addDemoAccount(): Result<Account> = mailResult {
+        // Sample mail is a separate account, never a way to reset or bypass age/guardian policy.
+        store.safety.requireAccountManagement()
+        store.safety.requireNetwork()
+        val account = db {
+            store.safety.requireAccountManagement()
+            store.tx {
+                store.accounts.getAll().firstOrNull { it.isDemo } ?: run {
+                    val address = "review@example.invalid"
+                    if (store.accounts.getByEmail(address) != null) throw duplicate(address)
+                    val id = store.accounts.insert(Account(
+                        id = 0,
+                        email = address,
+                        displayName = "Sample mailbox",
+                        imap = ServerSettings("local-demo.invalid", 993, SecurityMode.SSL_TLS, address),
+                        smtp = ServerSettings("local-demo.invalid", 465, SecurityMode.SSL_TLS, address),
+                        signature = "",
+                        color = pickColor(store.accounts.usedColors()),
+                        notificationsEnabled = true,
+                        sortOrder = 0,
+                        isDemo = true,
+                    ))
+                    checkNotNull(store.accounts.get(id))
+                }
+            }
+        }
+        // The provider routes the explicit persisted flag to local transports before password
+        // lookup. Nothing is entered into the password store and no server login is attempted.
+        settings.update { it.copy(lastAccountId = account.id, lastFolderId = -1) }
+        syncInBackground(account.id)
+        account
+    }
+
+    override suspend fun scheduleDemoArrival(accountId: Long): Result<Unit> = mailResult {
+        db {
+            store.safety.requireAccountManagement()
+            store.safety.requireNetwork()
+            if (store.accounts.get(accountId)?.isDemo != true) {
+                throw MailException(MailErrorKind.NOT_FOUND, "No sample account")
+            }
+        }
+        onDemoArrivalRequested(accountId)
+    }
 
     override suspend fun addAccount(
         email: String,
@@ -201,6 +247,17 @@ class AccountRepositoryImpl(
         requireEncryptedTransport(account.imap)
         requireEncryptedTransport(account.smtp)
         val existing = db { store.accounts.get(account.id) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Account ${account.id}")
+        if (account.isDemo != existing.isDemo) {
+            throw MailException(MailErrorKind.UNKNOWN, "An account cannot change between sample and real mail")
+        }
+        if (existing.isDemo) {
+            if (account.email != existing.email || account.imap != existing.imap || account.smtp != existing.smtp || newPassword != null) {
+                throw MailException(MailErrorKind.UNKNOWN, "Sample mailbox connection details cannot be changed")
+            }
+            val updated = account.copy(displayName = account.displayName.trim())
+            db { store.safety.requireAccountManagement(); store.safety.forgetAccount(account.id); store.accounts.update(updated) }
+            return@mailResult updated
+        }
         val email = account.email.trim()
         if (!email.equals(existing.email, ignoreCase = true)) {
             if (!AddressParser.isValidAddress(email)) throw MailException(MailErrorKind.UNKNOWN, "Invalid e-mail address: $email")

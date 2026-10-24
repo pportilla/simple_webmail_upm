@@ -11,12 +11,12 @@ on:
       version_code:
         description: Release version code (must exceed every prior Play upload)
         required: true
-        default: '2'
+        default: '3'
         type: string
       version_name:
         description: Version shown to users
         required: true
-        default: '1.0.0'
+        default: '1.0.1'
         type: string
 
 permissions:

@@ -266,6 +266,7 @@ class MessageDao internal constructor(private val store: MailStore) {
         detachedAt: Long? = null,
     ): List<Long> = store.tx {
         val inserted = ArrayList<Long>()
+        val recordHistory = feedContacts && store.accounts.get(accountId)?.isDemo != true
         for (message in messages) {
             if (message.flags.deleted) continue
             val values = headerValues(accountId, folderId, message) + ("detached_at" to detachedAt)
@@ -273,7 +274,7 @@ class MessageDao internal constructor(private val store: MailStore) {
             if (id > 0) {
                 inserted += id
                 insertFts(id, message)
-                if (feedContacts) {
+                if (recordHistory) {
                     val people = listOfNotNull(message.from) + message.to + message.cc
                     store.contacts.recordSeen(people, values["date"] as Long, ownAddresses)
                 }

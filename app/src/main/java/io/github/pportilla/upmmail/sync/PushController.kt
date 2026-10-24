@@ -87,7 +87,7 @@ class PushController(
             combine(
                 settings.settings.map { it.pushEnabled }.distinctUntilChanged(),
                 store.accounts.observeAll()
-                    .map { it.isNotEmpty() }
+                    .map { accounts -> accounts.any { !it.isDemo } }
                     .catch { e ->
                         Log.w(TAG, "Could not read the accounts", e)
                         emit(false)
@@ -113,7 +113,7 @@ class PushController(
     fun isWanted(): Boolean =
         pushAllowedBySafety(store.safety) && settings.settings.value.pushEnabled &&
             try {
-                store.accounts.count() > 0
+                store.accounts.getAll().any { !it.isDemo }
             } catch (e: Exception) {
                 Log.w(TAG, "Could not count the accounts", e)
                 false

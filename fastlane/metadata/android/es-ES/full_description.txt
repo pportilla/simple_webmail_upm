@@ -2,6 +2,9 @@ Gestiona tu correo de la Universidad Politécnica de Madrid desde una aplicació
 
 UPM Mail es una aplicación independiente y no oficial. No está afiliada a la Universidad Politécnica de Madrid ni cuenta con su respaldo. Utiliza un buzón UPM existente o configura una cuenta compatible con IMAP/SMTP mediante TLS. La aplicación no crea una cuenta del proveedor.
 
+PRUEBA EL CORREO DE EJEMPLO
+Explora un buzón ficticio sin credenciales de correo. El ejemplo permanece en tu dispositivo; envíos, respuestas y avisos al proveedor se simulan localmente y nunca llegan a direcciones reales. Prueba llegadas y notificaciones locales. Se mantienen los controles de edad y supervisión. Las demás cuentas reales conectadas conservan su actividad de red habitual.
+
 CORREO SUPERVISADO
 Los menores de 18 años utilizan una interfaz supervisada independiente. El acceso al buzón permanece bloqueado hasta completar la configuración. Un adulto la configura con un PIN antes de conectar un buzón permitido. El adulto aprueba los contactos, revisa cada mensaje entrante antes de que aparezca y aprueba el contenido y los destinatarios exactos de cada envío. Los envíos se pueden desactivar. La interfaz supervisada permite leer y escribir texto sin formato y no ofrece adjuntos, enlaces externos, imágenes remotas, importación de contactos del dispositivo, exportaciones ni búsquedas. Los más pequeños pueden leer y escribir junto al adulto. El PIN ofrece controles locales, no una verificación independiente de identidad.
 
@@ -17,11 +20,11 @@ ENCUENTRA MENSAJES ANTIGUOS
 Busca en el correo almacenado en el dispositivo y en las cabeceras indexadas de tus carpetas. Amplía la búsqueda al servidor o al texto de los mensajes y filtra por carpeta, no leídos, destacados o adjuntos.
 
 ELIGE CÓMO RECIBIR EL CORREO
-Elige la comprobación push mediante una conexión IMAP directa, comprobaciones cada 15, 30 o 60 minutos, o al abrir la aplicación. El modo push está desactivado de forma predeterminada. El modo push muestra una notificación continua con el estado de conexión y se puede desactivar en Ajustes. La llegada de las notificaciones depende de la conexión, del servidor y de las restricciones de Android en segundo plano.
+Para buzones reales conectados, elige push mediante una conexión IMAP directa, comprobaciones cada 15, 30 o 60 minutos, o al abrir la aplicación. Push está desactivado de forma predeterminada. El push real muestra una notificación continua con el estado de conexión y se puede desactivar en Ajustes. Los ejemplos se actualizan localmente sin servicio persistente. Las notificaciones dependen de la conexión, del servidor y de las restricciones de Android en segundo plano.
 
 LEE A TU MANERA
 Las imágenes remotas permanecen bloqueadas hasta que las permites. Elige tema claro u oscuro, colores del sistema opcionales e interfaz en español o inglés. Abre enlaces mailto e imprime mensajes.
 
-La aplicación se conecta directamente a los servidores de correo configurados mediante IMAP y SMTP. No crea una cuenta UPM ni sustituye al servicio de gestión de cuentas de la Universidad.
+Para el correo real, la aplicación se conecta directamente a los servidores configurados mediante IMAP y SMTP. No crea una cuenta UPM ni sustituye al servicio de gestión de cuentas de la Universidad.
 
 Desarrollada por zango. Soporte: p.portilla89@gmail.com

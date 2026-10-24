@@ -33,6 +33,21 @@ class ContactRepositoryImpl(
 
     private class Scored(val suggestion: ContactSuggestion, val score: Double)
 
+    override suspend fun suggestForAccount(accountId: Long, query: String, exclude: Set<String>, limit: Int): List<ContactSuggestion> {
+        val sample = withContext(io) { store.accounts.get(accountId)?.isDemo == true }
+        if (!sample || store.safety.state.value.audience == Audience.SUPERVISED) return suggest(query, exclude, limit)
+        val state = store.safety.state.value
+        if (!state.termsAccepted || state.audience != Audience.ADULT || query.isBlank() || limit <= 0) return emptyList()
+        val excluded = exclude.mapTo(HashSet()) { it.trim().lowercase() } + state.blockedSenders
+        return listOf(
+            EmailAddress("tutor@example.invalid", "Sample tutor / Tutor de ejemplo"),
+            EmailAddress("alex@example.invalid", "Alex (sample / ejemplo)"),
+            EmailAddress("fail-once@example.invalid", "Retry example / Ejemplo de reintento"),
+        ).filter { it.address !in excluded && SearchText.matchesWordPrefixes(query.trim(), it.name, it.address) }
+            .take(limit).filter { store.safety.state.value.audience == Audience.ADULT && !store.safety.isSenderBlocked(it.address) }
+            .map { ContactSuggestion(it, ContactSource.HISTORY) }
+    }
+
     override suspend fun suggest(query: String, exclude: Set<String>, limit: Int): List<ContactSuggestion> {
         val text = query.trim()
         if (text.isEmpty() || limit <= 0) return emptyList()

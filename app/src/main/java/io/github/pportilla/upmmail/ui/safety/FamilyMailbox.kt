@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.ui.safety
 
+import io.github.pportilla.upmmail.ui.components.SampleMailNotice
+import io.github.pportilla.upmmail.ui.components.accountAddressLabel
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -56,6 +58,7 @@ internal fun safetyInbox(container: AppContainer): Flow<List<MessageDetail>> =
 internal fun ChildHome(container: AppContainer, onGuardian: () -> Unit) {
     val safety = container.safetyRepository
     val state by safety.state.collectAsStateWithLifecycle()
+    val accounts by container.accountRepository.accounts.collectAsStateWithLifecycle(emptyList())
     val inbox = remember(container) { safetyInbox(container) }
     val messages by inbox.collectAsStateWithLifecycle(emptyList())
     // The repository already filters. Recheck locally as well while a send-approval dialog
@@ -73,6 +76,7 @@ internal fun ChildHome(container: AppContainer, onGuardian: () -> Unit) {
     when {
         composing -> ChildComposer(container, onBack = { composing = false })
         message != null -> SafetyPage(stringResource(R.string.family_read_message), onBack = { selected = null }) {
+            SampleMailNotice(accounts.firstOrNull { it.id == message.summary.accountId })
             Text(stringResource(R.string.family_read_together))
             SafetyButton(stringResource(R.string.family_ask_guardian)) { report = message }
             val sender = message.summary.from?.address.orEmpty()
@@ -105,6 +109,7 @@ internal fun ChildHome(container: AppContainer, onGuardian: () -> Unit) {
                     Column(Modifier.fillMaxWidth()) {
                         Text(item.summary.subject.ifBlank { stringResource(R.string.family_no_subject) }, style = MaterialTheme.typography.titleLarge)
                         Text(item.summary.from?.address.orEmpty())
+                        Text(accountAddressLabel(accounts.firstOrNull { it.id == item.summary.accountId }))
                     }
                 }
             }
@@ -161,18 +166,21 @@ private fun ChildComposer(container: AppContainer, onBack: () -> Unit) {
     var reminded by remember { mutableStateOf(false) }
     var review by remember { mutableStateOf<Draft?>(null) }
     var queued by remember { mutableStateOf(false) }
+    var queuedDemo by remember { mutableStateOf(false) }
     val selectedAccount = accounts.firstOrNull { it.id == accountId } ?: accounts.firstOrNull()
     val approved = state.approvedContacts.filterNot { it in state.blockedSenders }.sorted()
     SafetyPage(stringResource(R.string.family_write_message), onBack) {
         Text(stringResource(R.string.family_safety_reminder), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.family_read_together))
         SafetyCheck(stringResource(R.string.family_reminder_ack), reminded) { reminded = it }
-        if (queued) Text(stringResource(R.string.family_message_queued))
+        if (queued) Text(stringResource(if (queuedDemo) R.string.demo_queued else R.string.family_message_queued))
+        SampleMailNotice(selectedAccount)
+        Text(accountAddressLabel(selectedAccount))
         if (!state.communicationEnabled) Text(stringResource(R.string.family_communication_paused))
         if (accounts.size > 1) {
             Text(stringResource(R.string.family_from_account))
             accounts.forEach { account ->
-                FilterChip(selected = selectedAccount?.id == account.id, onClick = { accountId = account.id }, label = { Text(account.email) })
+                FilterChip(selected = selectedAccount?.id == account.id, onClick = { accountId = account.id }, label = { Text(accountAddressLabel(account)) })
             }
         }
         Text(stringResource(R.string.family_choose_contact), style = MaterialTheme.typography.titleMedium)
@@ -182,12 +190,13 @@ private fun ChildComposer(container: AppContainer, onBack: () -> Unit) {
         OutlinedTextField(subject, { subject = it.take(200) }, label = { Text(stringResource(R.string.family_subject)) }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(body, { body = it.take(10000) }, label = { Text(stringResource(R.string.family_message_text)) }, minLines = 6, modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.family_plaintext_notice))
-        SafetyButton(stringResource(R.string.family_request_send), enabled = state.communicationEnabled && reminded && selectedAccount != null && recipient in approved && body.isNotBlank()) {
+        SafetyButton(stringResource(if (selectedAccount?.isDemo == true) R.string.demo_request_send else R.string.family_request_send), enabled = state.communicationEnabled && reminded && selectedAccount != null && recipient in approved && body.isNotBlank()) {
             review = Draft(accountId = selectedAccount!!.id, to = listOf(EmailAddress(recipient)), subject = subject, body = body)
         }
     }
     review?.let { draft ->
         ChildSendApprovalDialog(container, draft, onDismiss = { review = null }) {
+            queuedDemo = accounts.firstOrNull { it.id == draft.accountId }?.isDemo == true
             review = null
             subject = ""; body = ""; reminded = false; queued = true
         }
@@ -215,7 +224,8 @@ private fun ChildSendApprovalDialog(container: AppContainer, draft: Draft, onDis
         title = { Text(stringResource(R.string.family_approve_send)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.family_send_review_notice))
-            Text(accounts.firstOrNull { it.id == draft.accountId }?.email.orEmpty())
+            SampleMailNotice(accounts.firstOrNull { it.id == draft.accountId })
+            Text(accountAddressLabel(accounts.firstOrNull { it.id == draft.accountId }))
             Text(draft.to.single().address, style = MaterialTheme.typography.titleMedium)
             Text(draft.subject, style = MaterialTheme.typography.titleLarge)
             Text(draft.body)
@@ -245,7 +255,7 @@ private fun ChildSendApprovalDialog(container: AppContainer, draft: Draft, onDis
                 catch (_: Exception) { failed = true }
                 finally { busy = false }
             }
-        }) { Text(stringResource(if (authenticated) R.string.family_approve_and_send else R.string.family_unlock)) } },
+        }) { Text(stringResource(if (!authenticated) R.string.family_unlock else if (accounts.firstOrNull { it.id == draft.accountId }?.isDemo == true) R.string.demo_approve_send else R.string.family_approve_and_send)) } },
         dismissButton = { TextButton(enabled = !busy, onClick = ::close) { Text(stringResource(R.string.action_cancel)) } },
     )
 }

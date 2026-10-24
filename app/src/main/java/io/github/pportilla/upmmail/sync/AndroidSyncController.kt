@@ -143,8 +143,8 @@ class AndroidSyncController(
         }
         while (currentCoroutineContext().isActive) {
             delay(POLL_INTERVAL)
-            if (!isOnline()) continue
             val current = selectedAccount(safely(emptyList()) { store.accounts.getAll() }) ?: continue
+            if (!current.isDemo && !isOnline()) continue
             // Push (or a pull-to-refresh) may have synced it moments ago.
             val inbox = safely(null) { store.folders.findByRole(current.id, FolderRole.INBOX) }
             val age = inbox?.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
@@ -193,6 +193,17 @@ class AndroidSyncController(
                     quietly { engine.sendOutbox(null) }
                     // A short pause before re-planning, so a message that keeps failing cannot spin.
                     planOutbox(minDelay = REPLAN_DELAY)
+                } else {
+                    // Sample sends are wholly local; do not make them depend on connectivity
+                    // or spend real accounts' retry attempts while the device is offline.
+                    val demoAccounts = safely(emptyList()) { store.accounts.getAll().filter { it.isDemo } }
+                    val hasSampleQueued = demoAccounts.any { account ->
+                        safely(false) { store.outbox.list(account.id).any { it.state == io.github.pportilla.upmmail.model.OutboxState.QUEUED } }
+                    }
+                    if (hasSampleQueued) {
+                        demoAccounts.forEach { quietly { engine.sendOutbox(it.id) } }
+                        planOutbox(minDelay = REPLAN_DELAY)
+                    }
                 }
             }
         }

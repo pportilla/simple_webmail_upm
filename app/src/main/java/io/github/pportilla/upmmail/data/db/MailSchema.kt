@@ -31,7 +31,7 @@ object Tables {
  */
 object MailSchema {
     const val NAME = "upmmail.db"
-    const val VERSION = 3
+    const val VERSION = 4
 
     /** Version 1 exactly as shipped. Never edit: installed databases were created from it. */
     private val CREATE_V1 = listOf(
@@ -493,6 +493,7 @@ object MailSchema {
     internal val MIGRATIONS: Map<Int, (SqlDatabase) -> Unit> = mapOf(
         1 to { db -> V1_TO_V2.forEach { db.execSQL(it.trimIndent()) } },
         2 to ::upgradeToVersion3,
+        3 to { db -> db.execSQL("ALTER TABLE accounts ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0") },
     )
 
     fun create(db: SqlDatabase) {

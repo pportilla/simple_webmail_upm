@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class DemoArrivalStatus { IDLE, SCHEDULING, QUEUED, FAILED }
+
 data class AccountSettingsUiState(
     val loading: Boolean = true,
     /** The account as stored. */
@@ -40,6 +42,7 @@ data class AccountSettingsUiState(
     val errorFromRemoval: Boolean = false,
     /** The app-wide notification switch, which overrides the per-account one. */
     val notificationsEnabledGlobally: Boolean = true,
+    val demoArrivalStatus: DemoArrivalStatus = DemoArrivalStatus.IDLE,
 )
 
 sealed interface AccountSettingsEvent {
@@ -86,12 +89,11 @@ class AccountSettingsViewModel(
     /** True when the form differs from the stored account. */
     val isDirty: Boolean by derivedStateOf {
         val stored = original ?: return@derivedStateOf false
-        newPassword.isNotEmpty() ||
+        (!stored.isDemo && newPassword.isNotEmpty()) ||
             displayName.trim() != stored.displayName ||
             signature.trimEnd() != stored.signature.trimEnd() ||
             notificationsEnabled != stored.notificationsEnabled ||
-            serverChanged(imap, stored.imap) ||
-            serverChanged(smtp, stored.smtp)
+            (!stored.isDemo && (serverChanged(imap, stored.imap) || serverChanged(smtp, stored.smtp)))
     }
 
     init {
@@ -136,8 +138,8 @@ class AccountSettingsViewModel(
         val state = _uiState.value
         if (state.saving || state.removing) return
         showErrors = true
-        val imapSettings = imap.toSettings()
-        val smtpSettings = smtp.toSettings()
+        val imapSettings = if (stored.isDemo) stored.imap else imap.toSettings()
+        val smtpSettings = if (stored.isDemo) stored.smtp else smtp.toSettings()
         if (imapSettings == null || smtpSettings == null) {
             serversExpanded = true
             return
@@ -149,7 +151,7 @@ class AccountSettingsViewModel(
             imap = imapSettings,
             smtp = smtpSettings,
         )
-        val password = newPassword.takeIf { it.isNotEmpty() }
+        val password = newPassword.takeIf { !stored.isDemo && it.isNotEmpty() }
         if (updated == stored && password == null) {
             _events.trySend(AccountSettingsEvent.Saved(changed = false))
             return
@@ -196,6 +198,22 @@ class AccountSettingsViewModel(
 
     fun dismissError() {
         if (_uiState.value.error != null) _uiState.update { it.copy(error = null) }
+    }
+
+    fun scheduleSampleArrival() {
+        val state = _uiState.value
+        if (state.account?.isDemo != true || state.saving || state.removing || state.demoArrivalStatus == DemoArrivalStatus.SCHEDULING) return
+        _uiState.update { it.copy(demoArrivalStatus = DemoArrivalStatus.SCHEDULING) }
+        viewModelScope.launch {
+            val result = try {
+                repository.scheduleDemoArrival(accountId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            _uiState.update { it.copy(demoArrivalStatus = if (result.isSuccess) DemoArrivalStatus.QUEUED else DemoArrivalStatus.FAILED) }
+        }
     }
 
     private fun serverChanged(form: ServerFormState, stored: ServerSettings): Boolean =

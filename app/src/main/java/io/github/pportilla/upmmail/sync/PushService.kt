@@ -224,7 +224,7 @@ class PushService : Service() {
     /** Runs one watcher per account, restarting them all whenever their inputs change. */
     private suspend fun superviseConnections(container: DefaultAppContainer) {
         val accounts = container.store.accounts.observeAll()
-            .map { list -> list.map { PushAccount(it.id, it.email, it.imap) } }
+            .map { list -> list.filterNot { it.isDemo }.map { PushAccount(it.id, it.email, it.imap) } }
             .catch { e ->
                 Log.w(TAG, "Could not read the accounts", e)
                 emit(emptyList())

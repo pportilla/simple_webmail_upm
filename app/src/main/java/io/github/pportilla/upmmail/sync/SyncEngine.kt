@@ -18,7 +18,7 @@ import io.github.pportilla.upmmail.mail.AttachmentSource
 import io.github.pportilla.upmmail.mail.ComposedMessage
 import io.github.pportilla.upmmail.mail.FolderRoleDetector
 import io.github.pportilla.upmmail.mail.HtmlText
-import io.github.pportilla.upmmail.mail.ImapClient
+import io.github.pportilla.upmmail.mail.ImapTransport
 import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.MessageComposer
 import io.github.pportilla.upmmail.mail.MessageFlag
@@ -368,7 +368,7 @@ class SyncEngine(
      * messages outside the window): the least recently used beyond [HeaderIndexer.DETACHED_KEEP]
      * are evicted, and the flags of the rest are fetched in one go.
      */
-    private suspend fun reconcileFlags(imap: ImapClient, state: FolderSyncState, windowEnd: Long) {
+    private suspend fun reconcileFlags(imap: ImapTransport, state: FolderSyncState, windowEnd: Long) {
         val folder = state.folder
         val start = state.windowStartUid.coerceAtLeast(1)
         if (windowEnd >= start && db { store.messages.uidBounds(folder.id) } != null) {
@@ -793,7 +793,7 @@ class SyncEngine(
     }
 
     /** Stores a saved sent message in the Sent folder, unless an earlier attempt already did. */
-    private suspend fun appendSentCopy(op: PendingOp, imap: ImapClient, touched: MutableSet<Long>) {
+    private suspend fun appendSentCopy(op: PendingOp, imap: ImapTransport, touched: MutableSet<Long>) {
         val file = op.payload?.let(::File)?.takeIf { isSentCopy(it) && withContext(io) { it.isFile } } ?: return
         val input = readLocal { SharedFileInputStream(file) }
         try {
@@ -814,7 +814,7 @@ class SyncEngine(
      * (no Drafts folder, refused by the server, unreadable attachment) keeps the operation as
      * failed (see [finishFailure]): the draft stays listed as being only on this device.
      */
-    private suspend fun uploadDraft(op: PendingOp, imap: ImapClient, touched: MutableSet<Long>) {
+    private suspend fun uploadDraft(op: PendingOp, imap: ImapTransport, touched: MutableSet<Long>) {
         val draftId = op.target?.toLongOrNull() ?: return
         val draft = db { store.drafts.get(draftId) } ?: return
         val account = clients.account(op.accountId)
@@ -845,7 +845,7 @@ class SyncEngine(
     }
 
     /** Headers of a draft just appended (by [uid], else by Message-ID), or null if they cannot be had. */
-    private suspend fun fetchUploadedDraft(imap: ImapClient, folder: Folder, uid: Long?, messageId: String): RemoteMessage? =
+    private suspend fun fetchUploadedDraft(imap: ImapTransport, folder: Folder, uid: Long?, messageId: String): RemoteMessage? =
         try {
             val found = uid ?: imap.findUidByMessageId(folder.fullName, messageId)
             found?.let { imap.fetchMessages(folder.fullName, listOf(it)).firstOrNull() }
@@ -857,7 +857,7 @@ class SyncEngine(
         }
 
     /** Deletes a superseded draft copy now or, if that fails, with the next flush. */
-    private suspend fun deleteOrQueueServerCopy(accountId: Long, imap: ImapClient, copy: ServerCopy) {
+    private suspend fun deleteOrQueueServerCopy(accountId: Long, imap: ImapTransport, copy: ServerCopy) {
         try {
             ignoreNotFound { deleteServerCopy(accountId, imap, copy) }
         } catch (e: CancellationException) {
@@ -871,7 +871,7 @@ class SyncEngine(
      * Deletes a server copy of a draft. Found by Message-ID when known (a stored uid could
      * belong to another message after a UIDVALIDITY change), else by uid.
      */
-    private suspend fun deleteServerCopy(accountId: Long, imap: ImapClient, copy: ServerCopy) {
+    private suspend fun deleteServerCopy(accountId: Long, imap: ImapTransport, copy: ServerCopy) {
         val uid = if (copy.messageIdHeader != null) {
             imap.findUidByMessageId(copy.folder, copy.messageIdHeader)
         } else {
@@ -1207,7 +1207,7 @@ class SyncEngine(
         if (store.safety.state.value.audience != Audience.ADULT) return null
         val account = outcome.account
         val draft = entry.item.draft
-        withContext(NonCancellable) {
+        if (!account.isDemo) withContext(NonCancellable) {
             bestEffort { db { store.contacts.recordContacted(draft.to + draft.cc + draft.bcc, clock()) } }
         }
         var sent: Folder? = null

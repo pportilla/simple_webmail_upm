@@ -23,7 +23,7 @@ import org.eclipse.angus.mail.smtp.SMTPTransport
 class SmtpClient(
     private val settings: ServerSettings,
     private val passwordProvider: () -> String,
-) {
+) : SmtpTransport {
     private val mutex = Mutex()
 
     init {
@@ -31,7 +31,7 @@ class SmtpClient(
     }
 
     /** Connects and authenticates, then disconnects. */
-    suspend fun verify(policyChanges: StateFlow<*>? = null, authorize: () -> Unit = {}): Unit =
+    override suspend fun verify(policyChanges: StateFlow<*>?, authorize: () -> Unit): Unit =
         withTransport(policyChanges, authorize) { }
 
     /**
@@ -41,10 +41,10 @@ class SmtpClient(
      * non-transient SEND_UNCERTAIN failure, so the message is not sent twice behind the user's
      * back and the user is told to check before sending it again.
      */
-    suspend fun send(
+    override suspend fun send(
         message: MimeMessage,
-        policyChanges: StateFlow<*>? = null,
-        authorize: () -> Unit = {},
+        policyChanges: StateFlow<*>?,
+        authorize: () -> Unit,
     ): Unit = withTransport(policyChanges, authorize) { transport ->
         val recipients = message.allRecipients
         if (recipients.isNullOrEmpty()) {

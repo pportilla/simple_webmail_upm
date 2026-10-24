@@ -4,7 +4,7 @@ import io.github.pportilla.upmmail.data.db.HeaderIndexDao
 import io.github.pportilla.upmmail.data.db.IndexFolderState
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.mail.FolderProbe
-import io.github.pportilla.upmmail.mail.ImapClient
+import io.github.pportilla.upmmail.mail.ImapTransport
 import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.IndexedHeader
 import io.github.pportilla.upmmail.mail.MailErrors
@@ -114,7 +114,7 @@ class ServerSearch internal constructor(
 
     // ------------------------------------------------------------------ connection pool
 
-    private class Pooled(val settings: ServerSettings, val client: ImapClient) {
+    private class Pooled(val settings: ServerSettings, val client: ImapTransport) {
         var users = 0
         var releasedAt = 0L
     }
@@ -130,10 +130,10 @@ class ServerSearch internal constructor(
      * searches and replaced when the account's server settings change. A call still running on
      * it (from a search being cancelled) is aborted, so the new search does not wait behind it.
      */
-    private fun acquire(accountId: Long): ImapClient {
+    private fun acquire(accountId: Long): ImapTransport {
         val settings = clients.account(accountId).imap
-        val replaced: ImapClient?
-        val client: ImapClient
+        val replaced: ImapTransport?
+        val client: ImapTransport
         synchronized(pool) {
             val pooled = pool[accountId]
             if (pooled != null && pooled.settings == settings) {
@@ -149,7 +149,7 @@ class ServerSearch internal constructor(
         return client
     }
 
-    private fun release(accountId: Long, client: ImapClient) {
+    private fun release(accountId: Long, client: ImapTransport) {
         synchronized(pool) {
             val pooled = pool[accountId]?.takeIf { it.client === client } ?: return
             pooled.users = (pooled.users - 1).coerceAtLeast(0)
@@ -223,7 +223,7 @@ class ServerSearch internal constructor(
         private var totalSteps = 0
         private var truncated = false
 
-        private val connections = HashMap<Long, ImapClient>()
+        private val connections = HashMap<Long, ImapTransport>()
         private val probed = HashMap<Long, Probed>()
 
         /** Folders skipped for the rest of the search (gone from the server). */
@@ -756,7 +756,7 @@ class ServerSearch internal constructor(
 
         // -------------------------------------------------------------- helpers
 
-        private fun connection(accountId: Long): ImapClient = connections.getOrPut(accountId) { acquire(accountId) }
+        private fun connection(accountId: Long): ImapTransport = connections.getOrPut(accountId) { acquire(accountId) }
 
         /**
          * Runs [block] (a few server calls on the search connection of [accountId], if given)

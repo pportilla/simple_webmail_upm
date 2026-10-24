@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.ui.mailbox
 
+import androidx.compose.foundation.layout.Column
+import io.github.pportilla.upmmail.ui.components.SampleMailNotice
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -128,6 +130,7 @@ fun MailboxScreen(navigator: AppNavigator) {
     ) {
         Scaffold(
             topBar = {
+                Column {
                 MailboxTopBar(
                     state = state,
                     viewModel = viewModel,
@@ -135,6 +138,8 @@ fun MailboxScreen(navigator: AppNavigator) {
                     onSearch = { navigator.openSearch(state.account?.id, state.folder?.id) },
                     onAccountClick = { showAccountSheet = true },
                 )
+                SampleMailNotice(state.account)
+                }
             },
             floatingActionButton = {
                 val account = state.account
@@ -168,6 +173,7 @@ fun MailboxScreen(navigator: AppNavigator) {
                 is MailboxView.Outbox -> OutboxContent(
                     items = state.outbox,
                     ownAddress = state.account?.email,
+                    isDemo = state.account?.isDemo == true,
                     listState = outboxListState,
                     contentPadding = listPadding,
                     actions = OutboxActions(

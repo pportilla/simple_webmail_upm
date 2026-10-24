@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.ui.safety
 
+import io.github.pportilla.upmmail.ui.components.SampleMailNotice
+import io.github.pportilla.upmmail.ui.components.accountAddressLabel
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -67,6 +69,7 @@ internal fun GuardianDashboard(
     when {
         reportProvider -> ProviderReportScreen(container, onBack = { reportProvider = false })
         message != null -> SafetyPage(stringResource(R.string.family_review_message), onBack = { selected = null }) {
+            SampleMailNotice(accounts.firstOrNull { it.id == message.summary.accountId })
             Text(stringResource(R.string.family_review_notice))
             MessageText(message)
             Text(stringResource(R.string.family_plaintext_notice))
@@ -149,6 +152,7 @@ internal fun GuardianDashboard(
             messages.forEach { item ->
                 OutlinedButton(onClick = { selected = item.summary.id }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
                     Column(Modifier.fillMaxWidth()) {
+                        Text(accountAddressLabel(accounts.firstOrNull { it.id == item.summary.accountId }))
                         Text(item.summary.from?.address.orEmpty())
                         Text(item.summary.subject.ifBlank { stringResource(R.string.family_no_subject) }, style = MaterialTheme.typography.titleMedium)
                         if (state.audience == Audience.SUPERVISED && safety.isMessageApproved(item)) Text(stringResource(R.string.family_already_reviewed))
@@ -171,21 +175,23 @@ private fun ProviderReportScreen(container: AppContainer, onBack: () -> Unit) {
     var preview by remember { mutableStateOf<Draft?>(null) }
     var busy by remember { mutableStateOf(false) }
     var queued by remember { mutableStateOf(false) }
+    var queuedDemo by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     val account = accounts.firstOrNull { it.id == accountId } ?: accounts.firstOrNull()
     val subject = stringResource(R.string.family_report_subject)
     SafetyPage(stringResource(R.string.family_report_provider), onBack) {
-        Text(stringResource(R.string.family_provider_report_notice))
+        SampleMailNotice(account)
+        Text(stringResource(if (account?.isDemo == true) R.string.demo_report_notice else R.string.family_provider_report_notice))
         if (accounts.isEmpty()) Text(stringResource(R.string.family_report_needs_account))
         accounts.forEach {
-            FilterChip(selected = it.id == account?.id, onClick = { accountId = it.id }, label = { Text(it.email) })
+            FilterChip(selected = it.id == account?.id, onClick = { accountId = it.id }, label = { Text(accountAddressLabel(it)) })
         }
         OutlinedTextField(recipient, { recipient = it.take(254) }, label = { Text(stringResource(R.string.family_provider_report_address)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(concern, { concern = it.take(5000) }, label = { Text(stringResource(R.string.family_concern_reason)) }, minLines = 5, modifier = Modifier.fillMaxWidth())
         SafetyButton(stringResource(R.string.family_preview_report), enabled = account != null && isSingleSafetyAddress(recipient.trim()) && concern.isNotBlank() && !busy) {
             preview = Draft(accountId = account!!.id, to = listOf(EmailAddress(recipient.trim())), subject = subject, body = concern.trim())
         }
-        if (queued) Text(stringResource(if (safetyState.audience == Audience.ADULT) R.string.family_report_queued_adult else R.string.family_report_queued))
+        if (queued) Text(stringResource(if (queuedDemo) R.string.demo_queued else if (safetyState.audience == Audience.ADULT) R.string.family_report_queued_adult else R.string.family_report_queued))
         if (failed) Text(stringResource(R.string.family_action_failed), color = MaterialTheme.colorScheme.error)
     }
     preview?.let { draft ->
@@ -195,7 +201,8 @@ private fun ProviderReportScreen(container: AppContainer, onBack: () -> Unit) {
             title = { Text(stringResource(R.string.family_preview_report)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.family_report_exact_notice))
-                Text(accounts.firstOrNull { it.id == draft.accountId }?.email.orEmpty())
+                SampleMailNotice(accounts.firstOrNull { it.id == draft.accountId })
+            Text(accountAddressLabel(accounts.firstOrNull { it.id == draft.accountId }))
                 Text(draft.to.single().address, style = MaterialTheme.typography.titleMedium)
                 Text(draft.subject)
                 Text(draft.body)
@@ -208,12 +215,13 @@ private fun ProviderReportScreen(container: AppContainer, onBack: () -> Unit) {
                             container.safetyRepository.approveGuardianReport(draft)
                         }
                         container.composeRepository.send(draft, delaySeconds = 0)
+                        queuedDemo = accounts.firstOrNull { it.id == draft.accountId }?.isDemo == true
                         queued = true; preview = null; concern = ""
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { failed = true; preview = null }
                     finally { busy = false }
                 }
-            }) { Text(stringResource(R.string.family_approve_and_send)) } },
+            }) { Text(stringResource(if (accounts.firstOrNull { it.id == draft.accountId }?.isDemo == true) R.string.demo_approve_send else R.string.family_approve_and_send)) } },
             dismissButton = { TextButton(enabled = !busy, onClick = { preview = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
