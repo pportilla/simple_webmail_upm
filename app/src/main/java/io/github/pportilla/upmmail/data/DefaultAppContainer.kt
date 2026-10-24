@@ -40,7 +40,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.Locale
+import java.io.File
+import io.github.pportilla.upmmail.mail.demo.DemoBackendRegistry
 
 /**
  * The app's object graph, created once in Application.onCreate. Everything heavy is lazy; the
@@ -56,13 +59,24 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     val files = LocalFiles(app.filesDir)
 
-    val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app)) }
+    override val safetyRepository by lazy {
+        io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(io.github.pportilla.upmmail.data.safety.PrefsSafetyStorage(app))
+    }
+
+    val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app), safety = safetyRepository) }
 
     override val settingsRepository: SettingsRepository by lazy { PrefsSettingsRepository(app) }
 
     val passwordStore: PasswordStore by lazy { KeystorePasswordStore(app) }
 
-    val clients: MailClientProvider by lazy { MailClientProvider({ store.accounts.get(it) }, passwordStore) }
+    private val demoBackends by lazy { DemoBackendRegistry(File(app.filesDir, "demo-mail")) { store.accounts.get(it) } }
+
+    val clients: MailClientProvider by lazy {
+        MailClientProvider(
+            { store.accounts.get(it) }, passwordStore, safety = safetyRepository,
+            demoFactory = { account -> demoBackends.get(account.id) },
+        )
+    }
 
     val notifier: MailNotifier by lazy {
         MailNotifier(app, store, settingsRepository) { androidSyncController.isForeground }
@@ -159,7 +173,29 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
             settings = settingsRepository,
             files = files,
             scope = applicationScope,
-            onAccountRemoved = { accountId -> notifier.cancelAccount(accountId) },
+            onAccountRemoved = { accountId ->
+                try { notifier.cancelAccount(accountId) }
+                finally { demoBackends.remove(accountId) }
+            },
+            onDemoArrivalRequested = { accountId ->
+                applicationScope.launch(Dispatchers.IO) {
+                    delay(5_000)
+                    step("local sample arrival") {
+                        safetyRepository.requireNetwork()
+                        val backend = demoBackends.get(accountId)
+                        backend.simulateIncoming {
+                            safetyRepository.requireNetwork()
+                            if (store.accounts.get(accountId)?.isDemo != true) {
+                                throw io.github.pportilla.upmmail.model.MailException(io.github.pportilla.upmmail.model.MailErrorKind.NOT_FOUND)
+                            }
+                        }
+                        if (settingsRepository.settings.value.pushEnabled &&
+                            safetyRepository.state.value.audience == io.github.pportilla.upmmail.data.safety.Audience.ADULT) {
+                            engine.syncFolder(engine.inboxOf(accountId).id)
+                        }
+                    }
+                }
+            },
         )
     }
 
@@ -192,6 +228,15 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
     val locale: StateFlow<Locale> = appLocale.asStateFlow()
 
     init {
+        applicationScope.launch(Dispatchers.IO) {
+            safetyRepository.state.collect {
+                step("safety notification cleanup") { notifier.clearPrivateNotifications() }
+                step("safety connection cleanup") {
+                    clients.closeAll()
+                    store.accounts.getAll().forEach { account -> clients.invalidate(account.id) }
+                }
+            }
+        }
         applicationScope.launch(Dispatchers.IO) { housekeeping() }
         // Channel names are shown in the system settings: keep them in the app's language.
         applicationScope.launch(Dispatchers.IO) {

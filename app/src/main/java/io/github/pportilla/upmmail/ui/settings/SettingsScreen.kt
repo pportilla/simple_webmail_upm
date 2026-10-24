@@ -1,10 +1,12 @@
 package io.github.pportilla.upmmail.ui.settings
 
+import io.github.pportilla.upmmail.ui.components.accountAddressLabel
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -49,6 +51,7 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.SettingsApplications
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.SwipeLeft
 import androidx.compose.material.icons.outlined.SwipeRight
@@ -102,6 +105,7 @@ import io.github.pportilla.upmmail.model.SwipeAction
 import io.github.pportilla.upmmail.model.ThemeMode
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
+import io.github.pportilla.upmmail.ui.components.PrivacyPolicyDialog
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.components.avatarInitial
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
@@ -209,6 +213,7 @@ fun SettingsScreen(navigator: AppNavigator) {
                 sendingSection(state.settings, viewModel)
                 notificationsSection(
                     settings = state.settings,
+                    demoOnly = state.accounts.isNotEmpty() && state.accounts.all { it.isDemo },
                     viewModel = viewModel,
                     systemAllowed = systemNotificationsAllowed,
                     onAllow = allowNotifications,
@@ -395,6 +400,7 @@ private fun LazyListScope.sendingSection(settings: AppSettings, viewModel: Setti
 
 private fun LazyListScope.notificationsSection(
     settings: AppSettings,
+    demoOnly: Boolean,
     viewModel: SettingsViewModel,
     systemAllowed: Boolean,
     onAllow: () -> Unit,
@@ -422,6 +428,7 @@ private fun LazyListScope.notificationsSection(
                     onClick = onAllow,
                 )
             }
+            if (demoOnly) Text(stringResource(R.string.demo_push_notice), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             val mailCheck = MailCheck.of(settings)
             ChoicePreference(
                 title = stringResource(R.string.settings_sync_interval),
@@ -432,7 +439,7 @@ private fun LazyListScope.notificationsSection(
                 onSelect = viewModel::setMailCheck,
             )
             // Without the exemption, Doze can hold push back for long stretches.
-            if (settings.pushEnabled && !backgroundAllowed) {
+            if (settings.pushEnabled && !demoOnly && !backgroundAllowed) {
                 ClickablePreference(
                     title = stringResource(R.string.settings_background),
                     summary = stringResource(R.string.settings_background_summary),
@@ -478,8 +485,8 @@ private fun AccountRow(account: Account, onClick: () -> Unit) {
     val name = account.displayName.ifBlank { account.email }
     ListItem(
         headlineContent = { Text(name) },
-        supportingContent = if (name != account.email) {
-            { Text(account.email) }
+        supportingContent = if (account.isDemo || name != account.email) {
+            { Text(accountAddressLabel(account)) }
         } else {
             null
         },
@@ -502,8 +509,15 @@ private fun AccountRow(account: Account, onClick: () -> Unit) {
 
 private fun LazyListScope.aboutSection(openUrl: (String) -> Unit) {
     item(key = "about") {
+        var showPrivacy by rememberSaveable { mutableStateOf(false) }
+        if (showPrivacy) PrivacyPolicyDialog(onDismiss = { showPrivacy = false }, onOpenUrl = openUrl)
         Column {
             PreferenceSectionHeader(stringResource(R.string.settings_section_about))
+            ClickablePreference(
+                title = stringResource(R.string.privacy_title),
+                icon = Icons.Outlined.Shield,
+                onClick = { showPrivacy = true },
+            )
             ClickablePreference(
                 title = stringResource(R.string.settings_version),
                 summary = BuildConfig.VERSION_NAME,

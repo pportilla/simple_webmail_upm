@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Build
+import android.view.WindowManager
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -22,8 +24,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.pportilla.upmmail.data.safety.Audience
+import io.github.pportilla.upmmail.ui.safety.SafetyRoot
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.ui.components.AppSnackbarController
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
@@ -67,6 +72,8 @@ class MainActivity : ComponentActivity() {
      * not be handled again; only a compose request still waiting for the first sign-in is saved.
      */
     private var pendingRequest by mutableStateOf<LaunchRequest?>(null)
+    private var protectedSafetySurface by mutableStateOf(true)
+    private var activityResumed by mutableStateOf(false)
 
     override fun attachBaseContext(newBase: Context) {
         // Android 12 and older have no per-app language: use the one chosen in the app.
@@ -75,6 +82,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
         enableEdgeToEdge()
         intent?.removeNavigationDeepLink()
         if (savedInstanceState == null) {
@@ -87,6 +96,19 @@ class MainActivity : ComponentActivity() {
         val container = appContainer
 
         setContent {
+            LaunchedEffect(protectedSafetySurface, activityResumed) {
+                if (protectedSafetySurface || !activityResumed) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    // Retain protection until the replacement safe surface has actually drawn.
+                    // A guardian frame must never become the task's background snapshot.
+                    withFrameNanos { }
+                    withFrameNanos { }
+                    if (!protectedSafetySurface && activityResumed) {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                }
+            }
             val settings by container.settingsRepository.settings.collectAsStateWithLifecycle()
             val accounts by container.accountRepository.accounts.collectAsStateWithLifecycle<List<Account>?>(initialValue = null)
             val darkTheme = settings.themeMode.isDark()
@@ -108,14 +130,26 @@ class MainActivity : ComponentActivity() {
                     AppSnackbarController(snackbarHostState, snackbarScope)
                 }
                 CompositionLocalProvider(LocalAppSnackbar provides snackbar) {
-                    AppNavHost(
-                        accounts = accounts,
-                        launchRequest = pendingRequest,
-                        onLaunchRequestHandled = { pendingRequest = null },
-                        onFinish = ::finish,
-                    )
+                    SafetyRoot(
+                        container,
+                        onDiscardExternalRequest = { pendingRequest = null },
+                        onProtectSurface = { protect ->
+                            if (protect) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            protectedSafetySurface = protect
+                        },
+                    ) {
+                        AppNavHost(
+                            accounts = accounts,
+                            launchRequest = pendingRequest,
+                            onLaunchRequestHandled = { pendingRequest = null },
+                            onFinish = ::finish,
+                        )
+                    }
                 }
-                NotificationPermissionRequest(hasAccounts = !accounts.isNullOrEmpty())
+                val safety by container.safetyRepository.state.collectAsStateWithLifecycle()
+                if (safety.termsAccepted && (safety.audience == Audience.ADULT || safety.guardianUnlocked)) {
+                    NotificationPermissionRequest(hasAccounts = !accounts.isNullOrEmpty())
+                }
             }
         }
     }
@@ -125,12 +159,18 @@ class MainActivity : ComponentActivity() {
         intent.removeNavigationDeepLink()
         setIntent(intent)
         // A plain launcher intent (app already running) keeps the current screen.
-        LaunchRequest.fromIntent(intent, packageName)?.let { pendingRequest = it }
+        if (appContainer.safetyRepository.state.value.audience == Audience.ADULT) {
+            LaunchRequest.fromIntent(intent, packageName)?.let { pendingRequest = it }
+        } else {
+            pendingRequest = null
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        (pendingRequest as? LaunchRequest.Compose)?.let { request ->
+        (pendingRequest as? LaunchRequest.Compose)?.takeIf {
+            appContainer.safetyRepository.state.value.audience == Audience.ADULT
+        }?.let { request ->
             outState.putBundle(STATE_PENDING_COMPOSE, ComposeArgsState.toBundle(request.args, composeTextSpill()))
         }
     }
@@ -142,7 +182,23 @@ class MainActivity : ComponentActivity() {
         appContainer.syncController.onAppForeground()
     }
 
+    override fun onResume() {
+        super.onResume()
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        activityResumed = true
+    }
+
+    override fun onPause() {
+        // Protect before Android can take a task snapshot, including on pre-Android-13 devices.
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        activityResumed = false
+        appContainer.safetyRepository.lockGuardian()
+        if (appContainer.safetyRepository.state.value.audience != Audience.ADULT) pendingRequest = null
+        super.onPause()
+    }
+
     override fun onStop() {
+        appContainer.safetyRepository.lockGuardian()
         super.onStop()
         if (!isChangingConfigurations) appContainer.syncController.onAppBackground()
     }

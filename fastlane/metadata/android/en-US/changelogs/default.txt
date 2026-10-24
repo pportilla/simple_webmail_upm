@@ -1,0 +1,4 @@
+First Play release of the unofficial UPM Mail client.
+Adult mail tools include folders, search, drafts, attachments and notification choices.
+Supervised mail adds guardian setup, approved contacts, review of incoming messages and approval of each outgoing message.
+English and Spanish interfaces with an in-app privacy policy.

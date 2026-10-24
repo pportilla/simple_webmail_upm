@@ -45,7 +45,9 @@ then the full address.
  Compose screen ──► ViewModel ──► Repository interface (data.repository.Repositories.kt)
        ▲                               │
        │ Flow<…> (DB observer)         ▼
-       └──────────── SQLite cache ◄── SyncEngine ◄──► ImapClient / SmtpClient (mail)
+       └──────────── SQLite cache ◄── SyncEngine ◄──► MailClientProvider
+                                                        ├─ real TLS IMAP / SMTP
+                                                        └─ local sample transports
 ```
 
 - The UI never talks to the network directly. It observes the SQLite cache via `Flow`s and asks
@@ -59,18 +61,44 @@ then the full address.
   appended to the Sent folder.
 - Background checks run as a periodic `JobScheduler` job (interval from settings). While the app
   is visible, the INBOX is polled every 2 minutes.
-- Instant push (the default, `AppSettings.pushEnabled`): `PushService`, a foreground service of
-  type `specialUse`, runs one `PushWatcher` per account. Each keeps an IMAP IDLE connection
+- Instant push (off by default, `AppSettings.pushEnabled`): in an authorized adult profile,
+  `PushService`, a foreground service of type `specialUse`, runs one `PushWatcher` per real
+  account. Sample accounts are excluded. Each watcher keeps an IMAP IDLE connection
   (`ImapIdler`) to the INBOX and syncs it through `SyncEngine` (debounced, never concurrently)
   when the server reports a change, so notifications take the usual path. Reconnection uses
   exponential backoff; servers without IDLE are polled every 2 minutes. An inexact
   `setAndAllowWhileIdle` alarm checks the connections in Doze. `PushController` starts the
   service when Android allows it (app visible, boot, app update, periodic job when exempt from
-  battery optimisation). The periodic job stays on (15 minutes) as a safety net. Installs from
-  before push get it only if they kept the default 15-minute interval.
+  battery optimisation). The periodic job stays on (15 minutes) as a safety net.
 - Search looks at two local sources at once: the cached messages and a **header index** of every
   folder, built in the background. It then searches the server progressively. See
   [Search and the header index](#search-and-the-header-index).
+
+## Public local sample mailbox
+
+`Account.isDemo` is an explicit persisted transport choice. Schema version 4 adds
+`accounts.is_demo NOT NULL DEFAULT 0`, preserving existing accounts as real mail. The normal
+setup action creates or reopens `review@example.invalid`; it never infers sample mode from an
+address or host name. Account updates cannot change the flag, sample identity, server settings
+or password. A separate account is required for real mail.
+
+`MailClientProvider` selects `DemoMailBackend` through the shared `ImapTransport`, `SmtpTransport`
+and `IdleTransport` interfaces before password lookup. Its sample transports use local files,
+without sockets, DNS or mail-server authentication. The same repositories, SQLite cache,
+`SyncEngine`, outbox, search and safety policy still apply; no guardian contacts or messages are
+preapproved. Simulated sends and reports remain local and are labeled throughout the UI.
+
+`DemoBackendRegistry` stores one backend per persisted account ID under private
+`files/demo-mail/<accountId>/`. Construction and removal share a per-account lock and re-read
+the database identity. Removing an account invalidates retained clients and deletes only that
+sample directory, preventing delayed work from recreating a removed mailbox. Removing and
+re-adding the sample resets its content without deleting real accounts.
+
+The delayed sample-arrival action rechecks the current account and safety policy. Adult instant
+mode refreshes the sample locally and uses normal notification gates; supervised notifications
+remain suppressed. Neither `PushController` nor `PushService` includes sample accounts in the
+persistent foreground service. Other real accounts retain their normal connections, and explicit
+browser/export actions retain their normal behavior.
 
 ## Mail engine API (`mail` package)
 
@@ -318,15 +346,19 @@ search screen (or a stopped index job) ends its network traffic at once.
 
 **Database versions.** `MailSchema.CREATE_V1` is version 1 exactly as shipped, and it is never
 edited. Later versions are steps in `MailSchema.MIGRATIONS`, and a fresh install runs version 1
-plus every step, so new and upgraded databases are identical. `MigrationTest` checks that every
+plus every step, so new and upgraded databases are identical. The current schema is version 4;
+its final migration adds the sample-account flag. `MigrationTest` checks that every
 version has a step, and `Sqlite318CompatTest` runs the schema and queries on SQLite 3.18 (Android
 8): no UPSERT, RETURNING, window functions or FTS5. A step that fails rolls back, but the app then
 fails on every start until a fixed build ships. A missing step, or a downgrade (`onDowngrade`),
 recreates the database and loses the local data.
 
-**`versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Android therefore
-refuses to install an older build over a newer one (INSTALL_FAILED_VERSION_DOWNGRADE) instead of
-letting it wipe the database. A local build cannot be installed over a CI build. Forcing it
+**Debug `versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Release
+numbering is independent: the current default is 3, overridden with `releaseVersionCode` or
+`UPM_RELEASE_VERSION_CODE`, and must increase for every Play upload. Debug and release packages
+are separate. Android refuses to install an older build over a newer build of the same package
+(INSTALL_FAILED_VERSION_DOWNGRADE) instead of letting it wipe the database. A local debug build
+cannot be installed over a CI debug build. Forcing it
 (`adb install -d`) wipes the database when the forced build's schema version is older.
 Uninstalling always deletes the accounts, drafts, outbox and changes not yet sent.
 

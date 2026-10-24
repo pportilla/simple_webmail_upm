@@ -11,6 +11,8 @@ fun MailErrorKind.messageRes(): Int = when (this) {
     MailErrorKind.AUTHENTICATION -> R.string.error_authentication
     MailErrorKind.NETWORK -> R.string.error_network
     MailErrorKind.CERTIFICATE -> R.string.error_certificate
+    MailErrorKind.INSECURE_CONNECTION -> R.string.error_insecure_connection
+    MailErrorKind.SAFETY_BLOCKED -> R.string.family_action_blocked
     MailErrorKind.SERVER -> R.string.error_server
     MailErrorKind.NOT_FOUND -> R.string.error_not_found
     MailErrorKind.INVALID_RECIPIENT -> R.string.error_invalid_recipient

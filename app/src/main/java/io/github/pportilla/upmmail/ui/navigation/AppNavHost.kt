@@ -29,6 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.pportilla.upmmail.data.safety.Audience
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -72,6 +74,10 @@ fun AppNavHost(
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val safety by appContainer().safetyRepository.state.collectAsStateWithLifecycle()
+    // A restored route or notification cannot bypass the separate supervised surface.
+    if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED ||
+        (safety.audience == Audience.SUPERVISED && !safety.guardianUnlocked)) return
     val navController = rememberNavController()
     var savedStart by rememberSaveable { mutableStateOf<String?>(null) }
     val startRoute = savedStart ?: accounts?.let { if (it.isEmpty()) Routes.SETUP else Routes.MAILBOX }

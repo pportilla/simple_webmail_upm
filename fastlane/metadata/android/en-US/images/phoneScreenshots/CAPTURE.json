@@ -1,0 +1,178 @@
+{
+  "05-sign-in.png": {
+    "captured_utc": "2026-10-24T11:50:17.545541+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "8a4029b9caa981ac981acd585e0990569575fcc6e1154ce813c33c0e538b2bcc",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Adult profile configured through actual date-of-birth and acceptable-use UI.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "04-privacy.png": {
+    "captured_utc": "2026-10-24T11:50:42.049441+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "4ac91f61b82b702c4e192dea084cd692f301909e3a41ba18085f0f7b119c56fa",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Adult profile configured through actual date-of-birth and acceptable-use UI.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "01-inbox.png": {
+    "captured_utc": "2026-10-24T11:52:30.620116+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "36e56a39ed8a51e8d76be6fef143053ef515277b4460a330ddccd9e408192c13",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Adult profile configured through actual date-of-birth and acceptable-use UI.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "02-message.png": {
+    "captured_utc": "2026-10-24T11:51:44.401962+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "cca0a588150f57c9c8b1a28fe1c98b9bae5f4908a6b7beec2dab1823bed6eacc",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Adult profile configured through actual date-of-birth and acceptable-use UI.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "03-compose.png": {
+    "captured_utc": "2026-10-24T12:02:36.537090+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "bad103c866bdc9baec53b4ee4655d98e9893a0e6ddd199f65f17673ff22734ec",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Adult profile configured through actual date-of-birth and acceptable-use UI.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "06-family.png": {
+    "captured_utc": "2026-10-24T11:59:53.136322+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "872d014716c6710dc74045d05a96100b5dd47c8be86f4b8fda955b86fc936552",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Supervised profile configured and message approved through actual guardian UI; only fictional local cache seeded.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "07-approved-message.png": {
+    "captured_utc": "2026-10-24T12:00:00.195960+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "662a687bca1e3e194e2506b1976e1d4720e77622cdb05d023447fe5711e7f511",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Supervised profile configured and message approved through actual guardian UI; only fictional local cache seeded.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  },
+  "08-family-compose.png": {
+    "captured_utc": "2026-10-24T12:00:27.810512+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "75d9a8daab87b070bddcaf49741fac7ec44265c6e5a3ae36a9b6bececd02f0cc",
+    "installed_debug_apk_sha256": "23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8",
+    "app_version_code": 1,
+    "app_version_name": "1.0.0-debug",
+    "visual_review": "Passed: readable running app, correct locale, no keyboard, no secure blank frame, no real mailbox credentials.",
+    "audience_flow": "Supervised profile configured and message approved through actual guardian UI; only fictional local cache seeded.",
+    "network_state": "Emulator Wi-Fi and mobile data disabled; no send action performed for store screenshots.",
+    "corresponding_release_version_name": "1.0.0",
+    "corresponding_release_version_code": 2
+  }
+}

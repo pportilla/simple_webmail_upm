@@ -1,0 +1,4 @@
+Prueba la aplicación sin credenciales con un buzón de ejemplo local claramente identificado.
+Lee, busca, edita borradores y simula envíos con mensajes y adjuntos ficticios.
+Explora la aprobación de un adulto y el correo supervisado con un PIN elegido por ti.
+El correo real sigue utilizando tu propia cuenta de correo autorizada.

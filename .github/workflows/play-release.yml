@@ -1,0 +1,111 @@
+name: Prepare Google Play bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Bundle type (signed requires upload-key secrets)
+        type: choice
+        options: [unsigned, signed]
+        default: unsigned
+      version_code:
+        description: Release version code (must exceed every prior Play upload)
+        required: true
+        default: '3'
+        type: string
+      version_name:
+        description: Version shown to users
+        required: true
+        default: '1.0.1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: play-release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK components
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Restore upload keystore outside the checkout
+        if: inputs.mode == 'signed'
+        env:
+          UPM_UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPM_UPLOAD_KEYSTORE_BASE64 }}
+          UPM_UPLOAD_STORE_PASSWORD: ${{ secrets.UPM_UPLOAD_STORE_PASSWORD }}
+          UPM_UPLOAD_KEY_ALIAS: ${{ secrets.UPM_UPLOAD_KEY_ALIAS }}
+          UPM_UPLOAD_KEY_PASSWORD: ${{ secrets.UPM_UPLOAD_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          names = ('UPM_UPLOAD_KEYSTORE_BASE64', 'UPM_UPLOAD_STORE_PASSWORD',
+                   'UPM_UPLOAD_KEY_ALIAS', 'UPM_UPLOAD_KEY_PASSWORD')
+          missing = [name for name in names if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('Configure these play-release secrets: ' + ', '.join(missing))
+          os.umask(0o077)
+          path = Path(os.environ['RUNNER_TEMP']) / 'upm-upload-key.jks'
+          with path.open('xb') as output:
+              output.write(base64.b64decode(''.join(os.environ['UPM_UPLOAD_KEYSTORE_BASE64'].split()), validate=True))
+          PY
+
+      - name: Build and verify release bundle
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          UPM_RELEASE_VERSION_CODE: ${{ inputs.version_code }}
+          UPM_RELEASE_VERSION_NAME: ${{ inputs.version_name }}
+          UPM_UPLOAD_KEYSTORE: ${{ runner.temp }}/upm-upload-key.jks
+          UPM_UPLOAD_STORE_PASSWORD: ${{ secrets.UPM_UPLOAD_STORE_PASSWORD }}
+          UPM_UPLOAD_KEY_ALIAS: ${{ secrets.UPM_UPLOAD_KEY_ALIAS }}
+          UPM_UPLOAD_KEY_PASSWORD: ${{ secrets.UPM_UPLOAD_KEY_PASSWORD }}
+        run: |
+          if [ "$RELEASE_MODE" = 'unsigned' ]; then
+            python3 scripts/build-release.py --unsigned
+          else
+            python3 scripts/build-release.py
+          fi
+
+      - name: Upload bundle and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: upm-mail-${{ inputs.mode }}-bundle-${{ inputs.version_code }}
+          path: |
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/bundle/release/app-release.aab.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-release-validation
+          path: |
+            app/build/reports/lint-results-release.*
+            app/build/reports/tests/testReleaseUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upm-upload-key.jks"

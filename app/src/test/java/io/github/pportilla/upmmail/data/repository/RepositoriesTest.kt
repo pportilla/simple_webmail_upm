@@ -15,6 +15,7 @@ import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
+import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.model.ServerSettings
 import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
@@ -47,7 +48,7 @@ class RepositoriesTest {
     fun setUp() {
         store = newStore()
         files = LocalFiles(temp.newFolder("files"))
-        val clients = MailClientProvider({ store.accounts.get(it) }, passwords)
+        val clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety)
         engine = SyncEngine(store, clients, files, FileAttachmentOpener)
     }
 
@@ -73,13 +74,95 @@ class RepositoriesTest {
     private fun accounts(checker: CredentialChecker) = AccountRepositoryImpl(
         store = store,
         passwords = passwords,
-        clients = MailClientProvider({ store.accounts.get(it) }, passwords),
+        clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety),
         engine = engine,
         settings = settings,
         files = files,
         scope = inertScope,
         checker = checker,
     )
+
+    @Test
+    fun sampleAccountRequiresNoCredentialsAndCannotBeConvertedIntoRealMail() = runBlocking {
+        val checker = FakeChecker("never", "never")
+        val repository = accounts(checker)
+        val sample = repository.addDemoAccount().getOrThrow()
+        assertTrue(sample.isDemo)
+        assertNull(passwords.get(sample.id))
+        assertTrue(checker.tried.isEmpty())
+        assertEquals(sample.id, repository.addDemoAccount().getOrThrow().id)
+        assertTrue(repository.updateAccount(sample.copy(isDemo = false), verify = false).isFailure)
+        assertTrue(repository.updateAccount(sample.copy(smtp = sample.smtp.copy(host = "smtp.upm.es")), verify = false).isFailure)
+        assertTrue(repository.updateAccount(sample, newPassword = "never-store-this").isFailure)
+        val renamed = repository.updateAccount(sample.copy(displayName = "Practice"), verify = true).getOrThrow()
+        assertEquals("Practice", renamed.displayName)
+        assertNull(passwords.get(sample.id))
+        assertTrue(checker.tried.isEmpty())
+    }
+
+    @Test
+    fun aRealAccountCannotOptIntoSampleTransportThroughUpdate() = runBlocking {
+        val repository = accounts(FakeChecker("ana", "ana@upm.es"))
+        val real = repository.addAccount("ana@upm.es", "pw", "Ana").getOrThrow()
+        assertTrue(repository.updateAccount(real.copy(isDemo = true), verify = false).isFailure)
+        assertEquals(real, store.accounts.get(real.id))
+        assertEquals("pw", passwords.get(real.id))
+    }
+
+    @Test
+    fun sampleSetupCannotUnlockOrResetSupervisedPolicy() = runBlocking {
+        val safety = store.safety as io.github.pportilla.upmmail.data.safety.SafetyRepository
+        safety.enableSupervised(io.github.pportilla.upmmail.data.safety.AgeBand.UNDER_13, "735182", java.time.LocalDate.of(1980, 1, 1))
+        safety.lockGuardian()
+        val before = safety.state.value
+        val repository = accounts(FakeChecker("never", "never"))
+        assertTrue(repository.addDemoAccount().isFailure)
+        assertEquals(before, safety.state.value)
+        assertTrue(store.accounts.getAll().isEmpty())
+        assertTrue(safety.unlockGuardian("735182"))
+        assertTrue(repository.addDemoAccount().getOrThrow().isDemo)
+        assertEquals(io.github.pportilla.upmmail.data.safety.Audience.SUPERVISED, safety.state.value.audience)
+        assertTrue(safety.state.value.approvedContacts.isEmpty())
+    }
+
+    @Test
+    fun sampleSuggestionsDoNotUseDeviceContactsOrRealHistory() = runBlocking {
+        val sample = accounts(FakeChecker("never", "never")).addDemoAccount().getOrThrow()
+        store.contacts.recordContacted(listOf(EmailAddress("alex@real.example", "Alex Private")), System.currentTimeMillis())
+        var deviceReads = 0
+        val suggestions = ContactRepositoryImpl(store, DeviceContactsSource { _, _ ->
+            deviceReads++
+            listOf(EmailAddress("alex@device.example", "Alex Device"))
+        })
+        val results = suggestions.suggestForAccount(sample.id, "alex")
+        assertEquals(listOf("alex@example.invalid"), results.map { it.address.address })
+        assertEquals(0, deviceReads)
+        val inbox = store.addTestFolder(sample.id, "INBOX", FolderRole.INBOX)
+        store.messages.upsertHeaders(sample.id, inbox.id, listOf(remoteMessage(1, from = EmailAddress("tutor@example.invalid"))))
+        assertTrue(store.contacts.candidates("tutor", 10).isEmpty())
+    }
+
+    @Test
+    fun plaintextServersAreRejectedBeforeEitherCredentialCheckOrPersistence() = runBlocking {
+        val checker = FakeChecker("ana", "ana@upm.es")
+        val repository = accounts(checker)
+        val insecure = ServerSettings("mail.example.org", 143, SecurityMode.NONE, "ana")
+        for ((imap, smtp) in listOf(insecure to null, null to insecure)) {
+            val error = repository.addAccount("ana@upm.es", "pw", "Ana", imap, smtp).exceptionOrNull() as MailException
+            assertEquals(MailErrorKind.INSECURE_CONNECTION, error.kind)
+            assertTrue(checker.tried.isEmpty())
+            assertTrue(store.accounts.getAll().isEmpty())
+        }
+
+        val account = repository.addAccount("ana@upm.es", "pw", "Ana").getOrThrow()
+        checker.tried.clear()
+        val error = repository.updateAccount(account.copy(smtp = insecure), "replacement", verify = false)
+            .exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.INSECURE_CONNECTION, error.kind)
+        assertTrue(checker.tried.isEmpty())
+        assertEquals(account, store.accounts.get(account.id))
+        assertEquals("pw", passwords.get(account.id))
+    }
 
     @Test
     fun addAccountDetectsTheLoginNameAndStoresThePassword() = runBlocking {

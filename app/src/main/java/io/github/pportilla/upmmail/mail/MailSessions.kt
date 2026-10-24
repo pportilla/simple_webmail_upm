@@ -115,11 +115,15 @@ internal object MailSessions {
         return withEngineClassLoader { Session.getInstance(props) }
     }
 
-    fun smtpSession(settings: ServerSettings): Session {
+    fun smtpSession(settings: ServerSettings, socketFactory: SocketFactory? = null): Session {
         val props = baseProperties()
         val protocol = smtpProtocol(settings.security)
         val p = "mail.$protocol"
         props["mail.transport.protocol"] = protocol
+        if (socketFactory != null) {
+            props["$p.socketFactory"] = socketFactory
+            props["$p.socketFactory.fallback"] = "false"
+        }
         props["$p.host"] = settings.host
         props["$p.port"] = settings.port.toString()
         applyTimeouts(props, p)

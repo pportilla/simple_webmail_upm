@@ -8,6 +8,8 @@ enum class MailErrorKind {
     NETWORK,
     /** TLS handshake / certificate validation failed. */
     CERTIFICATE,
+    /** A legacy or supplied server setting would send credentials without TLS. */
+    INSECURE_CONNECTION,
     /** The server answered with an error (NO/BAD, 5xx...). */
     SERVER,
     /** Folder or message no longer exists on the server. */
@@ -18,6 +20,8 @@ enum class MailErrorKind {
     TOO_LARGE,
     /** The whole message went out but the server's answer did not arrive: it may have been sent. */
     SEND_UNCERTAIN,
+    /** The current safety profile or exact guardian approval does not permit this operation. */
+    SAFETY_BLOCKED,
     UNKNOWN,
 }
 

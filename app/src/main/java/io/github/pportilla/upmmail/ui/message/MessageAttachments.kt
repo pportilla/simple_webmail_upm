@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.AttachmentProvider
+import io.github.pportilla.upmmail.data.safety.hasAdultExternalAccess
 import io.github.pportilla.upmmail.model.Attachment
 import io.github.pportilla.upmmail.ui.components.formatFileSize
 import java.io.File
@@ -255,10 +256,13 @@ private fun Context.attachmentUri(file: File): Uri? =
         AttachmentProvider.uriFor(this, file)
     } catch (e: IllegalArgumentException) {
         null
+    } catch (e: SecurityException) {
+        null
     }
 
 /** Opens a web, phone, map or SMS link in another app. Returns false if no app handles it. */
 internal fun Context.openExternalLink(uri: Uri): Boolean {
+    if (!hasAdultExternalAccess()) return false
     val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return false
     val intent = Intent(Intent.ACTION_VIEW, uri)
     if (scheme == "http" || scheme == "https") intent.addCategory(Intent.CATEGORY_BROWSABLE)

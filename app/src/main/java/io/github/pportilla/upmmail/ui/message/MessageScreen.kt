@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.ui.message
 
+import io.github.pportilla.upmmail.ui.components.SampleMailNotice
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -125,6 +126,7 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
     val container = appContainer()
     val viewModel = viewModel(key = "message-$messageId") { MessageViewModel(container, messageId) }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val accounts by container.accountRepository.accounts.collectAsStateWithLifecycle(emptyList())
     val context = LocalContext.current
     val snackbar = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
@@ -444,6 +446,7 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
                     .verticalScroll(scrollState)
                     .padding(bottom = 16.dp),
             ) {
+                SampleMailNotice(accounts.firstOrNull { it.id == state.accountId })
                 SubjectHeader(
                     subject = state.subject,
                     folder = state.folder,

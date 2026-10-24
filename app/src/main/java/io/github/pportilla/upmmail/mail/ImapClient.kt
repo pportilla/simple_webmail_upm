@@ -45,7 +45,6 @@ import org.eclipse.angus.mail.imap.protocol.IMAPResponse
 import org.eclipse.angus.mail.imap.protocol.SearchSequence
 import org.eclipse.angus.mail.imap.protocol.Status
 import java.io.BufferedOutputStream
-import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FilterOutputStream
@@ -80,7 +79,7 @@ class ImapClient(
     private val settings: ServerSettings,
     private val passwordProvider: () -> String,
     private val options: ImapOptions,
-) : Closeable {
+) : ImapTransport {
 
     /** A client with [ImapOptions.DEFAULT]; also keeps `ImapClient(settings) { password }` working. */
     constructor(settings: ServerSettings, passwordProvider: () -> String) :
@@ -113,18 +112,18 @@ class ImapClient(
     internal var debugOut: PrintStream? = null
 
     /** True while a call is running on this client. */
-    val isBusy: Boolean
+    override val isBusy: Boolean
         get() = mutex.isLocked
 
     /** Whether a logged-in connection is open (the server may still have dropped it silently). */
-    val isConnected: Boolean
+    override val isConnected: Boolean
         get() = synchronized(stateLock) { store != null }
 
     /**
      * Connections this client has opened and logged in on. A call that started without a
      * connection and timed out without adding one never got past connecting and logging in.
      */
-    val logins: Int
+    override val logins: Int
         get() = synchronized(stateLock) { loginCount }
 
     init {
@@ -132,7 +131,7 @@ class ImapClient(
     }
 
     /** Connects and logs in (used to validate credentials). */
-    suspend fun connect() {
+    override suspend fun connect() {
         // A real login check: never answer from an already open connection.
         discardStore()
         execute { }
@@ -142,7 +141,7 @@ class ImapClient(
      * Every folder of the account. Folders in a shared or other users' namespace (RFC 2342) carry
      * [NOT_PERSONAL_ATTRIBUTE].
      */
-    suspend fun listFolders(): List<RemoteFolder> = execute { store ->
+    override suspend fun listFolders(): List<RemoteFolder> = execute { store ->
         releaseKeptFolder()
         val prefixes = personalNamespacePrefixes(store)
         val foreignPrefixes = foreignNamespacePrefixes(store)
@@ -176,7 +175,7 @@ class ImapClient(
         folders
     }
 
-    suspend fun status(folder: String): RemoteFolderStatus = execute { store ->
+    override suspend fun status(folder: String): RemoteFolderStatus = execute { store ->
         val imapFolder = store.getFolder(folder) as IMAPFolder
         // A folder kept open holds the connection: it asks for another folder's status itself,
         // instead of the store logging in a second connection. The selected folder is never asked
@@ -203,7 +202,7 @@ class ImapClient(
     }
 
     /** The newest [limit] messages of [folder]. */
-    suspend fun fetchNewest(folder: String, limit: Int): FetchResult = execute { store ->
+    override suspend fun fetchNewest(folder: String, limit: Int): FetchResult = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val uidValidity = open.uidValidity
             val count = open.messageCount
@@ -218,7 +217,7 @@ class ImapClient(
     }
 
     /** Messages with uid > [afterUid]; the newest [limit] of them, truncated = true if there were more. */
-    suspend fun fetchNewer(folder: String, afterUid: Long, limit: Int): FetchResult = execute { store ->
+    override suspend fun fetchNewer(folder: String, afterUid: Long, limit: Int): FetchResult = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val uidValidity = open.uidValidity
             val from = maxOf(afterUid, 0L) + 1
@@ -237,7 +236,7 @@ class ImapClient(
     }
 
     /** The newest [limit] messages with uid < [beforeUid]; truncated = true if even older ones exist. */
-    suspend fun fetchOlder(folder: String, beforeUid: Long, limit: Int): FetchResult = execute { store ->
+    override suspend fun fetchOlder(folder: String, beforeUid: Long, limit: Int): FetchResult = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val uidValidity = open.uidValidity
             if (beforeUid <= 1) {
@@ -255,7 +254,7 @@ class ImapClient(
     }
 
     /** Flags of every message present in [fromUid]..[toUid]; a missing uid was expunged. */
-    suspend fun fetchFlags(folder: String, fromUid: Long, toUid: Long): Map<Long, RemoteFlags> {
+    override suspend fun fetchFlags(folder: String, fromUid: Long, toUid: Long): Map<Long, RemoteFlags> {
         val from = maxOf(fromUid, 1L)
         val to = minOf(toUid, UIDFolder.MAXUID)
         if (from > to) return emptyMap()
@@ -277,7 +276,7 @@ class ImapClient(
         }
     }
 
-    suspend fun fetchMessages(folder: String, uids: List<Long>): List<RemoteMessage> {
+    override suspend fun fetchMessages(folder: String, uids: List<Long>): List<RemoteMessage> {
         val wanted = uids.filter { it > 0 }.distinct()
         if (wanted.isEmpty()) return emptyList()
         return execute { store ->
@@ -286,7 +285,7 @@ class ImapClient(
     }
 
     /** Like [fetchMessages], with the folder's UIDVALIDITY to check the uids against. */
-    suspend fun fetchByUids(folder: String, uids: List<Long>): FetchResult {
+    override suspend fun fetchByUids(folder: String, uids: List<Long>): FetchResult {
         val wanted = uids.filter { it > 0 }.distinct()
         return execute { store ->
             store.withFolder(folder, Folder.READ_ONLY) { open ->
@@ -299,7 +298,7 @@ class ImapClient(
      * Flags of the messages of [uids] that still exist, in chunks of [UID_CHUNK] for sparse uid
      * sets; a uid missing from the result was expunged. \Deleted messages are included.
      */
-    suspend fun fetchFlagsFor(folder: String, uids: List<Long>): Map<Long, RemoteFlags> {
+    override suspend fun fetchFlagsFor(folder: String, uids: List<Long>): Map<Long, RemoteFlags> {
         val wanted = uids.filter { it in 1..UIDFolder.MAXUID }.distinct()
         if (wanted.isEmpty()) return emptyMap()
         return execute { store ->
@@ -331,7 +330,7 @@ class ImapClient(
      * parsed still gets an (empty) entry, so it is not fetched again and again; uids the server
      * no longer has are listed in [HeaderBatch.missingUids].
      */
-    suspend fun fetchIndexHeaders(folder: String, uids: List<Long>): HeaderBatch {
+    override suspend fun fetchIndexHeaders(folder: String, uids: List<Long>): HeaderBatch {
         val wanted = uids.filter { it in 1..UIDFolder.MAXUID }.distinct()
         return execute { store ->
             store.withFolder(folder, Folder.READ_ONLY) { open ->
@@ -372,7 +371,7 @@ class ImapClient(
     }
 
     /** Downloads and parses the body. Never sets \Seen. */
-    suspend fun fetchBody(folder: String, uid: Long): ParsedBody = execute { store ->
+    override suspend fun fetchBody(folder: String, uid: Long): ParsedBody = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val message = messageByUid(open, uid)
             withStructure(message) { part -> MimeParser.parse(part) }
@@ -380,7 +379,7 @@ class ImapClient(
     }
 
     /** Writes the decoded content of part [partPath] to [destination]. */
-    suspend fun downloadPart(folder: String, uid: Long, partPath: String, destination: File): Unit = execute { store ->
+    override suspend fun downloadPart(folder: String, uid: Long, partPath: String, destination: File): Unit = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val message = messageByUid(open, uid)
             withStructure(message) { root ->
@@ -404,7 +403,7 @@ class ImapClient(
         }
     }
 
-    suspend fun setFlag(folder: String, uids: List<Long>, flag: MessageFlag, value: Boolean) {
+    override suspend fun setFlag(folder: String, uids: List<Long>, flag: MessageFlag, value: Boolean) {
         val wanted = uids.filter { it > 0 }.distinct()
         if (wanted.isEmpty()) return
         execute { store ->
@@ -430,7 +429,7 @@ class ImapClient(
     }
 
     /** Uses MOVE when supported, otherwise COPY + \Deleted + (UID) EXPUNGE. */
-    suspend fun move(folder: String, uids: List<Long>, destinationFolder: String) {
+    override suspend fun move(folder: String, uids: List<Long>, destinationFolder: String) {
         val wanted = uids.filter { it > 0 }.distinct()
         if (wanted.isEmpty() || folder == destinationFolder) return
         execute(retryAfterMutation = false) { store ->
@@ -457,7 +456,7 @@ class ImapClient(
         }
     }
 
-    suspend fun deletePermanently(folder: String, uids: List<Long>) {
+    override suspend fun deletePermanently(folder: String, uids: List<Long>) {
         val wanted = uids.filter { it > 0 }.distinct()
         if (wanted.isEmpty()) return
         execute { store ->
@@ -476,7 +475,7 @@ class ImapClient(
     }
 
     /** Permanently deletes every message in [folder]. */
-    suspend fun deleteAll(folder: String): Unit = execute { store ->
+    override suspend fun deleteAll(folder: String): Unit = execute { store ->
         store.withFolder(folder, Folder.READ_WRITE) { open ->
             requireWritable(open)
             val count = open.messageCount
@@ -488,7 +487,7 @@ class ImapClient(
     }
 
     /** Appends [message]; returns its new uid when the server reports it (UIDPLUS). */
-    suspend fun append(folder: String, message: MimeMessage, seen: Boolean, draft: Boolean): Long? =
+    override suspend fun append(folder: String, message: MimeMessage, seen: Boolean, draft: Boolean): Long? =
         execute(retryAfterMutation = false) { store ->
             releaseKeptFolder()
             val target = store.getFolder(folder) as IMAPFolder
@@ -503,7 +502,7 @@ class ImapClient(
         }
 
     /** Server-side search in subject, from, to, cc and body. Uids newest first, at most [limit]. */
-    suspend fun search(folder: String, query: String, limit: Int): List<Long> {
+    override suspend fun search(folder: String, query: String, limit: Int): List<Long> {
         val text = query.trim()
         if (text.isEmpty() || limit <= 0) return emptyList()
         val term = OrTerm(
@@ -522,7 +521,7 @@ class ImapClient(
         }
     }
 
-    suspend fun findUidByMessageId(folder: String, messageId: String): Long? {
+    override suspend fun findUidByMessageId(folder: String, messageId: String): Long? {
         val id = messageId.trim()
         if (id.isEmpty()) return null
         return execute { store ->
@@ -537,7 +536,7 @@ class ImapClient(
      * that keeps folders open leaves it open, so the sequence numbers of the probe stay valid for
      * the searches that follow.
      */
-    suspend fun examine(folder: String): FolderProbe = execute { store ->
+    override suspend fun examine(folder: String): FolderProbe = execute { store ->
         releaseKeptFolder()
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             FolderProbe(open.uidValidity, open.uidNext, open.messageCount)
@@ -550,7 +549,7 @@ class ImapClient(
      * clamped, and one entirely past it is answered without a command. If the server refuses
      * `CHARSET UTF-8` ([BADCHARSET]), the query is searched again with its ASCII spellings only.
      */
-    suspend fun searchUids(folder: String, query: ServerQuery, range: SearchRange?, limit: Int): SearchOutcome =
+    override suspend fun searchUids(folder: String, query: ServerQuery, range: SearchRange?, limit: Int): SearchOutcome =
         execute { store ->
             store.withFolder(folder, Folder.READ_ONLY) { open ->
                 val uidValidity = open.uidValidity
@@ -584,7 +583,7 @@ class ImapClient(
         }
 
     /** Every uid from [fromUid] on (`UID SEARCH UID n:*`), ascending. */
-    suspend fun searchAllUids(folder: String, fromUid: Long = 1): UidList = execute { store ->
+    override suspend fun searchAllUids(folder: String, fromUid: Long): UidList = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val count = open.messageCount
             val from = maxOf(1L, fromUid)
@@ -598,7 +597,7 @@ class ImapClient(
     }
 
     /** Every uid not marked \Deleted (`UID SEARCH UNDELETED`), ascending. */
-    suspend fun searchUndeletedUids(folder: String): UidList = execute { store ->
+    override suspend fun searchUndeletedUids(folder: String): UidList = execute { store ->
         store.withFolder(folder, Folder.READ_ONLY) { open ->
             val count = open.messageCount
             val uids = if (count <= 0) LongArray(0) else uidSearch(open, listOf("UNDELETED"), null).sorted().toLongArray()
@@ -610,7 +609,7 @@ class ImapClient(
      * A client with the same account and login but other [options], and a connection of its own.
      * The test hooks are copied.
      */
-    fun derive(options: ImapOptions): ImapClient = ImapClient(settings, passwordProvider, options).also {
+    override fun derive(options: ImapOptions): ImapClient = ImapClient(settings, passwordProvider, options).also {
         it.disabledCapabilities = disabledCapabilities
         it.trustServerStructure = trustServerStructure
         it.debugOut = debugOut
@@ -622,7 +621,7 @@ class ImapClient(
      * next call logs in again. A client that is not [ImapOptions.abortable] cannot reach its
      * sockets, so there this is the same as [close].
      */
-    fun abort() {
+    override fun abort() {
         val sockets = sockets ?: return close()
         val old = synchronized(stateLock) {
             generation++
