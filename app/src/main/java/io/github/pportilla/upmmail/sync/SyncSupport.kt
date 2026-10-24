@@ -1,8 +1,11 @@
 package io.github.pportilla.upmmail.sync
 
 import io.github.pportilla.upmmail.data.security.PasswordStore
+import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
+import io.github.pportilla.upmmail.data.safety.SafetyPolicy
 import io.github.pportilla.upmmail.mail.ImapClient
 import io.github.pportilla.upmmail.mail.ImapIdler
+import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.MailErrors
 import io.github.pportilla.upmmail.mail.SmtpClient
 import io.github.pportilla.upmmail.mail.requireEncryptedTransport
@@ -68,10 +71,13 @@ suspend inline fun <T> mailResult(crossinline block: suspend () -> T): Result<T>
 class MailClientProvider(
     private val accountLookup: (Long) -> Account?,
     private val passwords: PasswordStore,
-    private val imapFactory: (ServerSettings, () -> String) -> ImapClient = { s, p -> ImapClient(s, p) },
+    private val imapFactory: (ServerSettings, () -> String) -> ImapClient = { s, p ->
+        ImapClient(s, p, ImapOptions.DEFAULT.copy(abortable = true))
+    },
     private val smtpFactory: (ServerSettings, () -> String) -> SmtpClient = { s, p -> SmtpClient(s, p) },
     /** Only local mock-server tests replace this policy; production always requires TLS. */
     private val transportPolicy: (ServerSettings) -> Unit = ::requireEncryptedTransport,
+    private val safety: SafetyPolicy = LocalSafetyRepository(),
 ) {
     private class Cached(val settings: ServerSettings, val client: ImapClient)
 
@@ -101,11 +107,13 @@ class MailClientProvider(
     }
 
     fun imap(accountId: Long): ImapClient {
+        safety.requireNetwork()
         val account = account(accountId)
         transportPolicy(account.imap)
         val stale: ImapClient?
         val client: ImapClient
         synchronized(imapClients) {
+            safety.requireNetwork()
             val cached = imapClients[accountId]
             if (cached != null && cached.settings == account.imap) return cached.client
             stale = cached?.client
@@ -117,6 +125,7 @@ class MailClientProvider(
     }
 
     fun smtp(accountId: Long): SmtpClient {
+        safety.requireNetwork()
         val account = account(accountId)
         transportPolicy(account.smtp)
         return smtpFactory(account.smtp, passwordProvider(accountId))
@@ -124,6 +133,7 @@ class MailClientProvider(
 
     /** A push connection to the account's INBOX, with its current server settings and password. */
     fun idler(accountId: Long): ImapIdler {
+        safety.requireNetwork()
         val settings = account(accountId).imap
         transportPolicy(settings)
         return ImapIdler(settings, passwordProvider(accountId))
@@ -142,16 +152,21 @@ class MailClientProvider(
 
     fun closeAll() {
         val all = synchronized(imapClients) { imapClients.values.toList().also { imapClients.clear() } }
+        // Interrupt in-flight protocol work before waiting for a graceful close.
+        all.forEach { it.client.abort() }
         all.forEach { it.client.closeQuietly() }
     }
 
     private fun passwordProvider(accountId: Long): () -> String = {
+        // The account may have been revoked after the connection object was obtained.
+        safety.requireNetwork()
         passwords.get(accountId)
             ?: throw MailException(MailErrorKind.AUTHENTICATION, "No stored password for account $accountId")
     }
 
     private fun ImapClient.closeQuietly() {
         try {
+            abort()
             close()
         } catch (_: Throwable) {
             // Closing a dead connection may fail; nothing to do about it.

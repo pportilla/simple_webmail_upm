@@ -16,17 +16,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.pportilla.upmmail.R
+import io.github.pportilla.upmmail.data.safety.hasAdultExternalAccess
 
 private const val PRIVACY_CONTACT_URL = "mailto:p.portilla89@gmail.com?subject=UPM%20Mail%20privacy"
 
 /** Available offline and before sign-in; opening the policy never sends credentials anywhere. */
 @Composable
-fun PrivacyPolicyButton(onOpenUrl: (String) -> Unit, modifier: Modifier = Modifier) {
+fun PrivacyPolicyButton(onOpenUrl: ((String) -> Unit)? = null, modifier: Modifier = Modifier) {
     var show by rememberSaveable { mutableStateOf(false) }
     TextButton(onClick = { show = true }, modifier = modifier) {
         Text(stringResource(R.string.privacy_title))
@@ -35,7 +37,8 @@ fun PrivacyPolicyButton(onOpenUrl: (String) -> Unit, modifier: Modifier = Modifi
 }
 
 @Composable
-fun PrivacyPolicyDialog(onDismiss: () -> Unit, onOpenUrl: (String) -> Unit) {
+fun PrivacyPolicyDialog(onDismiss: () -> Unit, onOpenUrl: ((String) -> Unit)? = null) {
+    val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.privacy_title)) },
@@ -44,10 +47,11 @@ fun PrivacyPolicyDialog(onDismiss: () -> Unit, onOpenUrl: (String) -> Unit) {
                 modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                SelectionContainer {
+                val policyText: @Composable () -> Unit = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(stringResource(R.string.privacy_updated))
                         Text(stringResource(R.string.privacy_intro))
+                        PrivacySection(R.string.privacy_families_title, R.string.privacy_families_body)
                         PrivacySection(R.string.privacy_servers_title, R.string.privacy_servers_body)
                         PrivacySection(R.string.privacy_storage_title, R.string.privacy_storage_body)
                         PrivacySection(R.string.privacy_contacts_title, R.string.privacy_contacts_body)
@@ -58,8 +62,16 @@ fun PrivacyPolicyDialog(onDismiss: () -> Unit, onOpenUrl: (String) -> Unit) {
                         PrivacySection(R.string.privacy_contact_title, R.string.privacy_contact_body)
                     }
                 }
-                TextButton(onClick = { onOpenUrl(PRIVACY_CONTACT_URL) }) {
-                    Text(stringResource(R.string.privacy_contact_action))
+                if (onOpenUrl == null || !context.hasAdultExternalAccess()) {
+                    // Selection can expose Android's external share/process-text actions.
+                    policyText()
+                } else {
+                    SelectionContainer { policyText() }
+                    TextButton(onClick = {
+                        if (context.hasAdultExternalAccess()) onOpenUrl(PRIVACY_CONTACT_URL)
+                    }) {
+                        Text(stringResource(R.string.privacy_contact_action))
+                    }
                 }
             }
         },

@@ -86,6 +86,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.repository.AppContainer
+import io.github.pportilla.upmmail.data.safety.hasAdultExternalAccess
 import io.github.pportilla.upmmail.model.Draft
 import io.github.pportilla.upmmail.ui.components.AppSnackbarController
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
@@ -167,10 +168,10 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     }
 
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        viewModel.addAttachments(uris.map { it.toString() })
+        if (context.hasAdultExternalAccess()) viewModel.addAttachments(uris.map { it.toString() })
     }
     val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        viewModel.onContactsPermissionResult(granted)
+        viewModel.onContactsPermissionResult(granted && context.hasAdultExternalAccess())
     }
     val onRecipientFocused = remember(context) {
         {
@@ -186,7 +187,8 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     }
     val pickFiles = {
         try {
-            attachmentPicker.launch(arrayOf("*/*"))
+            if (context.hasAdultExternalAccess()) attachmentPicker.launch(arrayOf("*/*"))
+            else snackbar.show(context.getString(R.string.family_action_blocked))
         } catch (_: ActivityNotFoundException) {
             snackbar.show(context.getString(R.string.compose_no_file_picker))
         }
@@ -681,6 +683,7 @@ private const val KEY_CONTACTS_ASKED = "contacts_permission_asked"
 
 /** True the first time a recipient field is focused without the contacts permission. */
 private fun shouldAskForContacts(context: Context): Boolean {
+    if (!context.hasAdultExternalAccess()) return false
     if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) return false
     return !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CONTACTS_ASKED, false)
 }

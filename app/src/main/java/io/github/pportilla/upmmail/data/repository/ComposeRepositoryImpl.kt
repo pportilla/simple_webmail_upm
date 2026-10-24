@@ -22,6 +22,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.combine
+import io.github.pportilla.upmmail.data.safety.Audience
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -61,6 +63,7 @@ class ComposeRepositoryImpl(
 ) : ComposeRepository {
 
     override suspend fun createDraft(accountId: Long, mode: ComposeMode, sourceMessageId: Long?): Result<Draft> = mailResult {
+        store.safety.requireNetwork()
         val account = db { store.accounts.get(accountId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Account $accountId")
         when (mode) {
             ComposeMode.NEW -> Draft(accountId = accountId, body = bodyWith(account, null), updatedAt = clock())
@@ -75,7 +78,7 @@ class ComposeRepositoryImpl(
     private suspend fun sourceOf(messageId: Long?): MessageDetail {
         val id = messageId ?: throw MailException(MailErrorKind.NOT_FOUND, "No message to reply to")
         loadBodyIfPossible(id)
-        return db { store.messages.detail(id) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Message $id")
+        return db { store.messages.detail(id)?.let(store.safety::projectMessage) } ?: throw MailException(MailErrorKind.SAFETY_BLOCKED)
     }
 
     /** Quoting works without the body too (offline), so a failed download is not fatal here. */
@@ -165,7 +168,7 @@ class ComposeRepositoryImpl(
     /** Empty space to type in, then the signature, then the quoted or forwarded text. */
     private fun bodyWith(account: Account, quoted: String?): String {
         val parts = mutableListOf("")
-        if (account.signature.isNotBlank()) parts += SIGNATURE_SEPARATOR + account.signature.trimEnd()
+        if (store.safety.state.value.audience == Audience.ADULT && account.signature.isNotBlank()) parts += SIGNATURE_SEPARATOR + account.signature.trimEnd()
         if (!quoted.isNullOrEmpty()) parts += quoted
         return if (parts.size == 1) "" else parts.joinToString("\n\n")
     }
@@ -176,13 +179,14 @@ class ComposeRepositoryImpl(
         return runCatching { HtmlText.toPlainText(html) }.getOrNull()?.trimEnd()
     }
 
-    override suspend fun loadDraft(draftId: Long): Draft? = db { store.drafts.get(draftId) }
+    override suspend fun loadDraft(draftId: Long): Draft? = db { store.safety.requireAccountManagement(); store.drafts.get(draftId)?.let { if (store.safety.state.value.audience == Audience.SUPERVISED) it.copy(attachments = emptyList()) else it } }
 
     override suspend fun draftFromServerMessage(messageId: Long): Result<Draft> = mailResult {
         draftFromServerMessageInternal(messageId)
     }
 
     private suspend fun draftFromServerMessageInternal(messageId: Long): Draft {
+        store.safety.requireAccountManagement()
         // A draft only on this device, listed in the Drafts folder; or the version of this server
         // draft saved on this device, at least as new (its upload may be waiting or have failed).
         // The draft carries its list row id: the screen's saves go to that local draft (see continued).
@@ -191,7 +195,7 @@ class ComposeRepositoryImpl(
             ?: db { store.drafts.findForServerMessage(messageId)?.let { store.drafts.get(it) } }
         if (local != null) return local.copy(serverDraftMessageId = LocalDraftRows.rowId(local.id))
         engine.loadBody(messageId, inlineImages = false)
-        val source = db { store.messages.detail(messageId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Message $messageId")
+        val source = db { store.messages.detail(messageId)?.let(store.safety::projectMessage) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Message $messageId")
         return Draft(
             accountId = source.summary.accountId,
             to = source.summary.to,
@@ -209,10 +213,13 @@ class ComposeRepositoryImpl(
     }
 
     override suspend fun saveDraft(draft: Draft, upload: Boolean): Long {
+        store.safety.requireAccountManagement()
+        if (draft.attachments.isNotEmpty()) store.safety.requireAttachments()
+        val uploadAllowed = upload && store.safety.state.value.audience == Audience.ADULT
         val id = db {
             store.tx {
                 val id = store.drafts.save(continued(draft).copy(updatedAt = clock()))
-                if (upload) {
+                if (uploadAllowed) {
                     // Only the newest version needs uploading.
                     store.pendingOps.deleteDraftUploads(id)
                     store.pendingOps.insert(
@@ -227,11 +234,12 @@ class ComposeRepositoryImpl(
                 id
             }
         }
-        if (upload) flushScheduler.schedule(draft.accountId)
+        if (uploadAllowed) flushScheduler.schedule(draft.accountId)
         return id
     }
 
     override suspend fun discardDraft(draft: Draft) {
+        store.safety.requireAccountManagement()
         val serverCopy = db {
             store.tx {
                 val current = continued(draft)
@@ -269,16 +277,18 @@ class ComposeRepositoryImpl(
 
     override suspend fun send(draft: Draft, delaySeconds: Int): Long {
         val outboxId = db {
-            store.tx {
-                val current = continued(draft)
-                val copy = (if (current.id != 0L) store.drafts.serverCopy(current.id) else null)
-                    ?: current.serverDraftMessageId?.let { store.drafts.serverCopyOfMessage(it) }
-                val id = store.outbox.enqueue(current, copy, clock() + delaySeconds.coerceAtLeast(0) * 1000L)
-                if (current.id != 0L) {
-                    store.pendingOps.deleteDraftUploads(current.id)
-                    store.drafts.delete(current.id)
+            store.safety.enqueueApproved(draft) {
+                store.tx {
+                    val current = continued(draft)
+                    val copy = (if (current.id != 0L) store.drafts.serverCopy(current.id) else null)
+                        ?: current.serverDraftMessageId?.let { store.drafts.serverCopyOfMessage(it) }
+                    val id = store.outbox.enqueue(current, copy, clock() + delaySeconds.coerceAtLeast(0) * 1000L)
+                    if (current.id != 0L) {
+                        store.pendingOps.deleteDraftUploads(current.id)
+                        store.drafts.delete(current.id)
+                    }
+                    id
                 }
-                id
             }
         }
         syncController.requestOutboxSend()
@@ -286,6 +296,8 @@ class ComposeRepositoryImpl(
     }
 
     override suspend fun cancelSend(outboxId: Long): Draft? {
+        store.safety.requireAccountManagement()
+        store.safety.forgetQueuedSend(outboxId)
         val draft = db {
             store.tx {
                 val entry = store.outbox.deleteIfIn(outboxId, OutboxState.QUEUED) ?: return@tx null
@@ -300,9 +312,17 @@ class ComposeRepositoryImpl(
         return draft
     }
 
-    override fun observeOutbox(accountId: Long?): Flow<List<OutboxItem>> = store.outbox.observe(accountId)
+    override fun observeOutbox(accountId: Long?): Flow<List<OutboxItem>> = combine(store.outbox.observe(accountId), store.safety.state) { items, safety ->
+        when {
+            !safety.termsAccepted || safety.audience == Audience.UNCONFIGURED -> emptyList()
+            safety.audience == Audience.ADULT -> items
+            safety.guardianUnlocked -> items.map { it.copy(draft = it.draft.copy(attachments = emptyList())) }
+            else -> items.filter { runCatching { store.safety.requireQueuedSend(it.id, it.draft) }.isSuccess }
+        }
+    }
 
     override suspend fun retrySend(outboxId: Long) {
+        db { store.outbox.get(outboxId)?.let { store.safety.requireQueuedSend(outboxId, it.item.draft) } }
         if (db { store.outbox.retry(outboxId) }) {
             outboxItemHandled(outboxId)
             syncController.requestOutboxSend()
@@ -310,6 +330,8 @@ class ComposeRepositoryImpl(
     }
 
     override suspend fun deleteOutboxItem(outboxId: Long) {
+        store.safety.requireAccountManagement()
+        store.safety.forgetQueuedSend(outboxId)
         db {
             store.tx {
                 val entry = store.outbox.deleteIfIn(outboxId, OutboxState.QUEUED, OutboxState.FAILED) ?: return@tx
@@ -331,7 +353,8 @@ class ComposeRepositoryImpl(
 
     override suspend fun describeAttachment(uri: String): OutgoingAttachment? =
         try {
-            importer.import(uri)
+            store.safety.requireAttachments()
+            importer.import(uri).also { store.safety.requireAttachments() }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

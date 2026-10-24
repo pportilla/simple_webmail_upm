@@ -97,7 +97,7 @@ secret, and it must not be used to publish the app on a store.
 
 The release package is `io.github.pportilla.upmmail`; debug installs use the separate
 `io.github.pportilla.upmmail.debug` package. Release builds never use the public debug key.
-The release version defaults to `1.0.0` / code `1`, independently of the debug CI sequence.
+The release version defaults to `1.0.0` / code `2`, independently of the debug CI sequence.
 Choose a version code greater than **every** version already uploaded to this app in Play Console.
 If this app was published before, preserve its package ID and use its registered upload key.
 
@@ -130,7 +130,7 @@ the local upload key signs bundles submitted to Play.
 
 ```bash
 export UPM_SIGNING_PROPERTIES_FILE="$HOME/.config/upm-mail/signing.properties"
-python3 scripts/build-release.py --version-code 1 --version-name 1.0.0
+python3 scripts/build-release.py --version-code 2 --version-name 1.0.0
 ```
 
 The signed build fails if credentials are missing, checks the bundle signature, and rejects the

@@ -1,1 +1,4 @@
-Primera versión en Google Play. Correo para cuentas UPM existentes, con varias cuentas, conversaciones, adjuntos, borradores, búsqueda y notificaciones configurables. Interfaz en español e inglés, temas claro y oscuro y sugerencias opcionales de contactos.
+Primera versión en Play del cliente no oficial UPM Mail.
+Las herramientas para adultos incluyen carpetas, búsqueda, borradores, adjuntos y opciones de notificación.
+El correo supervisado añade configuración por un adulto, contactos aprobados, revisión del correo entrante y aprobación de cada envío.
+Interfaces en español e inglés con política de privacidad en la aplicación.

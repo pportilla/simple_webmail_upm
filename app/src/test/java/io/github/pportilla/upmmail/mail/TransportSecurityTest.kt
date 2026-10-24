@@ -26,6 +26,7 @@ class TransportSecurityTest {
         val clients = MailClientProvider(
             { store.accounts.get(it) },
             InMemoryPasswordStore(),
+            safety = store.safety,
             imapFactory = { settings, password -> factoryCalled = true; ImapClient(settings, password) },
             smtpFactory = { settings, password -> factoryCalled = true; SmtpClient(settings, password) },
         )

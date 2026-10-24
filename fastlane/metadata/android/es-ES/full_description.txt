@@ -1,6 +1,11 @@
 Gestiona tu correo de la Universidad Politécnica de Madrid desde una aplicación nativa para Android. UPM Mail admite cuentas existentes @upm.es, @alumnos.upm.es y @externos.upm.es.
 
-UPM Mail es una aplicación independiente y no oficial. No está afiliada a la Universidad Politécnica de Madrid ni cuenta con su respaldo. Necesitas una cuenta de correo UPM existente para utilizarla.
+UPM Mail es una aplicación independiente y no oficial. No está afiliada a la Universidad Politécnica de Madrid ni cuenta con su respaldo. Utiliza un buzón UPM existente o configura una cuenta compatible con IMAP/SMTP mediante TLS. La aplicación no crea una cuenta del proveedor.
+
+CORREO SUPERVISADO
+Los menores de 18 años utilizan una interfaz supervisada independiente. El acceso al buzón permanece bloqueado hasta completar la configuración. Un adulto la configura con un PIN antes de conectar un buzón permitido. El adulto aprueba los contactos, revisa cada mensaje entrante antes de que aparezca y aprueba el contenido y los destinatarios exactos de cada envío. Los envíos se pueden desactivar. La interfaz supervisada permite leer y escribir texto sin formato y no ofrece adjuntos, enlaces externos, imágenes remotas, importación de contactos del dispositivo, exportaciones ni búsquedas. Los más pequeños pueden leer y escribir junto al adulto. El PIN ofrece controles locales, no una verificación independiente de identidad.
+
+Las funciones siguientes describen la interfaz de correo estándar para adultos.
 
 TU CORREO, ORGANIZADO
 Cambia entre varias cuentas y consulta Recibidos, Enviados, Borradores, Archivo, Papelera, Spam y tus propias carpetas. Lee conversaciones, destaca mensajes y utiliza gestos o selección múltiple para archivar, mover, eliminar o marcar el correo como leído. Deshaz acciones recientes y cancela un envío en cola durante su periodo de cancelación.
@@ -12,7 +17,7 @@ ENCUENTRA MENSAJES ANTIGUOS
 Busca en el correo almacenado en el dispositivo y en las cabeceras indexadas de tus carpetas. Amplía la búsqueda al servidor o al texto de los mensajes y filtra por carpeta, no leídos, destacados o adjuntos.
 
 ELIGE CÓMO RECIBIR EL CORREO
-Utiliza la comprobación push mediante una conexión IMAP directa, comprobaciones cada 15, 30 o 60 minutos, o al abrir la aplicación. El modo push muestra una notificación continua con el estado de conexión y se puede desactivar en Ajustes. La llegada de las notificaciones depende de la conexión, del servidor y de las restricciones de Android en segundo plano.
+Elige la comprobación push mediante una conexión IMAP directa, comprobaciones cada 15, 30 o 60 minutos, o al abrir la aplicación. El modo push está desactivado de forma predeterminada. El modo push muestra una notificación continua con el estado de conexión y se puede desactivar en Ajustes. La llegada de las notificaciones depende de la conexión, del servidor y de las restricciones de Android en segundo plano.
 
 LEE A TU MANERA
 Las imágenes remotas permanecen bloqueadas hasta que las permites. Elige tema claro u oscuro, colores del sistema opcionales e interfaz en español o inglés. Abre enlaces mailto e imprime mensajes.

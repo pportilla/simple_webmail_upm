@@ -21,6 +21,7 @@ import io.github.pportilla.upmmail.MainActivity
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.repository.SettingsRepository
+import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
@@ -85,20 +86,38 @@ class MailNotifier(
     // ------------------------------------------------------------------ new mail
 
     override fun onNewMessages(accountId: Long, folderId: Long, messages: List<MessageSummary>) {
+        val safetyRevision = store.safety.state.value.revision
         if (messages.isEmpty() || isAppInForeground() || !canNotify()) return
         val account = store.accounts.get(accountId) ?: return
         if (!account.notificationsEnabled) return
         val hasArchive = store.folders.findByRole(accountId, FolderRole.ARCHIVE) != null
-        val posted = messages.sortedByDescending { it.date }.take(MAX_INDIVIDUAL).sortedBy { it.date }.map { message ->
+        val visible = messages.filterNot { store.safety.isSenderBlocked(it.from?.address) }
+        if (visible.isEmpty()) return
+        val posted = visible.sortedByDescending { it.date }.take(MAX_INDIVIDUAL).sortedBy { it.date }.map { message ->
             val notification = buildMessageNotification(account, message, hasArchive)
-            post(TAG_MESSAGE, notificationId(message.id), notification)
+            post(TAG_MESSAGE, notificationId(message.id), notification, safetyRevision)
             Child(notificationId(message.id), message.date, senderOf(notification), subjectOf(notification))
         }
-        updateSummary(account, alert = true, added = posted)
+        updateSummary(account, alert = true, added = posted, sourceRevision = safetyRevision)
     }
 
     override fun onInboxSynced(accountId: Long, folderId: Long) {
+        if (!adultNotificationsAllowed()) {
+            clearPrivateNotifications()
+            return
+        }
         pruneRead(accountId)
+    }
+
+    /** Called on every safety-policy change, including revocation and new sender blocks. */
+    fun clearPrivateNotifications() {
+        try {
+            manager.activeNotifications.filter {
+                it.tag == TAG_MESSAGE || it.tag == TAG_SUMMARY || it.tag == TAG_SEND_FAILURE
+            }.forEach { manager.cancel(it.tag, it.id) }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Could not clear mail notifications", e)
+        }
     }
 
     /** Dismisses the notifications of messages that were read (or removed) in the app. */
@@ -196,10 +215,22 @@ class MailNotifier(
         alert: Boolean,
         added: List<Child> = emptyList(),
         removed: Set<Int> = emptySet(),
+        sourceRevision: Long? = null,
     ) {
+        val safetyRevision = store.safety.state.value.revision
+        if (sourceRevision != null && sourceRevision != safetyRevision) return
+        if (!adultNotificationsAllowed()) {
+            clearPrivateNotifications()
+            return
+        }
         val addedIds = added.mapTo(HashSet()) { it.id }
         val children = activeMessageNotifications()
             .filter { accountOf(it) == account.id && it.id !in removed && it.id !in addedIds }
+            .filter { active ->
+                messageIdOf(active)?.let { store.messages.detail(it) }?.let {
+                    !store.safety.isSenderBlocked(it.summary.from?.address)
+                } == true
+            }
             .map { Child(it.id, it.notification.`when`, senderOf(it.notification), subjectOf(it.notification)) } + added
         if (children.isEmpty()) {
             manager.cancel(TAG_SUMMARY, account.id.toInt())
@@ -231,7 +262,7 @@ class MailNotifier(
             .setAutoCancel(true)
             .setContentIntent(openInboxIntent(account.id))
             .build()
-        post(TAG_SUMMARY, account.id.toInt(), summary)
+        post(TAG_SUMMARY, account.id.toInt(), summary, safetyRevision)
     }
 
     /** What the lock screen shows when content is hidden: just the count and the account. */
@@ -266,7 +297,9 @@ class MailNotifier(
      * message that was not sent always needs the user (the channel can still be muted).
      */
     override fun onSendFailed(item: OutboxItem) {
-        if (!hasPermission()) return
+        val safetyRevision = store.safety.state.value.revision
+        if (!adultNotificationsAllowed() || !hasPermission()) return
+        if ((item.draft.to + item.draft.cc + item.draft.bcc).any { store.safety.isSenderBlocked(it.address) }) return
         val subject = item.draft.subject.ifBlank { context.getString(R.string.no_subject) }
         val reason = item.lastError
             ?.let { error -> MailErrorKind.entries.firstOrNull { it.name == error } }
@@ -292,7 +325,7 @@ class MailNotifier(
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
-        post(TAG_SEND_FAILURE, notificationId(item.id), notification)
+        post(TAG_SEND_FAILURE, notificationId(item.id), notification, safetyRevision)
     }
 
     /** Dismisses the failure notification of an outbox message (retried, deleted or edited). */
@@ -303,15 +336,26 @@ class MailNotifier(
     // ------------------------------------------------------------------ helpers
 
     private fun canNotify(): Boolean =
-        settings.settings.value.notificationsEnabled && hasPermission() && manager.areNotificationsEnabled()
+        adultNotificationsAllowed() && settings.settings.value.notificationsEnabled && hasPermission() && manager.areNotificationsEnabled()
+
+    private fun adultNotificationsAllowed(): Boolean = store.safety.state.value.let {
+        it.audience == Audience.ADULT && it.termsAccepted
+    }
 
     private fun hasPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
-    private fun post(tag: String, id: Int, notification: Notification) {
+    private fun post(tag: String, id: Int, notification: Notification, safetyRevision: Long) {
+        // Check again immediately before delivery: a profile may have changed while building it.
+        if (!adultNotificationsAllowed() || store.safety.state.value.revision != safetyRevision) return
         try {
             manager.notify(tag, id, notification)
+            // A concurrent policy change may clear active notifications before this post lands.
+            // Cancel this exact delivery as well so stale private content cannot remain visible.
+            if (!adultNotificationsAllowed() || store.safety.state.value.revision != safetyRevision) {
+                manager.cancel(tag, id)
+            }
         } catch (e: SecurityException) {
             // Permission revoked between the check and the call.
             Log.w(TAG, "Notification not posted", e)

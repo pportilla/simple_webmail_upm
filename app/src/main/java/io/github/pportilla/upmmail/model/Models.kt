@@ -186,7 +186,7 @@ data class AppSettings(
      * Push: keep an IMAP IDLE connection to every INBOX open (in a foreground service) so new
      * mail arrives within seconds. The periodic check below stays on as a safety net.
      */
-    val pushEnabled: Boolean = true,
+    val pushEnabled: Boolean = false,
     /** Background check interval in minutes; 0 means manual only. */
     val syncIntervalMinutes: Int = 15,
     /** UI language: "" follows the system, otherwise a language tag ("en", "es"). */

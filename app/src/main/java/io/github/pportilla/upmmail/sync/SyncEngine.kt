@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.sync
 
+import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.data.db.FolderDao
 import io.github.pportilla.upmmail.data.db.FolderListEntry
 import io.github.pportilla.upmmail.data.db.FolderSyncState
@@ -165,6 +166,7 @@ class SyncEngine(
     }
 
     private suspend fun syncFolderListLocked(accountId: Long) {
+        store.safety.requireNetwork()
         val remote = clients.imap(accountId).listFolders()
         val entries = remote.map { folder ->
             FolderListEntry(
@@ -214,6 +216,7 @@ class SyncEngine(
         withContext(io) { syncAccountOnIo(accountId) }
 
     private suspend fun syncAccountOnIo(accountId: Long): List<MessageSummary> {
+        store.safety.requireNetwork()
         syncFolderList(accountId)
         // A send in progress (maybe a long upload) must not hold up the refresh: that sender
         // handles the due messages, and the controller plans the later ones.
@@ -241,6 +244,7 @@ class SyncEngine(
     suspend fun syncFolder(folderId: Long): List<MessageSummary> = withContext(io) { syncFolderOnIo(folderId) }
 
     private suspend fun syncFolderOnIo(folderId: Long): List<MessageSummary> {
+        store.safety.requireNetwork()
         val folder = db { store.folders.get(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         if (!folder.selectable) return emptyList()
         // No later sync reports stored mail as new, so it is reported even when this sync is
@@ -435,6 +439,7 @@ class SyncEngine(
     suspend fun loadOlder(folderId: Long, count: Int): Boolean = withContext(io) { loadOlderOnIo(folderId, count) }
 
     private suspend fun loadOlderOnIo(folderId: Long, count: Int): Boolean {
+        store.safety.requireNetwork()
         val state = db { store.folders.syncState(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         if (state.uidValidity == 0L) {
             syncFolder(folderId)
@@ -472,13 +477,16 @@ class SyncEngine(
         withContext(io) { loadBodyOnIo(messageId, inlineImages) }
 
     private suspend fun loadBodyOnIo(messageId: Long, inlineImages: Boolean) {
+        db { store.messages.detail(messageId)?.let(store.safety::requireMessageAccess) }
+
         val ref = db { store.messages.ref(messageId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Message $messageId")
         if (!ref.bodyLoaded) {
             val folder = db { store.folders.get(ref.folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder ${ref.folderId}")
             val body = clients.imap(ref.accountId).fetchBody(folder.fullName, ref.uid)
             db { storeParsedBody(ref.id, body) }
         }
-        if (inlineImages) downloadInlineImages(messageId)
+        db { store.messages.detail(messageId)?.let(store.safety::requireMessageAccess) }
+        if (inlineImages && store.safety.state.value.audience == Audience.ADULT) downloadInlineImages(messageId)
     }
 
     /** Stores a downloaded body (text for search, snippet, attachments); also used by [ServerSearch]. */
@@ -506,6 +514,7 @@ class SyncEngine(
     }
 
     private suspend fun prefetchBodies(folder: Folder) {
+        if (store.safety.state.value.audience != Audience.ADULT) return
         val candidates = try {
             db { store.messages.needingBody(folder.id, PREFETCH_COUNT, PREFETCH_MAX_SIZE) }
         } catch (_: Exception) {
@@ -530,11 +539,15 @@ class SyncEngine(
         withContext(io) { downloadAttachmentOnIo(attachmentId) }
 
     private suspend fun downloadAttachmentOnIo(attachmentId: Long): File {
+        store.safety.requireAttachments()
         val location = db { store.messages.attachment(attachmentId) }
             ?: throw MailException(MailErrorKind.NOT_FOUND, "Attachment $attachmentId")
         val attachment = location.attachment
+        db { store.messages.detail(attachment.messageId)?.let(store.safety::requireMessageAccess) }
         attachment.localPath?.let { File(it) }?.takeIf { it.isFile && (it.length() > 0 || attachment.size == 0L) }?.let { cached ->
             files.touch(cached, clock())
+            store.safety.requireAttachments()
+            db { store.messages.detail(attachment.messageId)?.let(store.safety::requireMessageAccess) }
             return cached
         }
         val destination = files.attachmentFile(attachment.messageId, attachment.id, attachment.fileName)
@@ -554,6 +567,8 @@ class SyncEngine(
         } finally {
             withContext(NonCancellable + io) { if (partial.exists()) partial.delete() }
         }
+        store.safety.requireAttachments()
+        db { store.messages.detail(attachment.messageId)?.let(store.safety::requireMessageAccess) }
         db { store.messages.setAttachmentLocalPath(attachment.id, destination.absolutePath) }
         return destination
     }
@@ -568,6 +583,7 @@ class SyncEngine(
         withContext(io) { searchServerOnIo(accountId, folderId, query, limit) }
 
     private suspend fun searchServerOnIo(accountId: Long, folderId: Long?, query: String, limit: Int): List<MessageSummary> {
+        store.safety.requireAttachments()
         val folder = (folderId?.let { db { store.folders.get(it) } } ?: inboxOf(accountId))
         if (folder.accountId != accountId) throw MailException(MailErrorKind.NOT_FOUND, "Folder of another account")
         val imap = clients.imap(accountId)
@@ -586,6 +602,7 @@ class SyncEngine(
 
     /** Snippets for the first search results, so the list is not just subjects. */
     private suspend fun prefetchSearchBodies(folder: Folder, fetched: List<RemoteMessage>) {
+        store.safety.requireAttachments()
         val newest = fetched.sortedByDescending { it.uid }.filter { it.size < PREFETCH_MAX_SIZE }.take(SEARCH_PREFETCH)
         for (message in newest) {
             try {
@@ -610,6 +627,7 @@ class SyncEngine(
     suspend fun emptyFolder(folderId: Long): Unit = withContext(io) { emptyFolderOnIo(folderId) }
 
     private suspend fun emptyFolderOnIo(folderId: Long) {
+        store.safety.requireAccountManagement()
         val folder = db { store.folders.get(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         withAccountLock(folder.accountId) {
             // Until their move has run, such messages are still in this folder on the server.
@@ -656,6 +674,7 @@ class SyncEngine(
     private suspend fun flushPendingOpsOnIo(accountId: Long): FlushResult = withAccountLock(accountId) { flushLocked(accountId) }
 
     private suspend fun flushLocked(accountId: Long): FlushResult {
+        store.safety.requireNetwork()
         recoverAfterRestart()
         val ops = db { store.pendingOps.forAccount(accountId) }
         if (ops.isEmpty()) return FlushResult.EMPTY
@@ -734,6 +753,11 @@ class SyncEngine(
         }
 
     private suspend fun execute(op: PendingOp, touched: MutableSet<Long>) {
+        store.safety.requireNetwork()
+        // No background draft uploads, stale adult uploads or implicit mailbox changes after
+        // a device is handed to a child. Only explicitly approved SMTP submissions leave it.
+        if (store.safety.state.value.audience != Audience.ADULT) throw MailException(MailErrorKind.SAFETY_BLOCKED)
+
         val imap = clients.imap(op.accountId)
         when (op.type) {
             PendingOpType.FLAG -> {
@@ -797,6 +821,7 @@ class SyncEngine(
         val draftsFolder = db { store.folders.findByRole(op.accountId, FolderRole.DRAFTS) }
             ?: throw MailException(MailErrorKind.NOT_FOUND, "The account has no Drafts folder")
         val composed = compose(account, draft)
+        store.safety.requireAttachments()
         val uid = imap.append(draftsFolder.fullName, composed.mime, true, true)
         touched += draftsFolder.id
         // From here on a failure must not fail the operation: running it again would store a
@@ -1033,6 +1058,7 @@ class SyncEngine(
             }
             val attempts = item.attempts + 1
             val composed = try {
+                store.safety.requireQueuedSend(item.id, item.draft)
                 checkAttachments(item.draft.attachments)
                 compose(account, item.draft)
             } catch (e: Exception) {
@@ -1046,7 +1072,7 @@ class SyncEngine(
             // the removal of the message from the outbox (see recordSent).
             val sentCopy = saveSentCopy(account, composed)
             try {
-                clients.smtp(account.id).send(composed.mime)
+                clients.smtp(account.id).send(composed.mime, store.safety.state) { store.safety.requireQueuedSend(item.id, item.draft) }
             } catch (e: Exception) {
                 sentCopy?.let { withContext(io) { it.file.delete() } }
                 val error = e.toMailException()
@@ -1056,7 +1082,9 @@ class SyncEngine(
                 }
                 return@withContext markFailed(entry, attempts, error)
             }
-            SendOutcome.Sent(account, composed, recordSent(account, entry, sentCopy))
+            val recorded = recordSent(account, entry, sentCopy)
+            store.safety.forgetQueuedSend(item.id)
+            SendOutcome.Sent(account, composed, recorded)
         } finally {
             sendingNow -= item.id
         }
@@ -1104,6 +1132,7 @@ class SyncEngine(
 
     /** Saves the message for its Sent copy; null without a Sent folder or if it cannot be written. */
     private suspend fun saveSentCopy(account: Account, message: ComposedMessage): SentCopy? {
+        if (store.safety.state.value.audience != Audience.ADULT) return null
         val sent = db { store.folders.findByRole(account.id, FolderRole.SENT) } ?: return null
         return withContext(io) {
             val file = File(sentCopiesDir, UUID.randomUUID().toString() + ".eml")
@@ -1175,6 +1204,7 @@ class SyncEngine(
      * refresh, if the copy was stored there and the folder is being synchronised.
      */
     private suspend fun afterSend(entry: OutboxEntry, outcome: SendOutcome.Sent): Long? {
+        if (store.safety.state.value.audience != Audience.ADULT) return null
         val account = outcome.account
         val draft = entry.item.draft
         withContext(NonCancellable) {
@@ -1210,6 +1240,7 @@ class SyncEngine(
 
     /** \Answered or $Forwarded on the message replied to or forwarded. */
     private fun recordSourceFlag(draft: Draft) {
+        if (store.safety.state.value.audience != Audience.ADULT) return
         val sourceId = draft.sourceMessageId ?: return
         val (localFlag, serverFlag) = when (draft.mode) {
             ComposeMode.REPLY, ComposeMode.REPLY_ALL -> LocalFlag.ANSWERED to MessageFlag.ANSWERED
@@ -1308,6 +1339,7 @@ class SyncEngine(
     suspend fun materializeIndexed(indexId: Long): HitOpenResult = withContext(io) { materializeIndexedOnIo(indexId) }
 
     private suspend fun materializeIndexedOnIo(indexId: Long): HitOpenResult {
+        store.safety.requireAttachments()
         val first = db { store.headerIndex.get(indexId) } ?: return HitOpenResult.Gone
         materializeRow(first)?.let { return it }
         val messageId = first.messageIdHeader?.takeIf { it.isNotBlank() } ?: return HitOpenResult.Gone
@@ -1320,6 +1352,8 @@ class SyncEngine(
 
     /** Opens [row]'s message, downloading it if needed; null if it is not (or no longer) there. */
     private suspend fun materializeRow(row: IndexedMessage): HitOpenResult? {
+        store.safety.requireAttachments()
+        if (store.safety.isSenderBlocked(row.from?.address)) throw MailException(MailErrorKind.SAFETY_BLOCKED)
         val folder = db { store.folders.get(row.folderId) } ?: return null
         val indexValidity = db { store.headerIndex.state(row.folderId) }?.uidValidity
         val cacheValidity = db { store.folders.syncState(row.folderId) }?.uidValidity ?: 0L

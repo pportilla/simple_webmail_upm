@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.data.repository
 
+import io.github.pportilla.upmmail.data.safety.Audience
+import kotlinx.coroutines.flow.flowOn
 import io.github.pportilla.upmmail.data.db.LocalFlag
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.db.MessageRef
@@ -30,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
@@ -72,15 +75,17 @@ class MailRepositoryImpl(
     /** Whether [indexJob] may go on over mobile data. */
     private var indexJobMetered = false
 
-    override fun observeFolders(accountId: Long): Flow<List<Folder>> = store.folders.observeByAccount(accountId)
+    override fun observeFolders(accountId: Long): Flow<List<Folder>> = combine(store.folders.observeByAccount(accountId), store.safety.state) { folders, safety ->
+        if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED) emptyList() else folders
+    }
 
-    override suspend fun getFolder(folderId: Long): Folder? = db { store.folders.get(folderId) }
+    override suspend fun getFolder(folderId: Long): Folder? = db { store.safety.requireAccountManagement(); store.folders.get(folderId) }
 
     override suspend fun findFolderByRole(accountId: Long, role: FolderRole): Folder? =
-        db { store.folders.findByRole(accountId, role) }
+        db { store.safety.requireAccountManagement(); store.folders.findByRole(accountId, role) }
 
     override fun observeMessages(folderId: Long, limit: Int, conversations: Boolean): Flow<List<MessageSummary>> = flow {
-        val cached = store.messages.observeList(folderId, limit, conversations)
+        val cached = combine(store.messages.observeList(folderId, limit, conversations), store.safety.state) { rows, _ -> visible(rows) }.flowOn(io)
         val folder = db { store.folders.get(folderId) }
         if (folder?.role != FolderRole.DRAFTS) {
             emitAll(cached)
@@ -89,12 +94,14 @@ class MailRepositoryImpl(
         val from = db { store.accounts.get(folder.accountId) }?.let { EmailAddress(it.email, it.displayName.takeIf(String::isNotBlank)) }
         emitAll(
             combine(cached, store.drafts.observeUnsynced(folder)) { rows, local ->
-                LocalDraftRows.merge(rows, local, folder, from, limit)
+                if (store.safety.state.value.audience == Audience.ADULT) LocalDraftRows.merge(rows, local, folder, from, limit) else rows
             },
         )
     }
 
-    override fun observeMessage(messageId: Long): Flow<MessageDetail?> = store.messages.observeDetail(messageId)
+    override fun observeMessage(messageId: Long): Flow<MessageDetail?> = combine(store.messages.observeDetail(messageId), store.safety.state) { detail, _ ->
+        detail?.let(store.safety::projectMessage)
+    }.flowOn(io)
 
     override fun observeThread(messageId: Long): Flow<List<MessageDetail>> = channelFlow {
         // Rows downloaded from search results are evicted some time after their last use: keep
@@ -111,7 +118,7 @@ class MailRepositoryImpl(
                 delay(detachedKeepAlive)
             }
         }
-        store.messages.observeThread(messageId).collect { send(it) }
+        combine(store.messages.observeThread(messageId), store.safety.state) { rows, _ -> rows.mapNotNull(store.safety::projectMessage) }.collect { send(it) }
     }
 
     override val syncingFolders: StateFlow<Set<Long>> get() = engine.syncingFolders
@@ -131,12 +138,13 @@ class MailRepositoryImpl(
     }
 
     override suspend fun ensureBodyLoaded(messageId: Long): Result<Unit> = mailResult {
-        engine.loadBody(messageId, inlineImages = true)
+        engine.loadBody(messageId, inlineImages = store.safety.state.value.audience == Audience.ADULT)
     }
 
     // ------------------------------------------------------------------ flags
 
     override suspend fun setRead(messageIds: List<Long>, read: Boolean) {
+        store.safety.requireAccountManagement()
         // Reading a conversation reads all of it; "unread" only needs its newest message.
         val ids = if (read) expand(messageIds) else messageIds
         setFlag(ids, LocalFlag.READ, MessageFlag.SEEN, read)
@@ -144,6 +152,7 @@ class MailRepositoryImpl(
     }
 
     override suspend fun setStarred(messageIds: List<Long>, starred: Boolean) {
+        store.safety.requireAccountManagement()
         // A conversation shows a star if any message has one, so unstarring clears them all.
         val ids = if (starred) messageIds else expand(messageIds)
         setFlag(ids, LocalFlag.STARRED, MessageFlag.FLAGGED, starred)
@@ -153,7 +162,7 @@ class MailRepositoryImpl(
         if (ids.isEmpty()) return
         val changed = db {
             store.tx {
-                val changed = store.messages.setFlag(ids, local, value)
+                val changed = store.messages.setFlag(visibleIds(ids), local, value)
                 recordFlagOps(changed, server, value)
                 if (local == LocalFlag.READ) {
                     changed.groupBy { it.folderId }.forEach { (folderId, rows) ->
@@ -186,6 +195,7 @@ class MailRepositoryImpl(
     }
 
     override suspend fun markFolderRead(folderId: Long) {
+        store.safety.requireAccountManagement()
         val folder = getFolder(folderId) ?: return
         val ids = db {
             store.tx {
@@ -209,10 +219,11 @@ class MailRepositoryImpl(
     // ------------------------------------------------------------------ moves
 
     override suspend fun archive(messageIds: List<Long>): Result<UndoHandle> = mailResult {
+        store.safety.requireAccountManagement()
         val ids = expand(messageIds)
         val record = db {
             store.tx {
-                val refs = store.messages.refs(ids).filter { !it.hidden }
+                val refs = store.messages.refs(visibleIds(ids)).filter { !it.hidden }
                 val archives = refs.map { it.accountId }.distinct().associateWith { accountId ->
                     store.folders.findByRole(accountId, FolderRole.ARCHIVE)
                         ?: throw MailException(MailErrorKind.NOT_FOUND, "The account has no Archive folder")
@@ -225,13 +236,14 @@ class MailRepositoryImpl(
     }
 
     override suspend fun delete(messageIds: List<Long>): Result<UndoHandle?> = mailResult {
+        store.safety.requireAccountManagement()
         // Drafts only on this device are discarded (there is no server copy to move to Trash).
         val (listed, cached) = messageIds.partition { LocalDraftRows.draftId(it) != null }
         listed.forEach { discardLocalDraft(LocalDraftRows.draftId(it) ?: return@forEach) }
         val ids = expand(cached)
         val (moves, deletes) = db {
             store.tx {
-                val refs = store.messages.refs(ids).filter { !it.hidden }
+                val refs = store.messages.refs(visibleIds(ids)).filter { !it.hidden }
                 val folders = refs.map { it.folderId }.distinct().associateWith { store.folders.get(it) }
                 val (inBin, elsewhere) = refs.partition { folders[it.folderId]?.role in BIN_ROLES }
                 val trash = elsewhere.map { it.accountId }.distinct().associateWith { store.folders.findByRole(it, FolderRole.TRASH) }
@@ -247,12 +259,13 @@ class MailRepositoryImpl(
     }
 
     override suspend fun moveTo(messageIds: List<Long>, folderId: Long): Result<UndoHandle> = mailResult {
+        store.safety.requireAccountManagement()
         val ids = expand(messageIds)
         val record = db {
             store.tx {
                 val target = store.folders.get(folderId) ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
                 if (!target.selectable) throw MailException(MailErrorKind.NOT_FOUND, "Folder ${target.fullName} cannot hold messages")
-                val refs = store.messages.refs(ids).filter { !it.hidden && it.accountId == target.accountId }
+                val refs = store.messages.refs(visibleIds(ids)).filter { !it.hidden && it.accountId == target.accountId }
                 recordMoves(refs, undoable = true) { target }
             }
         }
@@ -326,6 +339,7 @@ class MailRepositoryImpl(
     }
 
     override suspend fun undo(handle: UndoHandle) {
+        store.safety.requireAccountManagement()
         if (handle.id <= 0 || handle.count == 0) return
         withContext(io) {
             for (round in 1..UNDO_ROUNDS) {
@@ -387,6 +401,7 @@ class MailRepositoryImpl(
     }
 
     override suspend fun emptyFolder(folderId: Long): Result<Unit> = mailResult {
+        store.safety.requireAccountManagement()
         val folder = getFolder(folderId) ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         if (folder.role !in BIN_ROLES) throw MailException(MailErrorKind.UNKNOWN, "Only Trash and Junk can be emptied")
         engine.emptyFolder(folderId)
@@ -399,18 +414,37 @@ class MailRepositoryImpl(
     // ------------------------------------------------------------------ search
 
     override suspend fun searchLocal(query: String, filters: SearchFilters, limit: Int): List<MessageSummary> =
-        db { store.messages.search(query, filters, limit) }
+        db { visible(store.messages.search(query, filters, limit)) }
 
     override suspend fun searchLocalHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit> = db {
-        val cached = store.messages.searchHits(query, filters, limit)
-        val indexed = store.headerIndex.search(query, filters, limit).map(SearchHit::Indexed)
+        val cached = store.messages.searchHits(query, filters, limit).filter { store.messages.detail(it.message.id)?.let(store.safety::projectMessage) != null }
+        val indexed = if (store.safety.state.value.audience == Audience.ADULT && store.safety.state.value.termsAccepted) store.headerIndex.search(query, filters, limit).filterNot { store.safety.isSenderBlocked(it.from?.address) }.map(SearchHit::Indexed) else emptyList()
         mergeHits(cached, indexed, limit = limit)
     }
 
-    override fun searchServerProgress(request: ServerSearchRequest): Flow<ServerSearchProgress> =
-        engine.serverSearch.search(request)
+    override fun searchServerProgress(request: ServerSearchRequest): Flow<ServerSearchProgress> = channelFlow {
+        store.safety.requireAttachments()
+        var latest: ServerSearchProgress? = null
+        fun project(progress: ServerSearchProgress): ServerSearchProgress {
+            val state = store.safety.state.value
+            return if (state.audience != Audience.ADULT || !state.termsAccepted) {
+                progress.copy(hits = emptyList(), finished = true, error = MailException(MailErrorKind.SAFETY_BLOCKED))
+            } else progress.copy(hits = progress.hits.filterNot { store.safety.isSenderBlocked(it.display.from?.address) })
+        }
+        val policyObserver = launch {
+            store.safety.state.drop(1).collect { latest?.let { send(project(it)) } }
+        }
+        try {
+            engine.serverSearch.search(request).collect { latest = it; send(project(it)) }
+        } finally {
+            // A search is finite. The policy observer must not keep its collector alive forever.
+            policyObserver.cancel()
+        }
+    }
 
     override suspend fun openSearchHit(hit: SearchHit): Result<HitOpenResult> = mailResult {
+        if (hit is SearchHit.Cached) db { store.messages.detail(hit.message.id)?.let(store.safety::requireMessageAccess) }
+        else store.safety.requireAttachments()
         when (hit) {
             is SearchHit.Cached -> db {
                 // The row may have gone since the search (evicted, expunged) or be being moved.
@@ -434,6 +468,7 @@ class MailRepositoryImpl(
         }
 
     override fun startIndexingNow(allowMetered: Boolean) {
+        store.safety.requireAttachments()
         synchronized(this) {
             // A run already going does the work, unless this one may use mobile data and it may
             // not: then this one follows it (runs take turns).
@@ -446,9 +481,9 @@ class MailRepositoryImpl(
         }
     }
 
-    override suspend fun recentSearches(): List<String> = db { store.recentSearches.list() }
+    override suspend fun recentSearches(): List<String> = db { store.safety.requireAccountManagement(); store.recentSearches.list() }
 
-    override suspend fun addRecentSearch(query: String) = db { store.recentSearches.add(query) }
+    override suspend fun addRecentSearch(query: String) = db { store.safety.requireAccountManagement(); store.recentSearches.add(query) }
 
     override suspend fun clearRecentSearches() = db { store.recentSearches.clear() }
 
@@ -456,6 +491,7 @@ class MailRepositoryImpl(
 
     /** "Mark as read" from a notification: applied at once and pushed without delay. */
     suspend fun markReadNow(messageId: Long) {
+        store.safety.requireAccountManagement()
         val ref = db { store.messages.ref(messageId) } ?: return
         setFlag(listOf(messageId), LocalFlag.READ, MessageFlag.SEEN, true)
         notifyRead(listOf(messageId))
@@ -467,6 +503,7 @@ class MailRepositoryImpl(
      * undo window, pushed without delay. Returns false if the message no longer exists.
      */
     suspend fun archiveOrDeleteNow(messageId: Long, archive: Boolean): Boolean {
+        store.safety.requireAccountManagement()
         val record = db {
             store.tx {
                 val ref = store.messages.ref(messageId)?.takeIf { !it.hidden } ?: return@tx null
@@ -506,6 +543,14 @@ class MailRepositoryImpl(
             // Notification housekeeping is best effort.
         }
     }
+
+    private fun visible(rows: List<MessageSummary>): List<MessageSummary> {
+        val state = store.safety.state.value
+        if (!state.termsAccepted || state.audience == Audience.UNCONFIGURED) return emptyList()
+        if (state.audience == Audience.ADULT) return rows.filterNot { store.safety.isSenderBlocked(it.from?.address) }
+        return rows.mapNotNull { row -> store.messages.detail(row.id)?.let(store.safety::projectMessage)?.summary?.copy(threadCount = row.threadCount) }
+    }
+    private fun visibleIds(ids: List<Long>): List<Long> = ids.filter { id -> store.messages.detail(id)?.let(store.safety::projectMessage) != null }
 
     private suspend fun <T> db(block: () -> T): T = withContext(io) { block() }
 

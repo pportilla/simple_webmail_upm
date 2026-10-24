@@ -239,6 +239,7 @@ class ServerSearchTest : SyncTestBase() {
             passwords,
             imapFactory = { settings, password -> ImapClient(settings) { logins.incrementAndGet(); password() } },
             transportPolicy = ::allowLoopbackTransport,
+            safety = store.safety,
         )
         val search = ownSearch(counting)
         try {

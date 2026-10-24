@@ -20,6 +20,8 @@ enum class MailErrorKind {
     TOO_LARGE,
     /** The whole message went out but the server's answer did not arrive: it may have been sent. */
     SEND_UNCERTAIN,
+    /** The current safety profile or exact guardian approval does not permit this operation. */
+    SAFETY_BLOCKED,
     UNKNOWN,
 }
 

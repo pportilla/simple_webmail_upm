@@ -48,7 +48,7 @@ class RepositoriesTest {
     fun setUp() {
         store = newStore()
         files = LocalFiles(temp.newFolder("files"))
-        val clients = MailClientProvider({ store.accounts.get(it) }, passwords)
+        val clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety)
         engine = SyncEngine(store, clients, files, FileAttachmentOpener)
     }
 
@@ -74,7 +74,7 @@ class RepositoriesTest {
     private fun accounts(checker: CredentialChecker) = AccountRepositoryImpl(
         store = store,
         passwords = passwords,
-        clients = MailClientProvider({ store.accounts.get(it) }, passwords),
+        clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety),
         engine = engine,
         settings = settings,
         files = files,

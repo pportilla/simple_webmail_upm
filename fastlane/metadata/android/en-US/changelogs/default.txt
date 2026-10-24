@@ -1,1 +1,4 @@
-First Google Play release. Email for existing UPM accounts, with multiple mailboxes, conversation view, attachments, drafts, search and configurable notifications. English and Spanish interfaces, light and dark themes, and optional contact suggestions.
+First Play release of the unofficial UPM Mail client.
+Adult mail tools include folders, search, drafts, attachments and notification choices.
+Supervised mail adds guardian setup, approved contacts, review of incoming messages and approval of each outgoing message.
+English and Spanish interfaces with an in-app privacy policy.

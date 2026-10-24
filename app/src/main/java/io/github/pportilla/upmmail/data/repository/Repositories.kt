@@ -254,6 +254,8 @@ interface SyncController {
 
 /** Manual dependency container, created once by the Application. */
 interface AppContainer {
+    val safetyRepository: io.github.pportilla.upmmail.data.safety.SafetyRepository
+
     val accountRepository: AccountRepository
     val mailRepository: MailRepository
     val composeRepository: ComposeRepository

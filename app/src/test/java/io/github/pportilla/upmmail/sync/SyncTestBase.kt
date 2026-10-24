@@ -127,14 +127,14 @@ abstract class SyncTestBase {
         greenMail.start()
         greenMail.setUser(anaEmail, "ana", password)
         greenMail.setUser("bob@upm.es", "bob", password)
-        store = MailStore(HookedDatabase(JdbcSqlDatabase.inMemory()), TableObserver(), clock::now)
+        store = MailStore(HookedDatabase(JdbcSqlDatabase.inMemory()), TableObserver(), io.github.pportilla.upmmail.data.db.adultSafety(), clock::now)
         account = store.addTestAccount(
             email = anaEmail,
             imap = ServerSettings("127.0.0.1", greenMail.imap.port, SecurityMode.NONE, "ana"),
             smtp = ServerSettings("127.0.0.1", greenMail.smtp.port, SecurityMode.NONE, "ana"),
         )
         passwords.set(account.id, password)
-        clients = MailClientProvider({ store.accounts.get(it) }, passwords, transportPolicy = ::allowLoopbackTransport)
+        clients = MailClientProvider({ store.accounts.get(it) }, passwords, transportPolicy = ::allowLoopbackTransport, safety = store.safety)
         files = LocalFiles(temp.newFolder("files"))
         engine = SyncEngine(store, clients, files, FileAttachmentOpener, listener, clock = clock::now)
     }

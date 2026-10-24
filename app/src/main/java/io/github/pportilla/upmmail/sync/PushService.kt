@@ -20,6 +20,7 @@ import io.github.pportilla.upmmail.mail.ImapIdler
 import io.github.pportilla.upmmail.model.ServerSettings
 import io.github.pportilla.upmmail.notifications.MailNotifier
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,8 +45,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Connections pause while offline and restart at once on a new network, and restart when
  * accounts, server settings or passwords change. The service stops itself when push is turned
- * off or the last account is removed. Its ongoing notification uses a silent channel that the
- * user can turn off.
+ * off, the last account is removed, or the active profile stops authorizing adult push.
+ * Its ongoing notification reports generic connection status on a silent channel.
  */
 class PushService : Service() {
 
@@ -63,6 +64,9 @@ class PushService : Service() {
     @Volatile
     private var networkBlocked = false
 
+    @Volatile
+    private var stopping = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -72,6 +76,11 @@ class PushService : Service() {
             stopSelf()
             return
         }
+        this.container = container
+        if (!pushAllowedBySafety(container.store.safety) || !container.settingsRepository.settings.value.pushEnabled) {
+            stopForSafety()
+            return
+        }
         // The channel must exist before the first startForeground().
         try {
             container.notifier.createChannels()
@@ -79,27 +88,32 @@ class PushService : Service() {
             Log.w(TAG, "Could not create the notification channels", e)
         }
         if (!enterForeground()) return
-        this.container = container
         container.pushController.onServiceStarted(this)
+        if (stopping) return
         followNetwork()
         scope.launch { superviseConnections(container) }
         // On the main thread, like onDestroy: no update can land after the notification is gone.
         // Shown again after a language change.
         scope.launch(Dispatchers.Main) {
-            combine(status, container.locale) { current, _ -> current }.collect { showStatus(it) }
+            combine(status, container.locale, container.store.safety.state) { current, _, _ -> current }
+                .collect { showStatus(it) }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Not set up (onCreate could not go to the foreground): already stopping.
-        if (container == null) return START_NOT_STICKY
+        val current = container ?: return START_NOT_STICKY
+        if (stopping || !pushAllowedBySafety(current.store.safety) || !current.settingsRepository.settings.value.pushEnabled) {
+            stopForSafety()
+            return START_NOT_STICKY
+        }
         // Every startForegroundService() needs a startForeground(), even for a running service;
         // a sticky restart (null intent) needs one as well.
-        enterForeground()
-        return START_STICKY
+        return if (enterForeground()) START_STICKY else START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        stopping = true
         container?.pushController?.onServiceStopped(this)
         networkCallback?.let { callback ->
             try {
@@ -109,15 +123,30 @@ class PushService : Service() {
             }
         }
         scope.cancel()
+        watchers.clear()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 
     /** Checks every connection now (keep-alive alarm, network usable again); returns when done. */
     suspend fun refreshConnections() {
+        val current = container ?: return
+        if (stopping || !pushAllowedBySafety(current.store.safety)) {
+            stopForSafety()
+            return
+        }
         coroutineScope {
             watchers.values.toList().forEach { watcher -> launch { watcher.refresh() } }
         }
+    }
+
+    /** End in-flight IDLE sockets before Android's asynchronous stop-service callback. */
+    internal fun stopForSafety() {
+        stopping = true
+        scope.cancel()
+        watchers.clear()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     // ------------------------------------------------------------------ foreground
@@ -140,6 +169,12 @@ class PushService : Service() {
         }
 
     private fun showStatus(status: Status) {
+        if (stopping) return
+        val current = container ?: return
+        if (!pushAllowedBySafety(current.store.safety)) {
+            stopForSafety()
+            return
+        }
         try {
             getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(status))
         } catch (e: RuntimeException) {
@@ -151,15 +186,17 @@ class PushService : Service() {
         // The application's texts follow the language chosen in the app; on Android 12 and
         // older the service's own resources stay in the system's language.
         val texts = applicationContext
+        // Keep this notification free of account identifiers even while an adult profile is
+        // active: a profile transition can happen between building and posting it.
         val title = when (status) {
             Status.Connecting -> texts.getString(R.string.notif_push_connecting)
             Status.Waiting -> texts.getString(R.string.notif_push_waiting)
             Status.Reconnecting -> texts.getString(R.string.notif_push_reconnecting)
             Status.Offline -> texts.getString(R.string.notif_push_offline)
-            is Status.LoginFailed -> texts.getString(R.string.notif_push_login_failed, status.email)
+            Status.LoginFailed -> texts.getString(R.string.app_name)
         }
         val text = texts.getString(
-            if (status is Status.LoginFailed) R.string.notif_push_login_failed_hint else R.string.notif_push_hint,
+            if (status == Status.LoginFailed) R.string.notif_push_login_failed_hint else R.string.notif_push_hint,
         )
         val open = PendingIntent.getActivity(
             this,
@@ -200,12 +237,15 @@ class PushService : Service() {
             accounts,
             connectivity,
             logins,
-        ) { enabled, list, network, loginChanges -> Plan(enabled, list, network, loginChanges) }
+            container.store.safety.state,
+        ) { enabled, list, network, loginChanges, safety ->
+            Plan(enabled && pushAllowedBySafety(container.store.safety), list, network, loginChanges, safety.revision)
+        }
             .distinctUntilChanged()
             .collectLatest { plan ->
                 watchers.clear()
                 when {
-                    !plan.enabled || plan.accounts.isEmpty() -> stopSelf()
+                    !plan.enabled || plan.accounts.isEmpty() -> stopForSafety()
                     !plan.network.online -> status.value = Status.Offline
                     else -> runWatchers(container, plan.accounts)
                 }
@@ -215,6 +255,7 @@ class PushService : Service() {
     private suspend fun runWatchers(container: DefaultAppContainer, accounts: List<PushAccount>) {
         coroutineScope {
             val running = accounts.mapNotNull { account ->
+                if (!pushAllowedBySafety(container.store.safety)) throw CancellationException("Push authorization changed")
                 val idler = try {
                     container.clients.idler(account.id)
                 } catch (e: Exception) {
@@ -223,7 +264,7 @@ class PushService : Service() {
                     return@mapNotNull null
                 }
                 val watcher = PushWatcher(
-                    connection = idler.asPushConnection(),
+                    connection = idler.asPushConnection().withPushSafety(container.store.safety),
                     sync = { force -> syncInbox(container, account.id, force) },
                     // While the app is visible, read and moved messages are mostly the user's own
                     // doing (the visible INBOX is polled anyway); in the background they let
@@ -247,6 +288,7 @@ class PushService : Service() {
 
     /** The INBOX sync of the background check; a poll (not forced) just after another sync is skipped. */
     private suspend fun syncInbox(container: DefaultAppContainer, accountId: Long, force: Boolean) {
+        if (!pushAllowedBySafety(container.store.safety)) throw CancellationException("Push authorization changed")
         val engine = container.engine
         val inbox = engine.inboxOf(accountId)
         val age = inbox.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
@@ -278,7 +320,7 @@ class PushService : Service() {
     }
 
     private fun statusOf(states: List<Pair<String, PushState>>): Status {
-        states.firstOrNull { it.second == PushState.LOGIN_FAILED }?.let { return Status.LoginFailed(it.first) }
+        if (states.any { it.second == PushState.LOGIN_FAILED }) return Status.LoginFailed
         return when {
             states.any { it.second == PushState.RETRYING } -> Status.Reconnecting
             states.any { it.second == PushState.CONNECTING } -> Status.Connecting
@@ -341,6 +383,7 @@ class PushService : Service() {
         val accounts: List<PushAccount>,
         val network: Connectivity,
         val loginChanges: Int,
+        val safetyRevision: Long,
     )
 
     /** What the ongoing notification says. */
@@ -353,7 +396,7 @@ class PushService : Service() {
 
         data object Offline : Status
 
-        data class LoginFailed(val email: String) : Status
+        data object LoginFailed : Status
     }
 
     private companion object {

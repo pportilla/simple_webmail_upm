@@ -3,147 +3,212 @@
 Prepared **24 October 2026** for the first Google Play release by **zango**.
 Support and privacy contact: **p.portilla89@gmail.com**.
 
-This records source preparation, validation and an unpublished internal-test draft. It does not
-record a production submission, Google policy approval or a live Play release. See [the release checklist](PLAY_STORE_RELEASE.md)
-for the remaining Console and device steps.
+The supervised-mail implementation and signed **version 2 (1.0.0)** bundle are prepared and
+validated. **Version 2 is available to internal testers; production is not published.** The internal
+release is marked **Not reviewed**. Code validation, test distribution and Google approval are
+separate states; this report records each below. See [the release checklist](PLAY_STORE_RELEASE.md)
+for policy sources and the remaining submission steps.
 
 ## Source and release identity
 
-- Repository: `pportilla/simple_webmail_upm`.
-- Review branch: `codex/play-store-release`.
+- Repository: `pportilla/simple_webmail_upm`; review branch: `codex/play-store-release`.
 - Base branch: `claude/android-upm-webmail-app-3p882d`.
-- Base commit: `6fd15a425030d200b25893f9279c07fd5573b9df`.
-- Base Git tree: `ffd666258c4627faa99664f5b797bdf0a31a16be`.
-- The reviewed changes are recorded by the commit containing this report. The artifacts below
-  were built from the modified working tree before the review commit was created; the base
-  commit alone does not contain the release preparation changes.
-- Release package: `io.github.pportilla.upmmail`; version code **1**; version name **1.0.0**.
+- The artifacts were built from the modified source tree containing the supervised-mail changes.
+  Their checksums below identify the validated files; an earlier base commit does not contain them.
+- Release package: `io.github.pportilla.upmmail`; version code **2**; version name **1.0.0**.
 - Minimum Android API **26**; target/compile API **36**; release is not debuggable.
-- Confirmed distribution intent: **free**, **worldwide**, **no ads**, with an intended audience
-  that **includes children under 13**. The owner has an existing, verified personal Play Console
-  account and has created the app record. The intended child audience introduces Google Play
-  Families and children's-data requirements; compliance has not yet been established, and this
-  report does not establish readiness for a child-directed release. This app's Console requires
-  **12 closed-test participants opted in continuously for 14 days** before applying for production
-  access.
+- Owner-confirmed distribution intent: **free**, **worldwide**, **no ads**, **all ages including
+  children under 13**. The app is an unofficial client for existing UPM or compatible TLS mailboxes.
+- The existing verified personal Play account requires **12 closed-test participants opted in
+  continuously for 14 days** before an application for production access. Three tester addresses
+  are configured in both the closed and internal tracks; that does not establish an active closed
+  test or start its clock.
 
-## Completed validation
+## Implemented safety and release changes
 
-- **611 release unit tests passed**: zero failures, errors or skipped tests. Coverage includes
-  plaintext account rejection before credentials/network access, persisted IMAP/SMTP/push
-  connections, account removal, mail protocol behavior, search, database migrations and UI logic.
-- Release lint completed with **0 errors, 39 warnings and 2 hints**. Warnings remain for direct
-  battery-optimization exemption, dependency freshness, plural/resource/style issues and other
-  maintenance suggestions. The `BatteryLife` warning is material to review: retain the direct
-  request only with evidence supporting the core IMAP notification use case. See the checklist's
-  exemption and foreground-service sections; Google approval has not been established.
-- The signed AAB passed **bundletool 1.18.3 validation** and JAR signature verification.
-- Signing configuration checks rejected missing credentials, partial credentials and an external
-  copy of the public debug certificate. Explicit unsigned validation succeeded without using
-  signing credentials. Both the Gradle configuration and release helper reject the debug key.
-- The bundle declares **16 KB page alignment**. All four ABI copies of the bundled
-  `libandroidx.graphics.path.so` have ELF load-segment alignment `0x4000`.
-- Release and debug APKs passed **16 KB zip alignment** checks and APK signature verification.
-- Language splitting is disabled in the AAB so its English/Spanish language picker works even
-  when the alternate language was not selected during installation.
-- Native English/Spanish privacy policy, XML resources and changed-file whitespace were checked.
-  The policy is reachable before login and from Settings.
-- A signed universal APK generated from the exact final AAB was installed and cold-launched on
-  Android 16/API 36. The release process remained alive with no app-scoped fatal exception, crash
-  or ANR. The offline pre-login policy showed zango, the support email and the expected disclosures;
-  both server-security dropdowns exposed only SSL/TLS and STARTTLS. The universal APK also passed
-  signature and 16 KB zip-alignment checks. Runtime evidence is retained locally under
-  `release-output/runtime-smoke/`. This emulator used 4 KB runtime pages: 16 KB support was checked
-  structurally, not exercised on a 16 KB runtime device.
-- Store screenshots exercise the running Android UI using fictional, offline local data. They
-  are not evidence of a successful real UPM login, SMTP send or live push notification.
+- Neutral birth-date entry before mailbox setup; only the derived age band is retained. Under-18
+  users enter a separate supervised interface. Unconfigured profiles cannot access credentials
+  or mail. Supervised setup requires an adult, acceptable-use acceptance, provider authorization acknowledgment,
+  an adult birth-date declaration and a guardian PIN. These are local controls, not independent
+  identity verification or a certificate of legal parental consent.
+- Guardian-approved addresses and individual incoming-message approval bound to the reviewed
+  content. Each outgoing message requires approval of its exact content and recipients. Account
+  changes, contact blocking and revocation invalidate pending permissions. A sender address is
+  not treated as proof of identity.
+- Supervised reading and writing use plain text, with no child attachments, remote images,
+  clickable links, sharing, address-book import or search. Supervised drafts stay local. The MIME
+  sender can include a generated HTML alternative of the same text; children do not compose rich
+  HTML content.
+- Children can block a sender and save a local concern for guardian review. A separate adult
+  provider-report composer previews deliberate report text and destination. Reports also contain
+  the sending identity and normal mail headers; private original correspondence is not attached
+  automatically. In supervised profiles, reports require a live guardian session when sent.
+- Persisted PIN throttling and a salted PIN verifier; guardian sessions lock on pause/background,
+  Back and process restart. Sensitive surfaces and dialogs protect screenshots; Recents capture
+  is disabled on supported Android versions, with window protection on older versions.
+- Authorization checks cover repositories, queued SMTP, live transport work, notifications,
+  attachments and external Android actions. Revocation interrupts active SMTP/IMAP work where
+  transmission can still be stopped. Mail already accepted by a server cannot be recalled, and
+  ambiguous delivery remains a non-automatic-retry `SEND_UNCERTAIN` result.
+- Verified TLS is required for configured IMAP/SMTP. Android cleartext traffic is disabled.
+  Passwords use Android Keystore encryption; mailbox files are not separately encrypted by the
+  app. Backup and device transfer are disabled.
+- Instant push is **off by default** and available only in the adult profile. Supervised profiles
+  use periodic/manual retrieval and no mail-content notifications. Push notifications contain
+  generic status, and changing profiles cancels live IDLE connections. The direct battery-exemption
+  permission was removed; battery help opens general Android settings.
+- English/Spanish native and public privacy/acceptable-use text, store metadata, dedicated upload
+  signing and release helpers are prepared. No ads, billing, developer mail relay, analytics or
+  automatic crash-reporting SDK was found.
 
-## Local artifacts
+## Verified build results
 
-These generated files are ignored by Git. Preserve the exact AAB used for upload and its checksum.
-Do not rebuild with the same version code after uploading it without checking Console state.
+The final machine-readable record is `release-output/family-release-2/validation.json`.
+
+| Check | Result |
+| --- | --- |
+| Release unit tests | **643 passed; 0 failures, 0 errors, 0 skipped.** |
+| Focused transport regressions | Four SMTP tests cover revocation while MAIL/RCPT waits, guardian report locking and uncertain delivery after the terminator. Three push tests cover denied startup and cancellation of live IDLE/keep-alive work. |
+| Safety coverage | Age/terms gates, exact approvals, account changes, PIN persistence/throttling, restart locking, sender blocks, reports, queued retries and provider authorization. |
+| Release lint | **0 errors, 40 warnings, 2 hints.** Remaining warnings concern dependency freshness, resources, style and maintenance. The new `UseKtx` suggestion concerns intentionally checked synchronous safety-policy persistence. There is no `BatteryLife` warning. No suppression was added to conceal these checks. |
+| Bundle/signing | Final signed AAB passed bundletool validation and JAR signature verification. Release APK and exact-AAB universal APK passed signature verification. |
+| 16 KB support | AAB declares `PAGE_ALIGNMENT_16K`; all four ABI copies of `libandroidx.graphics.path.so` have 16,384-byte ELF load alignment. Release/universal APK zip alignment passed. This is structural validation, not a test on a 16 KB runtime device. |
+| Packaging | Version 2, expected package, API 26/36, backup disabled and non-debuggable confirmed. Language splitting is disabled so both languages remain available offline. |
+| Text/assets | Native EN/ES privacy XML parsed; store text meets character limits; changed-file whitespace checks passed. |
+
+The full suite covers the final Kotlin/Java source. The final resource-only wording corrections
+were then repackaged and lint checked. Real UPM sign-in and external-provider mail delivery
+remain unverified; local fixture tests must not be presented as those checks.
+
+The universal APK generated from the exact final AAB was installed on an Android 16/API 36
+emulator. Actual under-13 onboarding reached adult DOB/PIN setup, provider acknowledgment and
+terms acceptance, then the supervised home. Correct PIN unlock and immediate Home/reopen locking
+passed. A guardian-screen capture was black and the safe child surface remained readable; no
+app-scoped fatal exception or ANR appeared. This is a 4 KB emulator, not a 16 KB runtime test.
+
+Broader fixture-based checks exercised individual incoming review, exact outgoing approval and
+local queuing (not live delivery), wrong PIN rejection, child sender blocking, a concern visible to
+the guardian, communication revocation and ignored external mail/share intents. Those checks used
+an earlier debug build (SHA-256 beginning `3ae9e8ff`); the final debug build (beginning `23e7f8fd`)
+also preserved the locked/paused profile after update. Recents retained a previous safe child snapshot; the current
+guardian snapshot was protected. This does not claim that every Recents image is blank. Final
+screenshot provenance is recorded per locale and the scoped QA summary is
+`release-output/family-runtime/QA_SUMMARY.json`.
+
+The exact final-AAB universal APK also authenticated against a disposable local TLS 1.3 IMAP/SMTP
+fixture on a separate Android 16 emulator. A continuous **97.64-second** video shows adult opt-in,
+the ongoing notification, actual synthetic arrival while backgrounded, opening the delivered
+message and stopping push by selecting manual checking. Service and ongoing-notification absence
+were then verified. A temporary CA was trusted only by that disposable emulator; application TLS
+verification and the signed APK were unchanged. This is not a UPM login, external-provider test
+or reusable reviewer account. The [public demonstration and guide](https://pportilla.github.io/simple_webmail_upm/foreground-service/)
+returned HTTP 200 and matched the local export at **12:14 UTC on 24 October 2026**, deployed at
+`gh-pages` commit `d1dc11515a26d98778b7d54695c2785632e068bb`. Sanitized video and identity evidence
+are in `release-output/push-evidence-final/`; fixture credentials and private CA material are excluded.
+
+Known non-blocking limitation: repeated external `mailto` requests into an existing adult activity
+can retain screenshot protection until a fresh normal launch. This may prevent OS screenshots;
+it does not expose mail or lose message content.
+
+## Exact local artifacts
+
+Generated release files are ignored by Git. Preserve the exact uploaded AAB rather than rebuilding
+an already-uploaded version code.
 
 | Artifact | Local path | SHA-256 |
 | --- | --- | --- |
-| Signed Play AAB | `/home/gablo/mail_upm/app/build/outputs/bundle/release/app-release.aab` | `0c69de663ef38875da84faaddce57fc1a7dce4149ebaec43e117a130ad8e2c90` |
-| Signed release APK for device testing | `/home/gablo/mail_upm/app/build/outputs/apk/release/app-release.apk` | `6e7045ea8981162c9def65fd2a43109b1c48407e5b3cc36d3d2b3417b64ca0f7` |
-| Signed universal APK generated from the final AAB and smoke-tested | `/home/gablo/mail_upm/release-output/runtime-smoke/universal.apk` | `fa312c1917c7975ce868fc1e2810311beba942fafcd25539f142ab23938bf050` |
-| Debug APK used for screenshot fixtures | `/home/gablo/mail_upm/app/build/outputs/apk/debug/app-debug.apk` | `aba0a48f7448955fdf0e4f2871e20e26e7c021f3341d531072a67cd3180e18e7` |
+| Signed Play AAB | `/home/gablo/mail_upm/app/build/outputs/bundle/release/app-release.aab` | `ac81d703d4afb24e73743ec31f9845925bd97b5bfaad503b23f7618f830b8dfb` |
+| Signed release APK | `/home/gablo/mail_upm/app/build/outputs/apk/release/app-release.apk` | `ddff439aa0d56a91f30e15e631f95957157b9217acaae50f4c14ef4f2cfe6628` |
+| Universal APK generated from that AAB | `/home/gablo/mail_upm/release-output/family-release-2/universal.apk` | `25c6f3a6105905219686bd0a34a6ff9c6ef2f1c08719096bfa947649cb1bace6` |
+| Debug APK for local QA | `/home/gablo/mail_upm/app/build/outputs/apk/debug/app-debug.apk` | `23e7f8fd7531b6ec45cc2df22043b40e077678d1d7da737b74fc169da6e118d8` |
 
-The release upload certificate SHA-256 is:
+Public upload-certificate SHA-256:
 
 ```text
 B5:CE:F6:46:1E:E2:98:48:17:C9:7B:D8:69:21:BA:EC:10:4E:F9:44:B5:47:E4:A0:D1:DB:7D:D1:CA:01:95:48
 ```
 
-The private upload key is at `/home/gablo/.config/upm-mail/upload-key.jks` and its signing
-configuration at `/home/gablo/.config/upm-mail/signing.properties`, both mode `0600` and outside
-the repository. Back up the key and its passwords securely. Neither file belongs in the PR,
-release kit, browser session or public artifacts. The certificate fingerprint above is public
-information, not the private key. Google Play App Signing's eventual distribution certificate
-may differ from this upload certificate.
+The private key is `/home/gablo/.config/upm-mail/upload-key.jks`; signing configuration is
+`/home/gablo/.config/upm-mail/signing.properties`. Both have mode `0600`, outside Git. Back them up
+securely. They must not appear in public artifacts or the release kit. Google's distribution
+certificate may differ from this upload certificate.
 
-The handoff ZIP has been assembled at
-`/home/gablo/mail_upm/release-output/upm-mail-1.0.0-play-kit.zip`. It contains release artifacts,
-public signing information, store assets and documentation; it excludes private signing
-material and browser credentials. Refresh its documentation after final handoff-status updates.
+The previous version-1 bundle, 611-test report, `runtime-smoke/` universal APK and older handoff
+ZIP are superseded evidence. Do not use them to describe version 2 or upload them by mistake.
 
-## Listing assets and privacy
+## Store assets and public policies
 
-- English and Spanish listing text: `fastlane/metadata/android/en-US/` and `es-ES/`.
-- Per locale: a **512 × 512** icon, a **1024 × 500** feature graphic, and five **1080 × 1920**
-  phone screenshots showing inbox, message, compose, privacy policy and sign-in.
-- Screenshots are unmodified `adb exec-out screencap -p` output from the debug app on an
-  Android **API 36** emulator. Each locale's `images/phoneScreenshots/CAPTURE.json` records
-  dimensions, timestamps, fixture information and SHA-256 checksums.
-- Screenshot messages and identities are fictional and use reserved `.invalid` domains.
-  There is no real mailbox password in the fixture. The capture helper refuses physical
-  devices, the release package and an existing non-demo account.
-- Artwork derives from the existing launcher envelope vector. Editable SVGs and regeneration
-  instructions are in [store-artwork](store-artwork/README.md).
-- The public policy source is [privacy.html](privacy.html). It identifies zango and the confirmed
-  contact, explains direct mail-server transmission, TLS, password encryption, private local
-  storage, optional contacts/remote content, background work and local versus provider deletion.
-- The owner authorized public policy hosting. The policy was deployed separately to the
-  `gh-pages` branch at commit `e9bfe9167eff70eab1a8e0c822e13b2ae82b61ee`, with GitHub Pages configured
-  to serve that branch with HTTPS enforced. The public policy at
-  [pportilla.github.io/simple_webmail_upm/privacy.html](https://pportilla.github.io/simple_webmail_upm/privacy.html)
-  was verified to return HTTP 200 and the reviewed content. Entry in Play Console remains to be
-  confirmed. A manual Pages workflow is also prepared.
-- The owner-authorized internal-test release draft was saved in Play Console with the signed
-  version **1 (1.0.0)** AAB above and English/Spanish release notes. Console confirmed that the
-  changes were saved. No rollout was started; the draft is unpublished.
+- English/Spanish listing text is under `fastlane/metadata/android/en-US/` and `es-ES/`.
+- Each locale has a **512 × 512** icon and **1024 × 500** feature graphic derived from the existing
+  launcher envelope vector. Editable sources are in [store-artwork](store-artwork/README.md).
+- **16 final store screenshots** are prepared: eight per locale, at **1080 × 1920**, frozen at
+  **12:03 UTC on 24 October 2026**. They show the adult inbox, message, compose, privacy and sign-in
+  screens, plus supervised home, approved-message view and supervised compose. They are unmodified
+  runtime captures with fictional `.invalid` identities and no real mailbox password. Each locale's
+  `images/phoneScreenshots/CAPTURE.json` records the final debug APK, provenance and checksums.
+  Guardian setup and approvals used the actual UI; only fictional mail cache entries were seeded.
+- [Privacy policy](https://pportilla.github.io/simple_webmail_upm/privacy.html) and
+  [acceptable-use rules](https://pportilla.github.io/simple_webmail_upm/acceptable-use.html) were
+  redeployed at `gh-pages` commit `602bbe90804caa4af335b1f0ef6f7b5cd186bb45`. Both returned HTTP 200
+  and matched final source bytes at **11:49 UTC on 24 October 2026**. Local verification is in
+  `release-output/privacy-deployment.json`. The privacy URL is saved in Play Console.
 
-## Remaining release gates
+## Confirmed Console state
 
-**Child-audience blocker:** the current app is a free-form email client. It does not yet implement
-a safety reminder before communication, adult verification/authorization, parent-managed child
-controls or content/contact safeguards for a supervised child experience. The owner's confirmed
-under-13 audience cannot be treated as a completed Console checkbox. The existing signed build
-may be evaluated in the authorized unpublished/internal test draft, but it is not ready for a Families
-or child-directed submission. See the Families assessment in the release checklist before
-planning the required product changes and provider/legal review.
+- The app record exists. Category **Communication**, support email and repository support website
+  are saved. Final English/Spanish listing descriptions, 16 screenshots, icon and localized feature
+  graphics are saved as changes ready for review. The icon and two feature graphics are labeled
+  as created/edited using AI; the unmodified runtime screenshots are not. Public policy links are saved.
+- The IARC Communication questionnaire is saved. Blocking/reporting are declared; the app is
+  **not** described as universally limited to invited friends. Current results are ESRB Everyone,
+  PEGI Parental guidance, Brazil/Germany all ages, and IARC Generic/Russia/South Korea 12+.
+  These regional ratings do not establish a target-audience declaration or Families approval.
+- Three tester addresses are configured and selected in both the **closed and internal** tracks.
+  No completed 12-person/14-day test or production-access approval is claimed.
+- **App access remains unresolved.** The owner declined reviewer mailbox credentials and offered
+  the public support email. Console explicitly requires reviewer access to all functionality and
+  says reviewers cannot contact the owner for access. A support address cannot truthfully satisfy
+  that attestation. No review mailbox or full-function offline demo is configured; no external
+  account was provisioned. The audience form is disabled until sign-in details are completed.
+- Data safety is saved as a **draft**, with submission blocked by the unfinished audience form.
+  It declares 13 collected data types for app functionality: required email addresses, user IDs and
+  emails; optional names, selected contacts, files/documents, photos, videos, three audio categories,
+  server search history and remote-content interactions. It declares non-ephemeral processing,
+  encrypted transit, no app account creation, existing external accounts and no deletion-request
+  mechanism. No sharing is declared under the disclosed user-directed transfer exceptions.
+  Local-only age/PIN/approval records are not represented as off-device collection. The saved
+  answer record is `release-output/data-safety-declaration.json`; this draft is not approval.
+- **Internal version 2 was published at 11:56 UTC on 24 October 2026.** Console confirms
+  **Available to internal testers / Not reviewed**, under temporary name
+  `io.github.pportilla.upmmail (unreviewed)`. The three selected testers can use the
+  [internal opt-in link](https://play.google.com/apps/internaltest/4701581542823930298). Availability
+  requires an eligible tester account; this is not a public production listing or Google approval.
+- The **specialUse foreground-service declaration is saved and verified after reload**, using the
+  public exact-release video and the optional adult IMAP IDLE explanation. This is not Google
+  approval of the service type. Final store listing changes show **Ready to send for review**.
+- The **closed version-2 release is saved ready for review, but review submission is blocked**.
+  It uses the same AAB, the three selected testers and all 178 available countries/regions.
+  Release validation shows **zero errors** and two non-blocking mapping/native-symbol warnings.
+  Publishing overview has **14 pending changes**, including the closed rollout and both listings.
+  Its pre-review checks explicitly prevent sending because **Target audience and content** and
+  **Data safety** are incomplete. No closed review submission, rollout or qualifying test has
+  started; this state is `ready_for_review_blocked`.
 
-1. Obtain an authorized reusable review/test mailbox: UPM test/service access explicitly permitted
-   by its provider, or a dedicated custom TLS IMAP/SMTP mailbox with full-feature reviewer access.
-   Include synthetic content and English instructions. Do not transfer a private personal inbox
-   or place review passwords in Git. A custom review server does not verify the real UPM integration.
-2. Test real UPM sign-in, send/receive/reply/forward, attachments, draft sync, outbox recovery,
-   search, removal, contacts permission, image controls and notifications on supported devices.
-   Test Android background restrictions, reboot and network loss with push enabled and disabled.
-3. Record and host the foreground-service demonstration video. Complete the `specialUse`
-   declaration and substantiate the direct battery-exemption rationale; the code and checklist
-   alone do not establish policy acceptance.
-4. Enter the verified live privacy-policy URL in Play Console and keep the hosted and native
-   policies synchronized with future data-handling changes.
-5. Assess and satisfy the Families and children's-data requirements for the confirmed audience,
-   including any required product, consent, privacy and communication controls. Complete
-   app-access, Data safety, content-rating, target-audience and other Console forms.
-   Direct transmission to the configured mail provider must be considered in Data safety;
-   absence of a developer backend is not a blanket declaration of no collection.
-6. Inspect the saved unpublished internal-test draft and any available validation/pre-launch
-   reports. Then arrange the Console-required closed test with 12 participants continuously opted
-   in for 14 days, gather feedback and apply for production access when eligible.
-7. Review the exact listing/track changes with the owner before a review submission or rollout.
-   The draft PR, approved policy hosting and unpublished internal-test preparation do not authorize
-   merging the source or releasing the app to testers or production.
+## Remaining publication gates
+
+1. Complete truthful full-function reviewer access if a supported route becomes available. The
+   owner declined credentials; do not invent them, repeat the request or certify access based on
+   the support email. Preserve the audience intent, rather than substituting 13+ to bypass forms.
+2. Complete the target-audience/Families and Data safety declarations against the final controls,
+   provider eligibility and applicable child-data obligations. Local DOB/PIN controls do not
+   independently establish legal consent or Google acceptance.
+3. Complete the publishing-overview steps that Console permits and monitor any review response.
+   The `specialUse` declaration and video are saved; optional adult-only push still requires
+   Google's assessment of the declared service type.
+4. Activate the required closed test when Console permits it, recruit at least **12** participants,
+   maintain their opt-in for **14 consecutive days**, gather feedback, then apply for production
+   access. Three configured addresses and an internal release do not fulfill this gate.
+5. Preserve the actual track state: internal testing is available, the saved closed release is blocked,
+   and production access is not approved. The owner has requested publication; no additional
+   approval is implied here for already-authorized steps. Update this record when Console
+   confirms any further review or rollout.

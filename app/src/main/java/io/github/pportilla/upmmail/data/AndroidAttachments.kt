@@ -7,6 +7,7 @@ import android.webkit.MimeTypeMap
 import io.github.pportilla.upmmail.data.files.AttachmentOpener
 import io.github.pportilla.upmmail.data.files.LocalFiles
 import io.github.pportilla.upmmail.data.repository.AttachmentImporter
+import io.github.pportilla.upmmail.data.safety.requireAdultExternalAccess
 import io.github.pportilla.upmmail.model.OutgoingAttachment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,6 +23,7 @@ import java.util.Locale
  */
 class AndroidAttachmentOpener(private val context: Context, private val files: LocalFiles) : AttachmentOpener {
     override fun open(uri: String): InputStream {
+        context.requireAdultExternalAccess()
         val parsed = Uri.parse(uri)
         return when (parsed.scheme?.lowercase(Locale.ROOT)) {
             "content" -> context.contentResolver.openInputStream(parsed) ?: throw FileNotFoundException(uri)
@@ -42,6 +44,7 @@ class AndroidAttachmentOpener(private val context: Context, private val files: L
 class AndroidAttachmentImporter(private val context: Context, private val files: LocalFiles) : AttachmentImporter {
 
     override suspend fun import(uri: String): OutgoingAttachment? = withContext(Dispatchers.IO) {
+        context.requireAdultExternalAccess()
         val parsed = Uri.parse(uri)
         when (parsed.scheme?.lowercase(Locale.ROOT)) {
             "file" -> describeOwnFile(uri)
@@ -81,6 +84,7 @@ class AndroidAttachmentImporter(private val context: Context, private val files:
         }
         val target = files.newComposeFile(name)
         try {
+            context.requireAdultExternalAccess()
             val input = resolver.openInputStream(uri) ?: return null
             input.use { source -> target.outputStream().use { source.copyTo(it) } }
         } catch (e: Exception) {

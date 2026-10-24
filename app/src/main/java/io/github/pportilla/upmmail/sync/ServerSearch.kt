@@ -110,7 +110,7 @@ class ServerSearch internal constructor(
      * cancelling the collection stops it, socket included. Failures are emitted, never thrown.
      */
     fun search(request: ServerSearchRequest): Flow<ServerSearchProgress> =
-        channelFlow { SearchRun(request, this).execute() }.flowOn(io)
+        channelFlow { store.safety.requireAttachments(); store.safety.requireNetwork(); SearchRun(request, this).execute() }.flowOn(io)
 
     // ------------------------------------------------------------------ connection pool
 
@@ -812,6 +812,7 @@ class ServerSearch internal constructor(
         }
 
         private suspend fun emit(finished: Boolean = false, error: MailException? = null) {
+            store.safety.requireAttachments()
             out.send(
                 ServerSearchProgress(
                     request = request,
@@ -819,7 +820,7 @@ class ServerSearch internal constructor(
                     folder = folder,
                     step = step,
                     totalSteps = totalSteps,
-                    hits = hits,
+                    hits = hits.filterNot { store.safety.isSenderBlocked(it.display.from?.address) },
                     problems = problems.toList(),
                     finished = finished,
                     truncated = truncated,

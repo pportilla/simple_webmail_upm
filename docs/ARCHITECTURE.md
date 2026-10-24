@@ -324,9 +324,12 @@ version has a step, and `Sqlite318CompatTest` runs the schema and queries on SQL
 fails on every start until a fixed build ships. A missing step, or a downgrade (`onDowngrade`),
 recreates the database and loses the local data.
 
-**`versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Android therefore
-refuses to install an older build over a newer one (INSTALL_FAILED_VERSION_DOWNGRADE) instead of
-letting it wipe the database. A local build cannot be installed over a CI build. Forcing it
+**Debug `versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Release
+numbering is independent: the current default is 2, overridden with `releaseVersionCode` or
+`UPM_RELEASE_VERSION_CODE`, and must increase for every Play upload. Debug and release packages
+are separate. Android refuses to install an older build over a newer build of the same package
+(INSTALL_FAILED_VERSION_DOWNGRADE) instead of letting it wipe the database. A local debug build
+cannot be installed over a CI debug build. Forcing it
 (`adb install -d`) wipes the database when the forced build's schema version is older.
 Uninstalling always deletes the accounts, drafts, outbox and changes not yet sent.
 

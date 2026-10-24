@@ -8,7 +8,9 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import io.github.pportilla.upmmail.UpmMailApp
 import io.github.pportilla.upmmail.data.files.LocalFiles
+import io.github.pportilla.upmmail.data.safety.requireAdultExternalAccess
 import java.io.File
 import java.io.FileNotFoundException
 
@@ -42,7 +44,7 @@ class AttachmentProvider : ContentProvider() {
     }
 
     override fun getType(uri: Uri): String? {
-        val name = uri.lastPathSegment ?: return null
+        val name = fileFor(uri)?.name ?: return null
         return guessMimeType(name) ?: "application/octet-stream"
     }
 
@@ -63,18 +65,39 @@ class AttachmentProvider : ContentProvider() {
 
     /** The file behind [uri] if it is a regular file inside a servable area, else null. */
     private fun fileFor(uri: Uri): File? {
+        requireExportAllowed()
         val context = context ?: return null
         val segments = uri.pathSegments
         if (segments.isNullOrEmpty() || segments.any { it == ".." || it == "." || it.isEmpty() }) return null
         val file = runCatching { File(context.filesDir, segments.joinToString(File.separator)).canonicalFile }.getOrNull()
             ?: return null
         val files = LocalFiles(context.filesDir)
-        return file.takeIf { files.isServable(it) && it.isFile }
+        if (!files.isServable(file) || !file.isFile) return null
+        if (segments.first() == "attachments") {
+            val messageId = segments.getOrNull(1)?.toLongOrNull() ?: return null
+            val attachmentId = segments.getOrNull(2)?.toLongOrNull() ?: return null
+            val container = (context.applicationContext as? UpmMailApp)?.container as? DefaultAppContainer
+                ?: throw SecurityException("Attachment access is unavailable")
+            val location = container.store.messages.attachment(attachmentId) ?: return null
+            if (location.attachment.messageId != messageId ||
+                location.attachment.localPath?.let { File(it).canonicalFile } != file) return null
+            val message = container.store.messages.detail(messageId) ?: return null
+            if (runCatching { container.safetyRepository.requireMessageAccess(message) }.isFailure) {
+                throw SecurityException("Attachment access is blocked by the safety profile")
+            }
+        }
+        requireExportAllowed()
+        return file
+    }
+
+    private fun requireExportAllowed() {
+        (context ?: throw SecurityException("Attachment access is unavailable")).requireAdultExternalAccess()
     }
 
     companion object {
         /** content:// URI for a file under filesDir/attachments or filesDir/compose. */
         fun uriFor(context: Context, file: File): Uri {
+            context.requireAdultExternalAccess()
             val root = context.filesDir.canonicalFile
             val target = file.canonicalFile
             val prefix = root.path + File.separator

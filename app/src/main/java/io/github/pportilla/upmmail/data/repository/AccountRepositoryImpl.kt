@@ -4,6 +4,7 @@ import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.files.LocalFiles
 import io.github.pportilla.upmmail.data.security.PasswordStore
 import io.github.pportilla.upmmail.mail.AddressParser
+import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.ImapClient
 import io.github.pportilla.upmmail.mail.SmtpClient
 import io.github.pportilla.upmmail.mail.UpmPresets
@@ -20,6 +21,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import io.github.pportilla.upmmail.data.safety.Audience
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,24 +40,53 @@ interface CredentialChecker {
 
 /** [CredentialChecker] using the real mail engine. */
 object EngineCredentialChecker : CredentialChecker {
-    override suspend fun checkImap(settings: ServerSettings, password: String) {
+    override suspend fun checkImap(settings: ServerSettings, password: String) = checkImap(settings, password) {}
+
+    suspend fun checkImap(
+        settings: ServerSettings,
+        password: String,
+        policyChanges: StateFlow<*>? = null,
+        authorize: () -> Unit,
+    ): Unit = coroutineScope {
         requireEncryptedTransport(settings)
-        val client = ImapClient(settings) { password }
+        authorize()
+        val client = ImapClient(settings, { authorize(); password }, ImapOptions.DEFAULT.copy(abortable = true))
+        val refusal = AtomicReference<MailException?>(null)
+        val observer = policyChanges?.let { changes ->
+            launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                changes.collect {
+                    try { authorize() } catch (error: Exception) {
+                        refusal.compareAndSet(null, error.toMailException())
+                        client.abort()
+                    }
+                }
+            }
+        }
         try {
             client.connect()
+            authorize()
+        } catch (error: Exception) {
+            throw refusal.get() ?: error
         } finally {
-            try {
-                client.close()
-            } catch (_: Throwable) {
-                // The login result is what matters.
-            }
+            observer?.cancel()
+            client.abort()
+            try { client.close() } catch (_: Exception) { /* Already closed. */ }
         }
     }
 
-    override suspend fun checkSmtp(settings: ServerSettings, password: String) {
+    override suspend fun checkSmtp(settings: ServerSettings, password: String) = checkSmtp(settings, password) {}
+
+    suspend fun checkSmtp(
+        settings: ServerSettings,
+        password: String,
+        policyChanges: StateFlow<*>? = null,
+        authorize: () -> Unit,
+    ) {
         requireEncryptedTransport(settings)
-        SmtpClient(settings) { password }.verify()
+        authorize()
+        SmtpClient(settings) { authorize(); password }.verify(policyChanges, authorize)
     }
+
 }
 
 /** [AccountRepository]: accounts in SQLite, passwords in the [PasswordStore]. */
@@ -68,9 +104,11 @@ class AccountRepositoryImpl(
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : AccountRepository {
 
-    override val accounts: Flow<List<Account>> = store.accounts.observeAll()
+    override val accounts: Flow<List<Account>> = combine(store.accounts.observeAll(), store.safety.state) { accounts, safety ->
+        if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED) emptyList() else accounts
+    }
 
-    override suspend fun getAccount(id: Long): Account? = db { store.accounts.get(id) }
+    override suspend fun getAccount(id: Long): Account? = db { store.safety.requireAccountManagement(); store.accounts.get(id) }
 
     override suspend fun addAccount(
         email: String,
@@ -79,6 +117,8 @@ class AccountRepositoryImpl(
         imap: ServerSettings?,
         smtp: ServerSettings?,
     ): Result<Account> = mailResult {
+        store.safety.requireAccountManagement()
+        store.safety.requireNetwork()
         val address = email.trim()
         if (!AddressParser.isValidAddress(address)) throw MailException(MailErrorKind.UNKNOWN, "Invalid e-mail address: $address")
         if (db { store.accounts.getByEmail(address) } != null) throw duplicate(address)
@@ -89,17 +129,18 @@ class AccountRepositoryImpl(
 
         val defaults = UpmPresets.defaultsFor(address)
         val imapSettings = if (imap != null) {
-            imap.also { checker.checkImap(it, password) }
+            imap.also { store.safety.requireAccountManagement(); checkImap(it, password) }
         } else {
-            detectLogin(defaults.imap, defaults.imapUsernameCandidates) { checker.checkImap(it, password) }
+            detectLogin(defaults.imap, defaults.imapUsernameCandidates) { store.safety.requireAccountManagement(); checkImap(it, password) }
         }
         val smtpSettings = if (smtp != null) {
-            smtp.also { checker.checkSmtp(it, password) }
+            smtp.also { store.safety.requireAccountManagement(); checkSmtp(it, password) }
         } else {
-            detectLogin(defaults.smtp, defaults.smtpUsernameCandidates) { checker.checkSmtp(it, password) }
+            detectLogin(defaults.smtp, defaults.smtpUsernameCandidates) { store.safety.requireAccountManagement(); checkSmtp(it, password) }
         }
 
         val id = db {
+            store.safety.requireAccountManagement()
             store.tx {
                 if (store.accounts.getByEmail(address) != null) throw duplicate(address)
                 store.accounts.insert(
@@ -155,6 +196,7 @@ class AccountRepositoryImpl(
     }
 
     override suspend fun updateAccount(account: Account, newPassword: String?, verify: Boolean): Result<Account> = mailResult {
+        store.safety.requireAccountManagement()
         // Also applies to metadata-only updates with verify=false.
         requireEncryptedTransport(account.imap)
         requireEncryptedTransport(account.smtp)
@@ -167,11 +209,13 @@ class AccountRepositoryImpl(
         if (verify) {
             val password = newPassword ?: db { passwords.get(account.id) }
                 ?: throw MailException(MailErrorKind.AUTHENTICATION, "No stored password")
-            checker.checkImap(account.imap, password)
-            checker.checkSmtp(account.smtp, password)
+            store.safety.requireAccountManagement()
+            checkImap(account.imap, password)
+            store.safety.requireAccountManagement()
+            checkSmtp(account.smtp, password)
         }
         val updated = account.copy(email = email, displayName = account.displayName.trim())
-        db { store.accounts.update(updated) }
+        db { store.safety.requireAccountManagement(); store.safety.forgetAccount(account.id); store.accounts.update(updated) }
         if (newPassword != null) {
             try {
                 db { passwords.set(account.id, newPassword) }
@@ -189,6 +233,8 @@ class AccountRepositoryImpl(
     }
 
     override suspend fun removeAccount(id: Long) {
+        store.safety.requireAccountManagement()
+        store.safety.forgetAccount(id)
         clients.invalidate(id)
         withContext(io) {
             val downloaded = store.messages.idsWithDownloads(id)
@@ -216,6 +262,20 @@ class AccountRepositoryImpl(
         } catch (_: Exception) {
             // Housekeeping only.
         }
+    }
+
+    private suspend fun checkImap(settings: ServerSettings, password: String) {
+        store.safety.requireAccountManagement()
+        if (checker === EngineCredentialChecker) EngineCredentialChecker.checkImap(settings, password, store.safety.state, store.safety::requireAccountManagement)
+        else checker.checkImap(settings, password)
+        store.safety.requireAccountManagement()
+    }
+
+    private suspend fun checkSmtp(settings: ServerSettings, password: String) {
+        store.safety.requireAccountManagement()
+        if (checker === EngineCredentialChecker) EngineCredentialChecker.checkSmtp(settings, password, store.safety.state, store.safety::requireAccountManagement)
+        else checker.checkSmtp(settings, password)
+        store.safety.requireAccountManagement()
     }
 
     private fun syncInBackground(accountId: Long) {

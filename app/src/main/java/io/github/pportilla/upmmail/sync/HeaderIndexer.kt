@@ -183,6 +183,8 @@ class HeaderIndexer internal constructor(
      * others are skipped then. Never throws but for cancellation: problems are in the result.
      */
     suspend fun run(budget: IndexBudget, accountIds: List<Long>? = null): IndexRunResult = withContext(io) {
+        store.safety.requireAttachments()
+        store.safety.requireNetwork()
         if (budget.dedicatedConnection) {
             runMutex.withLock { runLocked(budget, accountIds) }
         } else {

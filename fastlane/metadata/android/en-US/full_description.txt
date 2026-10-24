@@ -1,6 +1,11 @@
 Manage your Universidad Politécnica de Madrid email from a native Android app. UPM Mail supports existing @upm.es, @alumnos.upm.es and @externos.upm.es accounts.
 
-UPM Mail is an independent, unofficial app. It is not affiliated with or endorsed by Universidad Politécnica de Madrid. You need an existing UPM email account to use it.
+UPM Mail is an independent, unofficial app. It is not affiliated with or endorsed by Universidad Politécnica de Madrid. Use an existing UPM mailbox or configure a compatible TLS IMAP/SMTP account. The app does not create a provider account.
+
+SUPERVISED MAIL
+Users under 18 use a separate supervised interface. Mailbox access stays blocked until setup is complete. An adult sets it up with a guardian PIN before connecting a permitted mailbox. The guardian approves contacts, reviews each incoming message before it appears, and approves the exact content and recipients of each outgoing message. Sending can be disabled. The supervised interface uses plain text for reading and writing and does not offer attachments, external links, remote images, device-contact import, exports or search. Younger children can read and write together with their guardian. The PIN provides local controls, not independent identity verification.
+
+The features below describe the standard mail interface for adults.
 
 YOUR MAIL, ORGANISED
 Switch between multiple accounts and browse Inbox, Sent, Drafts, Archive, Trash, Spam and your own folders. Read conversations, star messages and use swipe or multi-select actions to archive, move, delete or mark mail as read. Undo recent actions and cancel a queued send during its undo period.
@@ -12,7 +17,7 @@ FIND OLDER MESSAGES
 Search cached mail and indexed message headers across your folders. Search the mail server for additional results or message text, and narrow results by folder, unread status, stars or attachments.
 
 CHOOSE HOW MAIL ARRIVES
-Use push checking through a direct IMAP connection, periodic checks every 15, 30 or 60 minutes, or checking when you open the app. Push uses an ongoing connection-status notification and can be turned off in Settings. Delivery timing depends on connectivity, server availability and Android background restrictions.
+Choose push checking through a direct IMAP connection, periodic checks every 15, 30 or 60 minutes, or checking when you open the app. Push is off by default. Push uses an ongoing connection-status notification and can be turned off in Settings. Delivery timing depends on connectivity, server availability and Android background restrictions.
 
 READ YOUR WAY
 Remote images are blocked until you allow them. Choose light or dark appearance, optional system colours, and an English or Spanish interface. Open mailto links and print messages.

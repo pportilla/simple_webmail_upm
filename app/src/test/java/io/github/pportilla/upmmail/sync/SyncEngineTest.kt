@@ -415,10 +415,10 @@ class SyncEngineTest : SyncTestBase() {
             override fun insert(table: String, values: Map<String, Any?>, conflict: Conflict): Long =
                 database.insert(table, values, conflict).also { if (table == Tables.MESSAGES && it > 0) afterInsert?.invoke() }
         }
-        val hookedStore = MailStore(hooked, TableObserver(), clock::now)
+        val hookedStore = MailStore(hooked, TableObserver(), io.github.pportilla.upmmail.data.db.adultSafety(), clock::now)
         val hookedAccount = hookedStore.addTestAccount(email = anaEmail, imap = account.imap, smtp = account.smtp)
         passwords.set(hookedAccount.id, password)
-        val hookedClients = MailClientProvider({ hookedStore.accounts.get(it) }, passwords, transportPolicy = ::allowLoopbackTransport)
+        val hookedClients = MailClientProvider({ hookedStore.accounts.get(it) }, passwords, transportPolicy = ::allowLoopbackTransport, safety = hookedStore.safety)
         val recorder = RecordingListener()
         val hookedEngine = SyncEngine(hookedStore, hookedClients, files, FileAttachmentOpener, recorder, clock = clock::now)
         try {

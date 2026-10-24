@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.data.repository
 
+import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.db.SearchText
 import io.github.pportilla.upmmail.model.ContactSource
@@ -36,7 +37,12 @@ class ContactRepositoryImpl(
         val text = query.trim()
         if (text.isEmpty() || limit <= 0) return emptyList()
         return withContext(io) {
-            val excluded = exclude.mapTo(HashSet()) { it.trim().lowercase() }
+            val safety = store.safety.state.value
+            if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED) return@withContext emptyList()
+            if (safety.audience == Audience.SUPERVISED) return@withContext safety.approvedContacts
+                .filter { it !in safety.blockedSenders && it !in exclude && it.contains(text, ignoreCase = true) }
+                .take(limit).map { ContactSuggestion(EmailAddress(it), ContactSource.HISTORY) }
+            val excluded = exclude.mapTo(HashSet()) { it.trim().lowercase() } + safety.blockedSenders
             val now = clock()
             val merged = LinkedHashMap<String, Scored>()
 
@@ -82,6 +88,7 @@ class ContactRepositoryImpl(
                 )
                 .take(limit)
                 .map { it.suggestion }
+                .filter { store.safety.state.value.audience == Audience.ADULT && !store.safety.isSenderBlocked(it.address.address) }
         }
     }
 

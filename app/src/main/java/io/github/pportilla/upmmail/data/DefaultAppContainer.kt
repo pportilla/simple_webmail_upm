@@ -56,13 +56,17 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     val files = LocalFiles(app.filesDir)
 
-    val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app)) }
+    override val safetyRepository by lazy {
+        io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(io.github.pportilla.upmmail.data.safety.PrefsSafetyStorage(app))
+    }
+
+    val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app), safety = safetyRepository) }
 
     override val settingsRepository: SettingsRepository by lazy { PrefsSettingsRepository(app) }
 
     val passwordStore: PasswordStore by lazy { KeystorePasswordStore(app) }
 
-    val clients: MailClientProvider by lazy { MailClientProvider({ store.accounts.get(it) }, passwordStore) }
+    val clients: MailClientProvider by lazy { MailClientProvider({ store.accounts.get(it) }, passwordStore, safety = safetyRepository) }
 
     val notifier: MailNotifier by lazy {
         MailNotifier(app, store, settingsRepository) { androidSyncController.isForeground }
@@ -192,6 +196,15 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
     val locale: StateFlow<Locale> = appLocale.asStateFlow()
 
     init {
+        applicationScope.launch(Dispatchers.IO) {
+            safetyRepository.state.collect {
+                step("safety notification cleanup") { notifier.clearPrivateNotifications() }
+                step("safety connection cleanup") {
+                    clients.closeAll()
+                    store.accounts.getAll().forEach { account -> clients.invalidate(account.id) }
+                }
+            }
+        }
         applicationScope.launch(Dispatchers.IO) { housekeeping() }
         // Channel names are shown in the system settings: keep them in the app's language.
         applicationScope.launch(Dispatchers.IO) {
