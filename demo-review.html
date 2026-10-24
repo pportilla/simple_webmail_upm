@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How to review UPM Mail with its public offline sample mailbox and guardian controls.">
+  <title>UPM Mail — interactive demo and reviewer guide</title>
+  <style>
+    :root { color-scheme: light dark; font: 17px/1.65 system-ui, sans-serif; }
+    body { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { font-size: 2rem; } h2 { margin-top: 2rem; }
+    a { color: #1767b5; } code { overflow-wrap: anywhere; }
+    .notice { padding: 16px 20px; border: 2px solid #a77c16; border-radius: 12px; }
+    .meta { color: #646b77; } li { margin: .65em 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; vertical-align: top; padding: 12px; border: 1px solid #aab1bb; }
+    @media (prefers-color-scheme: dark) { a { color: #a8caff; } .meta { color: #b7bec9; } }
+  </style>
+</head>
+<body>
+  <nav aria-label="Related documents"><a href="privacy.html">Privacy policy</a> · <a href="acceptable-use.html">Acceptable-use rules</a></nav>
+  <h1>UPM Mail: interactive demo and reviewer guide</h1>
+  <p class="meta">Developer: zango · Package: <code>io.github.pportilla.upmmail</code> · Prepared 24 October 2026</p>
+  <p class="notice"><strong>For version 1.0.1 (version code 3).</strong> The final signed build was checked on Android 16 on 24 October 2026: offline sample mail, attachments, drafts, notifications, and incoming and outgoing guardian approvals. Sample mail is local and fictional. Live UPM authentication was not part of this walkthrough; this guide does not imply Google approval. Version code 2 does not contain the sample mailbox.</p>
+
+  <h2>What the sample mailbox does</h2>
+  <p>UPM Mail is an independent, unofficial email client. Normal use connects to the user's own authorized UPM or compatible TLS IMAP/SMTP mailbox. The app does not create a University account.</p>
+  <p><strong>Try sample mail</strong> opens a fictional mailbox on the device without a mailbox username, password, one-time code or developer approval. This option is available through the normal setup interface. The account is labeled <strong>Sample · review@example.invalid</strong>. Sample messages and addresses are fictional. Mail actions performed with that account are simulated locally: a sample message shown as sent has not been delivered to a person or mail provider. Use fictional content while reviewing it.</p>
+  <p>The demo keeps the normal age, acceptable-use and guardian controls. The reviewer chooses their own local guardian PIN when testing supervision. There is no shared guardian PIN or personal mailbox credential on this page.</p>
+
+  <h2>1. Open the adult sample mailbox</h2>
+  <ol>
+    <li>Use an isolated test installation of the build containing the demo. On <strong>Who will use this app?</strong>, enter a fictional adult test date of birth, read the acceptable-use rules and select <strong>Continue</strong>. The date is used locally to derive the age band.</li>
+    <li>On the mailbox setup screen, select <strong>Try sample mail</strong> (<strong>Probar correo de ejemplo</strong> in Spanish). Leave the real mailbox credential fields empty.</li>
+    <li>Read the demo notice and open its inbox. Check that the selected sending account is the sample mailbox before composing.</li>
+    <li>Read a sample message, star it, move it between folders or delete and undo deletion. Try the sample conversation, Drafts, Archive and Projects folders, and search. The fictional attachment is <code>sample-notes.txt</code>.</li>
+    <li>Compose or reply to <code>tutor@example.invalid</code> or <code>alex@example.invalid</code> using <strong>Simulate send</strong>. In the adult interface, the sample backend creates a local Sent copy and a fictional tutor reply. To inspect failed-outbox recovery, send a new fictional message to <code>fail-once@example.invalid</code>: a sample message to this address fails once, then its retry succeeds locally. Reusing identical message content may reuse the successful result; change the subject or text to repeat the failure exercise.</li>
+    <li>Open <strong>Settings</strong> to inspect appearance, language, notification options, account controls and the in-app privacy policy. English and Spanish are included in the app.</li>
+  </ol>
+
+  <h3>Try a local arrival and notification</h3>
+  <ol>
+    <li>In the adult profile, open <strong>Settings → Notifications</strong>. Enable <strong>New mail notifications</strong>, allow notifications in Android, and set <strong>Check for new mail</strong> to <strong>Instantly (push)</strong>. In the sample account's settings, also enable its notifications.</li>
+    <li>In <strong>Settings → Sample · review@example.invalid</strong>, select <strong>Receive sample mail in 5 seconds</strong>. Return to the inbox or Android Home while the app process remains running. After the local delay, the app creates fictional mail and refreshes it locally; the usual notification settings and Android restrictions apply.</li>
+    <li>With <strong>Only when I open the app</strong> selected instead, refresh the inbox after five seconds to load the new sample. In a supervised profile, the guardian checks the new message; it remains hidden from the child until approved, and no mail-content notification is shown.</li>
+  </ol>
+  <p>This exercises local arrival, refresh and notification behavior. No message arrives from the Internet, no server connection is opened for the sample, and a sample-only installation does not start the persistent foreground service. If Android ends the app process during the delay, reopen the app and request another sample arrival.</p>
+
+  <h2>2. Set up a supervised test profile</h2>
+  <ol>
+    <li>From the adult interface, select <strong>Safety and family controls</strong>, then <strong>Set up this device for a child</strong>.</li>
+    <li>Enter a fictional child test date of birth. The app routes users under 18 to supervised mail.</li>
+    <li>On <strong>A parent or guardian must set this up</strong>, enter a fictional adult test date, choose a private PIN of at least six digits and enter it twice. Read the provider authorization acknowledgment and acceptable-use rules before accepting them. For this isolated test, the mailbox is the app's fictional local sample.</li>
+    <li>Select <strong>Set up supervised mail</strong>. The child home starts locked with communication paused. Select <strong>Ask my parent or guardian</strong> and unlock using the PIN you just chose.</li>
+    <li>In <strong>Guardian dashboard</strong>, enable <strong>Allow reviewed communication</strong>. This does not automatically expose incoming mail or authorize outgoing messages.</li>
+    <li>If starting directly with a supervised profile instead of the adult walkthrough, first unlock the dashboard, choose <strong>Manage mailbox accounts</strong>, then select <strong>Try sample mail</strong> on setup. No real mailbox credentials are needed.</li>
+  </ol>
+  <p>These DOB declarations and the PIN are local controls. They do not independently verify adult identity, parental authority or legal consent.</p>
+
+  <h2>3. Review incoming mail and safety controls</h2>
+  <ol>
+    <li>In <strong>Incoming messages to review</strong>, open a fictional sample message. Review the sender's exact address and complete text.</li>
+    <li>Select <strong>Approve this contact</strong>, then <strong>Approve this exact text for the child</strong>. An approved address alone is insufficient.</li>
+    <li>Use <strong>Finish guardian session</strong> to return to the child home. The approved message appears under <strong>Messages reviewed for you</strong>; unapproved messages stay hidden.</li>
+    <li>Open the approved message. The child can select <strong>This message worries me</strong> to save a local concern, or <strong>Stop messages from this sender</strong> to strengthen restrictions.</li>
+    <li>Unlock the dashboard again to review the concern, manage blocked contacts, pause communication or select <strong>Revoke all message approvals</strong>. Leaving the app or pressing Back locks guardian access. Guardian screens intentionally prevent screenshots.</li>
+  </ol>
+
+  <h2>4. Review an outgoing sample message</h2>
+  <ol>
+    <li>On the child home, choose <strong>Write a message</strong>. Select the sample sending account and one approved fictional contact.</li>
+    <li>Enter a fictional subject and message. Read the safety reminder and select <strong>Ask to simulate sending</strong>.</li>
+    <li>Enter the guardian PIN. Review the exact recipient, subject and complete message, accept the exact-message acknowledgment and select <strong>Approve simulation</strong>.</li>
+    <li>For the sample account, sending is a local simulation. Nothing is sent to the recipient or a provider. The normal live-account send path requires the user's own authorized mailbox.</li>
+  </ol>
+  <p>Supervised reading and writing use plain text. Child attachments, clickable links, remote images, sharing, device-contact import and unrestricted search are unavailable. An adult can separately inspect the provider-report form; any report submitted from the sample account is simulated and does not reach a provider or moderator. Newly generated sample replies still require guardian review before the child can read them.</p>
+
+  <h2>Scope, reset and data handling</h2>
+  <ul>
+    <li>The demo is not a UPM authentication test or evidence of delivery through an external provider. It does not establish Google approval or guarantee acceptance of this review route.</li>
+    <li>Real instant push requires a connected mailbox. For sample mail, the same setting enables local refresh after a requested sample arrival; it does not start an IMAP connection or a persistent foreground service. The separate <a href="foreground-service/upm-mail-v3-foreground-service-demo.mp4">verified foreground-service demonstration for version 1.0.1 (code 3)</a> uses the unchanged signed release APK with a separately configured local TLS IMAP/SMTP fixture and fictional mail. It shows user opt-in, an ongoing notification, background arrival, opening the delivered message and stopping the service. It does not use this built-in sample backend or establish UPM authentication, external-provider delivery, reusable reviewer mailbox access or Google approval.</li>
+    <li>Local sample-mail actions do not transmit messages to a mail server. Explicit browser, export or Android sharing actions retain their normal behavior; use fictional data and review the selected destination.</li>
+    <li>Other connected real accounts continue their normal network activity. They still use the data flows described in the privacy policy. The presence of an offline demo does not make the app a no-data-collection application.</li>
+    <li>Two shared screens retain generic server wording. In the sample account, search results labeled <strong>From server</strong> come from the local simulation. The account-removal confirmation mentions mail remaining on a server; removing a sample account actually deletes its local sample mailbox. No sample mail is stored on a UPM server.</li>
+    <li>To reset the sample mailbox, open <strong>Settings</strong>, select its account and choose <strong>Remove account</strong>. Add sample mail again to recreate the fictional messages. Selecting <strong>Try sample mail</strong> while the account already exists reopens it. In a supervised profile, first unlock guardian access and select <strong>Manage mailbox accounts</strong>. Removing the sample account does not remove other accounts.</li>
+    <li>For a completely fresh age/guardian test, clear app storage only on an isolated test installation. This removes that installation's local accounts, drafts, queued messages and controls. There is no guardian PIN recovery. Do not clear a user's real installation merely to restart this walkthrough.</li>
+  </ul>
+  <p>Support: <a href="mailto:p.portilla89@gmail.com">p.portilla89@gmail.com</a>. The guide is designed for self-contained review; contacting support is not an access step.</p>
+  <p class="meta">Google's <a href="https://support.google.com/googleplay/android-developer/answer/15748846">review-access requirements</a> govern the information needed to review the app. These instructions describe the access actually implemented and must be checked against the submitted build.</p>
+</body>
+</html>
