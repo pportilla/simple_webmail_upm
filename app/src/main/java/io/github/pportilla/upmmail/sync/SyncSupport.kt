@@ -5,6 +5,7 @@ import io.github.pportilla.upmmail.mail.ImapClient
 import io.github.pportilla.upmmail.mail.ImapIdler
 import io.github.pportilla.upmmail.mail.MailErrors
 import io.github.pportilla.upmmail.mail.SmtpClient
+import io.github.pportilla.upmmail.mail.requireEncryptedTransport
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
@@ -69,6 +70,8 @@ class MailClientProvider(
     private val passwords: PasswordStore,
     private val imapFactory: (ServerSettings, () -> String) -> ImapClient = { s, p -> ImapClient(s, p) },
     private val smtpFactory: (ServerSettings, () -> String) -> SmtpClient = { s, p -> SmtpClient(s, p) },
+    /** Only local mock-server tests replace this policy; production always requires TLS. */
+    private val transportPolicy: (ServerSettings) -> Unit = ::requireEncryptedTransport,
 ) {
     private class Cached(val settings: ServerSettings, val client: ImapClient)
 
@@ -99,6 +102,7 @@ class MailClientProvider(
 
     fun imap(accountId: Long): ImapClient {
         val account = account(accountId)
+        transportPolicy(account.imap)
         val stale: ImapClient?
         val client: ImapClient
         synchronized(imapClients) {
@@ -114,11 +118,16 @@ class MailClientProvider(
 
     fun smtp(accountId: Long): SmtpClient {
         val account = account(accountId)
+        transportPolicy(account.smtp)
         return smtpFactory(account.smtp, passwordProvider(accountId))
     }
 
     /** A push connection to the account's INBOX, with its current server settings and password. */
-    fun idler(accountId: Long): ImapIdler = ImapIdler(account(accountId).imap, passwordProvider(accountId))
+    fun idler(accountId: Long): ImapIdler {
+        val settings = account(accountId).imap
+        transportPolicy(settings)
+        return ImapIdler(settings, passwordProvider(accountId))
+    }
 
     /** Closes and forgets the account's IMAP connection, and tells [invalidated] collectors. */
     fun invalidate(accountId: Long) {

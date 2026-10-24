@@ -1,0 +1,1 @@
+Primera versión en Google Play. Correo para cuentas UPM existentes, con varias cuentas, conversaciones, adjuntos, borradores, búsqueda y notificaciones configurables. Interfaz en español e inglés, temas claro y oscuro y sugerencias opcionales de contactos.

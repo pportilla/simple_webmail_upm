@@ -15,6 +15,7 @@ import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
+import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.model.ServerSettings
 import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
@@ -80,6 +81,28 @@ class RepositoriesTest {
         scope = inertScope,
         checker = checker,
     )
+
+    @Test
+    fun plaintextServersAreRejectedBeforeEitherCredentialCheckOrPersistence() = runBlocking {
+        val checker = FakeChecker("ana", "ana@upm.es")
+        val repository = accounts(checker)
+        val insecure = ServerSettings("mail.example.org", 143, SecurityMode.NONE, "ana")
+        for ((imap, smtp) in listOf(insecure to null, null to insecure)) {
+            val error = repository.addAccount("ana@upm.es", "pw", "Ana", imap, smtp).exceptionOrNull() as MailException
+            assertEquals(MailErrorKind.INSECURE_CONNECTION, error.kind)
+            assertTrue(checker.tried.isEmpty())
+            assertTrue(store.accounts.getAll().isEmpty())
+        }
+
+        val account = repository.addAccount("ana@upm.es", "pw", "Ana").getOrThrow()
+        checker.tried.clear()
+        val error = repository.updateAccount(account.copy(smtp = insecure), "replacement", verify = false)
+            .exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.INSECURE_CONNECTION, error.kind)
+        assertTrue(checker.tried.isEmpty())
+        assertEquals(account, store.accounts.get(account.id))
+        assertEquals("pw", passwords.get(account.id))
+    }
 
     @Test
     fun addAccountDetectsTheLoginNameAndStoresThePassword() = runBlocking {

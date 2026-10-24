@@ -1,0 +1,72 @@
+{
+  "05-sign-in.png": {
+    "captured_utc": "2026-10-24T10:51:05.516925+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "es-ES",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "2a0c466128aa33140d9fc427e7ab7351e7c2e50a2b2cb6a2f5efd34fd892999f"
+  },
+  "04-privacy.png": {
+    "captured_utc": "2026-10-24T10:51:28.907810+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "es-ES",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "381ae8e0221efb18cc3c4a7b4c77a88340fd1848c26b86bf1934debea5af308f"
+  },
+  "01-inbox.png": {
+    "captured_utc": "2026-10-24T10:51:54.714993+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "es-ES",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "78952fb644e43861692fe61c0f37ec70e77d8cfca5976278c95fae460b3e05e2"
+  },
+  "02-message.png": {
+    "captured_utc": "2026-10-24T10:52:22.393544+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "es-ES",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "7b978185a20798aabe9bb41180fbbae2999cfba33833568924cb471749b7a7b7"
+  },
+  "03-compose.png": {
+    "captured_utc": "2026-10-24T10:53:00.320213+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running Android app",
+    "device": "emulator-5554",
+    "package": "io.github.pportilla.upmmail.debug",
+    "locale": "es-ES",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fixture": "No real mailbox data or mail credentials; any visible messages use fictional example.invalid identities",
+    "sha256": "1089b7c59462c6b37da72b19eda3db41b2f5e9b44f1530dece2354767b37f023"
+  }
+}

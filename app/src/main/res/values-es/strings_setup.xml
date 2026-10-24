@@ -36,7 +36,7 @@
     <string name="setup_security_ssl">SSL/TLS</string>
     <string name="setup_security_starttls">STARTTLS</string>
     <string name="setup_security_none">Ninguna (inseguro)</string>
-    <string name="setup_security_none_warning">Sin cifrado, tu contraseña y tus mensajes viajan como texto legible. Úsalo solo en redes de confianza.</string>
+    <string name="setup_security_none_warning">Esta configuración antigua está bloqueada. Elige SSL/TLS o STARTTLS para conectarte de forma segura.</string>
     <string name="setup_server_username">Nombre de usuario</string>
     <string name="setup_server_username_error">Escribe el nombre de usuario de este servidor</string>
     <string name="setup_server_username_hint_imap">En la UPM suele ser la parte de tu dirección antes de la @</string>
@@ -59,7 +59,7 @@
     <string name="setup_hint_server">Puede que el servicio de correo de la UPM no esté disponible en este momento. Vuelve a intentarlo dentro de unos minutos.</string>
 
     <!-- Inicio de sesión: pie -->
-    <string name="setup_privacy_note">Tu contraseña se guarda cifrada en este dispositivo y solo se envía a los servidores de correo de la UPM.</string>
+    <string name="setup_privacy_note">Tu contraseña se guarda cifrada en este dispositivo y solo se envía, mediante TLS, a los servidores de correo que configures.</string>
     <string name="setup_unofficial_note">UPM Mail es una app no oficial. No está vinculada a la Universidad Politécnica de Madrid ni cuenta con su respaldo.</string>
     <string name="setup_no_browser">No hay ninguna app que pueda abrir páginas web en este dispositivo.</string>
 </resources>

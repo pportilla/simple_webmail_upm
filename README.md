@@ -5,7 +5,7 @@ An unofficial native Android e-mail app for **Universidad Politécnica de Madrid
 over IMAP and SMTP with TLS, so the mailbox is the same one you see in the UPM webmail.
 
 > Not affiliated with or endorsed by UPM. Your password is stored encrypted on the device
-> (Android Keystore) and is sent only to the UPM mail servers.
+> (Android Keystore) and is sent only to the mail servers you configure, over TLS.
 
 ## Features
 
@@ -55,7 +55,8 @@ Download the latest build on your phone and open it:
 **[upm-mail-debug.apk](https://github.com/pportilla/simple_webmail_upm/releases/download/latest-debug/upm-mail-debug.apk)**
 (see also the [latest-debug release page](https://github.com/pportilla/simple_webmail_upm/releases/tag/latest-debug)).
 Android will ask you to allow your browser to install unknown apps. Requires Android 8.0 or newer.
-Every push rebuilds this APK, and newer builds install over older ones without losing your
+Every push to the default branch updates this download; builds from other branches remain
+available as workflow artifacts. Newer debug builds install over older ones without losing your
 accounts. Android refuses to install an older build over a newer one. Uninstalling the app to get
 around that deletes the accounts, drafts, outbox and changes not yet sent from the phone.
 
@@ -91,6 +92,66 @@ can be downloaded from the run's *Artifacts* section.
 The repository contains a public debug keystore (`app/debug.keystore`) so that every build,
 local or CI, has the same signature and installs as an update over the previous one. It is not a
 secret, and it must not be used to publish the app on a store.
+
+### Google Play release bundles
+
+The release package is `io.github.pportilla.upmmail`; debug installs use the separate
+`io.github.pportilla.upmmail.debug` package. Release builds never use the public debug key.
+The release version defaults to `1.0.0` / code `1`, independently of the debug CI sequence.
+Choose a version code greater than **every** version already uploaded to this app in Play Console.
+If this app was published before, preserve its package ID and use its registered upload key.
+
+With JDK 17 (`java`, `keytool`, `jarsigner`) on `PATH` and Android platform/build tools 36 installed,
+validate a release without any credentials:
+
+```bash
+python3 scripts/build-release.py --unsigned
+```
+
+This runs Android lint and the release unit tests and builds an **unsigned** AAB, which cannot be
+uploaded to Play. Direct `./gradlew bundleRelease` also builds unsigned when no signing settings
+are present. An incomplete signing configuration fails rather than silently changing keys.
+
+Configure the upload key from an interactive terminal; passwords are entered without echoing
+and are never placed in command arguments. The configuration and keystore must live outside
+the repository. The script refuses to overwrite existing files.
+
+```bash
+# For an existing app, use its upload keystore and alias:
+python3 scripts/setup-signing.py --existing /absolute/private/path/upload-key.jks --alias upload
+
+# Only for a new app, or an approved Play upload-key reset, explicitly generate a key instead:
+python3 scripts/setup-signing.py --generate
+```
+
+The setup writes an owner-readable file at `~/.config/upm-mail/signing.properties`. Back up the
+keystore and its passwords securely. Google Play App Signing can manage the app signing key;
+the local upload key signs bundles submitted to Play.
+
+```bash
+export UPM_SIGNING_PROPERTIES_FILE="$HOME/.config/upm-mail/signing.properties"
+python3 scripts/build-release.py --version-code 1 --version-name 1.0.0
+```
+
+The signed build fails if credentials are missing, checks the bundle signature, and rejects the
+repository's public debug certificate. The output is
+`app/build/outputs/bundle/release/app-release.aab`, accompanied by its SHA-256 checksum.
+The bundle remains a local artifact until you upload it to Play Console. No Google password,
+service account, or Play API credential is needed for building locally or uploading manually.
+
+For a secret manager or CI, set `UPM_UPLOAD_KEYSTORE` (absolute external path),
+`UPM_UPLOAD_STORE_PASSWORD`, `UPM_UPLOAD_KEY_ALIAS`, and `UPM_UPLOAD_KEY_PASSWORD` instead of
+the properties file. Environment settings take precedence. Version overrides also accept
+`UPM_RELEASE_VERSION_CODE` / `UPM_RELEASE_VERSION_NAME` or Gradle's
+`-PreleaseVersionCode=…` / `-PreleaseVersionName=…`.
+
+The manual **Prepare Google Play bundle** GitHub Actions workflow builds either unsigned
+validation bundles or signed bundles and stores them as workflow artifacts; it does
+not publish to Play or create a GitHub release. For signed runs, configure the `play-release`
+environment with secrets `UPM_UPLOAD_KEYSTORE_BASE64` (base64-encoded keystore),
+`UPM_UPLOAD_STORE_PASSWORD`, `UPM_UPLOAD_KEY_ALIAS`, and `UPM_UPLOAD_KEY_PASSWORD`.
+Use environment protection rules to control who can build signed releases. Do not paste secrets
+into issue comments, workflow inputs, or chat.
 
 ## Project structure
 

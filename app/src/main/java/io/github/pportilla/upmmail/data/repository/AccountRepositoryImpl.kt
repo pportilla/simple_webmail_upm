@@ -7,6 +7,7 @@ import io.github.pportilla.upmmail.mail.AddressParser
 import io.github.pportilla.upmmail.mail.ImapClient
 import io.github.pportilla.upmmail.mail.SmtpClient
 import io.github.pportilla.upmmail.mail.UpmPresets
+import io.github.pportilla.upmmail.mail.requireEncryptedTransport
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
@@ -33,6 +34,7 @@ interface CredentialChecker {
 /** [CredentialChecker] using the real mail engine. */
 object EngineCredentialChecker : CredentialChecker {
     override suspend fun checkImap(settings: ServerSettings, password: String) {
+        requireEncryptedTransport(settings)
         val client = ImapClient(settings) { password }
         try {
             client.connect()
@@ -46,6 +48,7 @@ object EngineCredentialChecker : CredentialChecker {
     }
 
     override suspend fun checkSmtp(settings: ServerSettings, password: String) {
+        requireEncryptedTransport(settings)
         SmtpClient(settings) { password }.verify()
     }
 }
@@ -79,6 +82,10 @@ class AccountRepositoryImpl(
         val address = email.trim()
         if (!AddressParser.isValidAddress(address)) throw MailException(MailErrorKind.UNKNOWN, "Invalid e-mail address: $address")
         if (db { store.accounts.getByEmail(address) } != null) throw duplicate(address)
+
+        // Validate both before contacting either server, including when a custom checker is used.
+        imap?.let(::requireEncryptedTransport)
+        smtp?.let(::requireEncryptedTransport)
 
         val defaults = UpmPresets.defaultsFor(address)
         val imapSettings = if (imap != null) {
@@ -148,6 +155,9 @@ class AccountRepositoryImpl(
     }
 
     override suspend fun updateAccount(account: Account, newPassword: String?, verify: Boolean): Result<Account> = mailResult {
+        // Also applies to metadata-only updates with verify=false.
+        requireEncryptedTransport(account.imap)
+        requireEncryptedTransport(account.smtp)
         val existing = db { store.accounts.get(account.id) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Account ${account.id}")
         val email = account.email.trim()
         if (!email.equals(existing.email, ignoreCase = true)) {

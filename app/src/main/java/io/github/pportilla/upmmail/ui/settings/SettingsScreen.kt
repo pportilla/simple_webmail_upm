@@ -49,6 +49,7 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.SettingsApplications
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.SwipeLeft
 import androidx.compose.material.icons.outlined.SwipeRight
@@ -102,6 +103,7 @@ import io.github.pportilla.upmmail.model.SwipeAction
 import io.github.pportilla.upmmail.model.ThemeMode
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
+import io.github.pportilla.upmmail.ui.components.PrivacyPolicyDialog
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.components.avatarInitial
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
@@ -502,8 +504,15 @@ private fun AccountRow(account: Account, onClick: () -> Unit) {
 
 private fun LazyListScope.aboutSection(openUrl: (String) -> Unit) {
     item(key = "about") {
+        var showPrivacy by rememberSaveable { mutableStateOf(false) }
+        if (showPrivacy) PrivacyPolicyDialog(onDismiss = { showPrivacy = false }, onOpenUrl = openUrl)
         Column {
             PreferenceSectionHeader(stringResource(R.string.settings_section_about))
+            ClickablePreference(
+                title = stringResource(R.string.privacy_title),
+                icon = Icons.Outlined.Shield,
+                onClick = { showPrivacy = true },
+            )
             ClickablePreference(
                 title = stringResource(R.string.settings_version),
                 summary = BuildConfig.VERSION_NAME,

@@ -107,6 +107,7 @@ fun validateServerFields(host: String, port: String, username: String): ServerFi
 
 /** Builds the settings from form text, or null if any field is invalid. */
 fun serverSettingsOf(host: String, port: String, security: SecurityMode, username: String): ServerSettings? {
+    if (security == SecurityMode.NONE) return null
     if (validateServerFields(host, port, username).any) return null
     return ServerSettings(
         host = host.trim().lowercase(),

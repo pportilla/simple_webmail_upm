@@ -94,6 +94,7 @@ import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.mail.UpmPresets
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
+import io.github.pportilla.upmmail.ui.components.PrivacyPolicyButton
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 import io.github.pportilla.upmmail.ui.theme.UpmBlue
@@ -470,6 +471,7 @@ private fun Footer(email: String, onOpenWebmail: (String) -> Unit) {
             icon = { Icon(Icons.Outlined.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             text = stringResource(R.string.setup_privacy_note),
         )
+        PrivacyPolicyButton(onOpenUrl = onOpenWebmail, modifier = Modifier.align(Alignment.CenterHorizontally))
         Text(
             text = stringResource(R.string.setup_unofficial_note),
             style = MaterialTheme.typography.bodySmall,

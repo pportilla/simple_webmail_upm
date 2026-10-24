@@ -51,6 +51,7 @@
     <string name="error_authentication">Wrong username or password. Check your UPM credentials.</string>
     <string name="error_network">Can\'t reach the mail server. Check your connection.</string>
     <string name="error_certificate">The server\'s security certificate could not be verified.</string>
+    <string name="error_insecure_connection">Unencrypted mail connections are blocked. Choose SSL/TLS or STARTTLS in the account server settings.</string>
     <string name="error_server">The mail server reported an error. Try again later.</string>
     <string name="error_not_found">The folder or message no longer exists on the server.</string>
     <string name="error_invalid_recipient">The server rejected one or more recipients.</string>

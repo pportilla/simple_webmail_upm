@@ -98,6 +98,7 @@ class SetupLogicTest {
         )
         assertNull(serverSettingsOf("correo.upm.es", "", SecurityMode.SSL_TLS, "ana"))
         assertNull(serverSettingsOf("correo.upm.es", "993", SecurityMode.SSL_TLS, " "))
+        assertNull(serverSettingsOf("correo.upm.es", "143", SecurityMode.NONE, "ana"))
         assertEquals(ServerFieldErrors(host = true, port = true, username = true), validateServerFields("", "x", ""))
     }
 

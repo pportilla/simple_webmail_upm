@@ -134,7 +134,7 @@ abstract class SyncTestBase {
             smtp = ServerSettings("127.0.0.1", greenMail.smtp.port, SecurityMode.NONE, "ana"),
         )
         passwords.set(account.id, password)
-        clients = MailClientProvider({ store.accounts.get(it) }, passwords)
+        clients = MailClientProvider({ store.accounts.get(it) }, passwords, transportPolicy = ::allowLoopbackTransport)
         files = LocalFiles(temp.newFolder("files"))
         engine = SyncEngine(store, clients, files, FileAttachmentOpener, listener, clock = clock::now)
     }

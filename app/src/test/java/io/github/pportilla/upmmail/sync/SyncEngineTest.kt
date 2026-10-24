@@ -418,7 +418,7 @@ class SyncEngineTest : SyncTestBase() {
         val hookedStore = MailStore(hooked, TableObserver(), clock::now)
         val hookedAccount = hookedStore.addTestAccount(email = anaEmail, imap = account.imap, smtp = account.smtp)
         passwords.set(hookedAccount.id, password)
-        val hookedClients = MailClientProvider({ hookedStore.accounts.get(it) }, passwords)
+        val hookedClients = MailClientProvider({ hookedStore.accounts.get(it) }, passwords, transportPolicy = ::allowLoopbackTransport)
         val recorder = RecordingListener()
         val hookedEngine = SyncEngine(hookedStore, hookedClients, files, FileAttachmentOpener, recorder, clock = clock::now)
         try {
