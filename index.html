@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy policy for UPM Mail, an unofficial Android email client developed by zango.">
+  <title>UPM Mail — Privacy policy / Política de privacidad</title>
+  <style>
+    :root { color-scheme: light dark; font: 17px/1.65 system-ui, sans-serif; }
+    body { max-width: 780px; margin: 0 auto; padding: 32px 24px 64px; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { font-size: 2rem; } h2 { margin-top: 2rem; } h3 { font-size: 1.15rem; }
+    a { color: #1767b5; } .meta { color: #646b77; }
+    article + article { border-top: 1px solid #aab1bb; margin-top: 48px; padding-top: 24px; }
+    @media (prefers-color-scheme: dark) { a { color: #a8caff; } .meta { color: #b7bec9; } }
+  </style>
+</head>
+<body>
+  <nav aria-label="Language"><a href="#english">English</a> · <a href="#espanol" lang="es">Español</a></nav>
+  <article id="english" lang="en">
+    <h1>UPM Mail privacy policy</h1>
+    <p class="meta">Developer: zango · Last updated: 24 October 2026</p>
+    <p>UPM Mail is an unofficial Android email client for existing Universidad Politécnica de Madrid mailboxes. It is developed by <strong>zango</strong> and is not affiliated with or endorsed by UPM. This policy covers the Android app with package name <code>io.github.pportilla.upmmail</code>.</p>
+    <h2>What the app accesses and why</h2>
+    <ul>
+      <li><strong>Account details and passwords:</strong> your email address, account name, server settings and password are used to authenticate directly with the mail servers you configure.</li>
+      <li><strong>Email and attachments:</strong> the app retrieves, caches, searches, displays and sends messages, headers, recipients and attachments. It synchronizes changes such as read status, moves, deletions and drafts with your mail provider.</li>
+      <li><strong>Contacts:</strong> recipient suggestions use local email history. If you grant Android contacts permission, the app also searches contacts on your device. It does not upload your address book. Names and addresses you choose as recipients are included in drafts saved remotely and messages sent through your mail provider.</li>
+      <li><strong>Preferences and searches:</strong> the app stores settings, recent searches, an email-header search index and local address suggestions to provide its features. Server search terms are sent to your mail provider when you use server search.</li>
+    </ul>
+    <h2>Where information goes</h2>
+    <p>The app connects directly to the configured IMAP and SMTP servers using TLS. UPM servers are preconfigured; advanced settings allow you to select other mail servers. Credentials and mail data therefore go to the servers you choose, and outgoing email goes to its recipients through those providers. TLS protects the connection to your provider; it does not provide end-to-end encryption of email.</p>
+    <p>zango does not operate a mail relay or analytics service for this app. The app contains no advertising, analytics or third-party crash-reporting SDK. It does not send your mailbox or password to a developer-operated server. Your mail provider handles data under its own policies.</p>
+    <p>Remote content in email is blocked by default until you allow it for a message, trusted sender or all mail. Loading it can disclose your IP address and information associated with resource URLs to the remote host, including whether a message was opened. Opening a link, sharing an attachment, printing or saving a file sends the selected information to the browser, app, printer or location you choose.</p>
+    <h2>Storage and security</h2>
+    <p>Passwords are encrypted using a device-bound Android Keystore key. Mail, downloaded attachments, drafts, queued messages and search data are stored in the app's private storage; they are not separately encrypted by an app-managed database encryption layer. Android device security protects that storage. App backup and device-transfer backup are disabled. Files you explicitly export are outside the app's private storage.</p>
+    <p>Notification previews can show sender, subject and message text, including on the lock screen, according to your app and Android notification settings. Instant mail is enabled by default and uses an ongoing connection to your mail server, with an Android foreground-service notification. To stop it, change Settings → Check for new mail from Instantly (push) to a periodic interval or Only when I open the app.</p>
+    <h2>Retention and deletion</h2>
+    <p>Local data is retained while needed for configured accounts and app features. Removing an account in Settings removes its stored password, local mailbox data and app-managed account files. Shared address history and recent searches are cleared when the last account is removed; some global preferences, including allowed remote-image senders, may remain. Clearing the app's storage in Android settings or uninstalling removes the app's remaining private data.</p>
+    <p>Removing an account from this app does not close your institutional account or delete email retained by your mail provider. Changes made to messages, including deletion, can synchronize to the server. Files already saved or shared outside the app must be deleted separately. Contact your mail provider for requests concerning its retained data. The app does not create UPM accounts.</p>
+    <h2>Your choices</h2>
+    <p>You can revoke contacts or notification permission in Android settings, keep remote images blocked, change background mail checks, remove configured accounts and clear app storage. Disabling optional access may limit the related feature. Sending, receiving and synchronizing email require a connection to your selected mail provider.</p>
+    <h2>Contact and changes</h2>
+    <p>For privacy questions or support, contact zango at <a href="mailto:p.portilla89@gmail.com">p.portilla89@gmail.com</a>. Information you choose to send in a support email is used to answer your request and is handled by the email providers involved; do not send passwords or private mailbox contents. We may update this policy when the app's behavior changes and will update the date above.</p>
+  </article>
+  <article id="espanol" lang="es">
+    <h1>Política de privacidad de UPM Mail</h1>
+    <p class="meta">Desarrollador: zango · Última actualización: 24 de octubre de 2026</p>
+    <p>UPM Mail es un cliente de correo Android no oficial para buzones existentes de la Universidad Politécnica de Madrid. Lo desarrolla <strong>zango</strong> y no está afiliado a la UPM ni cuenta con su respaldo. Esta política se aplica a la aplicación con identificador <code>io.github.pportilla.upmmail</code>.</p>
+    <h2>Qué datos utiliza la aplicación y para qué</h2>
+    <ul>
+      <li><strong>Cuenta y contraseña:</strong> la dirección de correo, el nombre de la cuenta, los ajustes de servidor y la contraseña se utilizan para iniciar sesión directamente en los servidores de correo que configures.</li>
+      <li><strong>Correo y adjuntos:</strong> la aplicación descarga, almacena localmente, busca, muestra y envía mensajes, cabeceras, destinatarios y adjuntos. Sincroniza cambios como el estado de lectura, movimientos, eliminaciones y borradores con tu proveedor.</li>
+      <li><strong>Contactos:</strong> las sugerencias de destinatarios utilizan el historial local del correo. Si das permiso de contactos en Android, la aplicación también consulta tu agenda. No sube tu agenda. Los nombres y direcciones que elijas como destinatarios se incluyen en los borradores guardados remotamente y los mensajes enviados a través de tu proveedor.</li>
+      <li><strong>Preferencias y búsquedas:</strong> se guardan ajustes, búsquedas recientes, un índice de cabeceras del correo y sugerencias locales de direcciones para ofrecer estas funciones. Los términos de búsqueda en el servidor se envían a tu proveedor cuando utilizas esa función.</li>
+    </ul>
+    <h2>A dónde se envían los datos</h2>
+    <p>La aplicación se conecta directamente a los servidores IMAP y SMTP configurados mediante TLS. Los servidores de la UPM están preconfigurados; los ajustes avanzados permiten elegir otros servidores. Por tanto, las credenciales y el correo se transmiten a los servidores que elijas, y los mensajes salientes llegan a sus destinatarios a través de esos proveedores. TLS protege la conexión con tu proveedor; no proporciona cifrado de extremo a extremo del correo.</p>
+    <p>zango no opera un servidor intermediario de correo ni un servicio de analítica para esta aplicación. La aplicación no incluye publicidad ni SDK de analítica o informes de fallos de terceros. No envía tu buzón ni tu contraseña a un servidor del desarrollador. Tu proveedor de correo trata los datos según sus propias políticas.</p>
+    <p>El contenido remoto del correo se bloquea de forma predeterminada hasta que lo permitas para un mensaje, un remitente de confianza o todo el correo. Al cargarlo, el servidor remoto puede recibir tu dirección IP e información asociada a la URL, incluso que se ha abierto un mensaje. Abrir enlaces, compartir adjuntos, imprimir o guardar archivos envía la información seleccionada al navegador, aplicación, impresora o ubicación que elijas.</p>
+    <h2>Almacenamiento y seguridad</h2>
+    <p>Las contraseñas se cifran con una clave de Android Keystore vinculada al dispositivo. El correo, los adjuntos descargados, los borradores, los mensajes pendientes y los datos de búsqueda se guardan en el almacenamiento privado de la aplicación; no se cifran por separado mediante una capa de cifrado de base de datos de la aplicación. La seguridad del dispositivo Android protege ese almacenamiento. Las copias de seguridad y las copias de transferencia a otro dispositivo están desactivadas. Los archivos que exportes quedan fuera del almacenamiento privado.</p>
+    <p>Las notificaciones pueden mostrar remitente, asunto y texto del mensaje, también en la pantalla de bloqueo, según tus ajustes de la aplicación y de Android. El correo instantáneo está activado de forma predeterminada y utiliza una conexión persistente con tu servidor, indicada mediante una notificación de servicio en primer plano. Para detenerlo, cambia Ajustes → Buscar correo nuevo de Al instante (push) a un intervalo periódico o Solo al abrir la app.</p>
+    <h2>Conservación y eliminación</h2>
+    <p>Los datos locales se conservan mientras sean necesarios para las cuentas y funciones configuradas. Al quitar una cuenta en Ajustes se eliminan su contraseña guardada, los datos locales del buzón y los archivos de esa cuenta gestionados por la aplicación. El historial compartido de direcciones y las búsquedas recientes se borran al quitar la última cuenta; algunas preferencias globales, incluidos los remitentes cuyas imágenes permitiste, pueden permanecer. Borrar el almacenamiento de la aplicación en Android o desinstalarla elimina sus datos privados restantes.</p>
+    <p>Quitar una cuenta de esta aplicación no cierra tu cuenta institucional ni elimina el correo conservado por tu proveedor. Los cambios en los mensajes, incluida su eliminación, pueden sincronizarse con el servidor. Los archivos guardados o compartidos fuera de la aplicación deben eliminarse por separado. Para solicitudes sobre los datos conservados por tu proveedor, contacta con él. La aplicación no crea cuentas de la UPM.</p>
+    <h2>Tus opciones</h2>
+    <p>Puedes revocar los permisos de contactos o notificaciones en Android, mantener bloqueadas las imágenes remotas, cambiar las comprobaciones en segundo plano, quitar cuentas y borrar el almacenamiento. Desactivar un permiso opcional puede limitar la función relacionada. Enviar, recibir y sincronizar correo requiere conectarse con tu proveedor.</p>
+    <h2>Contacto y cambios</h2>
+    <p>Para consultas de privacidad o soporte, escribe a zango en <a href="mailto:p.portilla89@gmail.com">p.portilla89@gmail.com</a>. La información que decidas enviar en una consulta se utiliza para responderte y la tratan los proveedores de correo implicados; no envíes contraseñas ni contenido privado del buzón. Si cambia el funcionamiento de la aplicación, podremos actualizar esta política y su fecha.</p>
+  </article>
+</body>
+</html>
