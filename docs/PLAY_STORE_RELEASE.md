@@ -1,8 +1,8 @@
 # Google Play release checklist
 
-Prepared on **2026-10-24** for `io.github.pportilla.upmmail`. This is a preparation checklist, not a record of a completed Play submission. Complete the unresolved items against the actual developer account and final signed bundle before submitting.
+Updated on **2026-10-24** for `io.github.pportilla.upmmail`. Version **3 (1.0.1)** is available internally and the closed Alpha release is under Google review. All 11 app-content declarations are actioned and in review, with none remaining. Production still requires review approval and the qualifying closed test. Exact evidence and limits are in [`RELEASE_STATUS.md`](RELEASE_STATUS.md).
 
-## Confirmed identity and remaining account setup
+## Confirmed identity and account setup
 
 | Item | Required decision or evidence |
 | --- | --- |
@@ -10,13 +10,50 @@ Prepared on **2026-10-24** for `io.github.pportilla.upmmail`. This is a preparat
 | Developer account | Confirmed: an existing, verified **personal** Play Console account. This app's Console dashboard explicitly requires **12 closed-test participants opted in continuously for 14 days** before applying for production access. Creating another account is unnecessary. |
 | Public identity | Confirmed developer name: **zango**. Confirmed public support email: **p.portilla89@gmail.com**. Use the same contact in the privacy policy. Support website: `https://github.com/pportilla/simple_webmail_upm`. |
 | Distribution | Confirmed: **free**, **worldwide**, **no ads**. Saved category: Communication. The current code has no identified ads, billing or analytics integration. |
-| Intended audience | The owner explicitly confirmed **all ages, including children under 13**. This intent includes the Console groups 5 and under, 6–8, 9–12, 13–15, 16–17 and 18+. The release adds a dedicated supervised experience for users under 18, including guardian-assisted use for younger children. Validate the final build and all-age declarations against the controls below; this is not Google policy approval. Do not silently substitute a 13+ audience. |
+| Intended audience | **All six age groups are saved and submitted:** 5 and under, 6–8, 9–12, 13–15, 16–17 and 18+, matching the owner's explicit intent. Users under 18 receive supervised mail with guardian assistance for younger children. Required owner-authorized declarations are recorded privately. Google review is in progress; local PIN/DOB controls do not independently verify legal parental consent. |
 | Signing | Use a dedicated upload key for this first release and back it up securely. If a key has already been generated during release preparation, preserve it instead of generating another. Never use the repository's public `app/debug.keystore` for Play. |
-| Review access | The owner **declined to supply reviewer mailbox credentials** and will respond through **p.portilla89@gmail.com**. No reviewer mailbox is configured. That support contact is not verified interactive access to the app. Document any available offline demo honestly; it does not establish live IMAP/SMTP/push review access or guarantee acceptance. Do not provision an external mailbox or repeat the credential request without new instruction. |
-| Privacy hosting | The [public privacy URL](https://pportilla.github.io/simple_webmail_upm/privacy.html) and [acceptable-use rules](https://pportilla.github.io/simple_webmail_upm/acceptable-use.html) are live on GitHub Pages with HTTPS enforced. Both final supervised-mail documents returned HTTP 200 and matched source bytes at 11:49 UTC on 24 October 2026. The privacy URL is saved in Play Console; the policy is also readable offline in the app. |
-| Evidence | Sixteen final English/Spanish screenshots were captured from the actual Android app with fictional local mailbox data and actual guardian controls. The inventory and exact-AAB runtime validation are recorded in `RELEASE_STATUS.md`. The exact-release foreground-service video demonstrates real local TLS/IMAP IDLE behavior with a disposable synthetic mailbox. Real UPM and external-provider testing remain unverified. Do not represent local fixtures as university/provider validation. |
+| Review access | **Restricted access Yes and five instructions are saved/reloaded.** Public **Try sample mail** follows the normal age/terms gate; its exact signed APK passed the sample/guardian walkthrough without mailbox credentials. The [reviewer guide](https://pportilla.github.io/simple_webmail_upm/demo-review.html) is deployed and verified. Sample sends/reports are simulations. The owner declined external reviewer credentials; none were supplied or provisioned. |
+| Privacy hosting | The [privacy URL](https://pportilla.github.io/simple_webmail_upm/privacy.html) and [acceptable-use rules](https://pportilla.github.io/simple_webmail_upm/acceptable-use.html) are hosted on GitHub Pages with HTTPS enforced. Revised policy/FGS evidence was verified at `80ae3b0dddcff055f97500bbbf7052ecb80a3688`, and the finalized reviewer guide at `de2e698d185ab69d142badba33a289b7bb013410`; URLs returned HTTP 200 with matching local hashes. The privacy URL is saved in Play Console. |
+| Evidence | Version 3 (1.0.1) passed 673 release tests, lint with zero errors, bundle/signature/16 KB structural checks and 16 documented runtime checks. Its exact-AAB upgrade preserved the locked/paused profile; fresh sample/guardian checks and a separate exact-release local TLS FGS video passed. `RELEASE_STATUS.md` records scope and untested paths. Real UPM and external-provider testing remain unverified. |
 
 The app is an unofficial native IMAP/SMTP client for existing UPM accounts, not the University's official app or a website wrapper. Keep the non-affiliation statement visible in both store descriptions. Current sign-in does not use Google OAuth; a Gmail OAuth client is not a publishing prerequisite.
+
+## Version 3 review access and completed release checks
+
+The exact version-3 AAB is **available to internal testers / Not reviewed**. **Closed Alpha
+version 3 is in review**, across 178 countries/regions with three configured tester addresses.
+Publishing overview confirms 16 changes sent for review. Managed publishing is off, so approved
+changes publish automatically. This is not production publication or a confirmed closed-test clock.
+
+The normal setup screen now offers **Try sample mail** / **Probar correo de ejemplo**, labeled
+**Sample · review@example.invalid**. The sample uses the normal repositories, mail engine and
+age/guardian policy with a local backend. Adults can read, search, manage folders and drafts,
+inspect a fictional attachment and simulate sending. The child path still requires guardian
+contact approval, incoming-text review and exact outgoing-message approval. The reviewer
+chooses a private guardian PIN during the test; no shared PIN or personal mailbox login is needed.
+
+In the sample account's settings, **Receive sample mail in 5 seconds** exercises local arrival.
+Adult instant mode refreshes it locally; Android, global and account notification settings still
+apply. Manual mode requires inbox refresh. Sample mail creates no persistent server connection
+or foreground service; supervised mail still hides unapproved text and suppresses content
+notifications. Real accounts continue their own network activity. Removing and re-adding the
+sample resets its local content. Full walkthrough source: [`demo-review.html`](demo-review.html).
+
+- [x] Complete automated signed version-3 bundle checks: 673 tests, zero lint errors, signatures,
+      packaging and 16 KB structural alignment passed. See `RELEASE_STATUS.md` for exact hashes.
+- [x] Complete 16 documented runtime checks on the exact-AAB APK: sample entry, read/search,
+      attachment export, local send/reply and eventual retry completion, restart persistence,
+      arrival without PushService, reset, guardian incoming/exact outgoing approval and wrong PIN.
+      This does not claim exhaustive mixed-account, locale or OS lifecycle testing.
+- [x] Deploy and verify revised privacy/terms and exact-version-3 FGS video; save/reload the
+      FGS declaration and EN/ES descriptions.
+- [x] Finalize/deploy the reviewer guide and save/reload five English App access
+      instructions identifying simulated operations and the independent live-mail path.
+- [x] Save App access, all six audience bands and Data safety. Console shows 11 actioned declarations
+      in review and none remaining. Publish internal v3 and submit the closed release for review.
+- [ ] Verify the closed test is actually running before counting qualification time. The confirmed
+      production gate remains **12 continuously opted-in closed testers for 14 days**; internal
+      testing and merely configuring tester addresses do not satisfy it.
 
 ## Access from a headless Ubuntu server
 
@@ -44,10 +81,10 @@ Once the signing configuration exists:
 
 ```bash
 export UPM_SIGNING_PROPERTIES_FILE=/home/gablo/.config/upm-mail/signing.properties
-python3 scripts/build-release.py --version-code 2 --version-name 1.0.0
+python3 scripts/build-release.py --version-code 3 --version-name 1.0.1
 ```
 
-Version code `2` includes the supervised-mail changes; use a larger code if `2` has already been uploaded by the time this is run. The helper runs release lint, release unit tests and the bundle build, then checks its signature and rejects the public debug key. `--unsigned` is a separate validation option; its output is not ready for Play upload. The release workflow can also produce an artifact when its signing secrets are configured, but does not publish the app.
+Version code `3` adds public sample mail to the supervised-mail release. Verify Console first and use a larger code if `3` has already been uploaded. The helper runs release lint, release unit tests and the bundle build, then checks its signature and rejects the public debug key. `--unsigned` is a separate validation option; its output is not ready for Play upload. The release workflow can also produce an artifact when its signing secrets are configured, but does not publish the app.
 
 ## Bundle and compatibility
 
@@ -66,6 +103,14 @@ The editable English and Spanish store text is in `fastlane/metadata/android/en-
 
 Enter **zango**, **p.portilla89@gmail.com**, and the support website above in the relevant Console fields. Fastlane Supply's current [supported metadata fields](https://github.com/fastlane/fastlane/blob/master/supply/lib/supply.rb) are title, short description, full description and video; it does not consume a locale `contact_email.txt` or `contact_website.txt`. Contact fields are therefore recorded here for Console entry rather than in silently ignored files.
 
+The current Data safety answers were saved and all 13 type dialogs were rechecked: required
+**Email address, User IDs, Emails and App interactions**, with nine optional types. Read-state
+synchronization makes App interactions required for ordinary real-mail reading; remote-image
+loading is an additional optional path. The selected purpose is App functionality, with
+non-ephemeral collection and no declared sharing under the documented user-initiated/disclosed
+transfer exceptions. The local sample adds no off-device mail collection. This records verified
+field answers, now saved and submitted with the release changes; Google assessment is in progress.
+
 - [ ] Confirm the listing title, supported languages, short/full descriptions and release notes. Do not claim guaranteed instant delivery, end-to-end encryption, or encryption of every local file.
 - [ ] Supply a store icon, feature graphic and actual phone screenshots meeting the current Console specifications. Use synthetic mailbox content and hide reviewer credentials. Do not use screenshots of private university correspondence.
 - [ ] Complete the content-rating questionnaire, target audience, ads declaration, app access and all other forms shown by this app's Console dashboard. Do not claim a content rating before the questionnaire produces it.
@@ -73,7 +118,7 @@ Enter **zango**, **p.portilla89@gmail.com**, and the support website above in th
 - [ ] Link the privacy policy in Console and in the app. It must identify the app/developer and contact, explain personal-data handling, security, retention and deletion, and be publicly accessible without geography restrictions or a PDF-only document. [User Data policy](https://support.google.com/googleplay/android-developer/answer/10144311)
 - [ ] Audit Data safety against the final build and the privacy policy. Account identifiers, sent mail and attachments, server searches, optional device contacts, remote image loading, local caches and export/sharing flows need consideration. Direct transmission to UPM is not automatically “no collection”; local-only handling and user-initiated sharing have distinct rules. Internal-only testing is exempt from the Data safety section, but closed/open testing and production are not. [Data safety guidance](https://support.google.com/googleplay/android-developer/answer/10787469)
 - [ ] Answer account-creation questions based on actual behavior. Adding an existing UPM mailbox currently configures a local client account; it does not create a university identity. Explain local removal/cache deletion separately from UPM's server-side account/data processes. Reassess if signup is added or linked later. [Account-deletion scope](https://support.google.com/googleplay/android-developer/answer/13327111)
-- [ ] Complete **App access** with truthful English instructions for the access that actually exists, including age/guardian/PIN setup and any clearly labeled offline sample. The owner declined mailbox credentials; do not invent them or mark live mailbox access as verified. Google requires reviewers to reach all functionality with reusable, location-independent access; merely listing the support email does not establish this. If an offline sample is implemented, distinguish simulated actions from IMAP/SMTP/push behavior and record that its acceptance is unverified. [Review-access requirements](https://support.google.com/googleplay/android-developer/answer/15748846)
+- [ ] Complete **App access** using the implemented public sample route and accurate age/guardian/PIN instructions. The owner declined external mailbox credentials; do not invent them or mark live mailbox access as verified. Distinguish local simulations and notifications from server IMAP/SMTP/push behavior, and confirm the route on the submitted signed build. Google requires reusable, location-independent access to review functionality; acceptance of the supplied route remains subject to review. [Review-access requirements](https://support.google.com/googleplay/android-developer/answer/15748846)
 
 ## All-age audience: implemented controls and release validation
 
@@ -89,13 +134,13 @@ Children can block a sender and ask a guardian to review a concern. That request
 
 The public acceptable-use source is `docs/acceptable-use.html`; the same substantive rules require acceptance in the app. The website and native privacy policy describe local age/PIN data, approval records, reporting and retention. Confirm that the deployed policy/terms match the final build before submitting.
 
-### Truthful draft Console answers for the current build
+### Saved Console answers for the current build
 
-Use these facts when the corresponding question appears; inspect the actual wording before saving. Do not invent a positive compliance attestation to make a form complete.
+These facts support the completed declarations. Recheck them against actual behavior when updating the app; saved forms are not Google approval.
 
 | Question or topic | Current supported answer |
 | --- | --- |
-| Intended audience | Owner intends every listed age group. The under-18 path is supervised, with adult assistance for younger children. Complete the declaration against final validation; no substitute audience is authorized. |
+| Intended audience | All six listed age groups are selected and submitted. The under-18 path is supervised, with adult assistance for younger children. |
 | App category | **Communication**; a native email client. |
 | Ads / in-app purchases | **No / No** in the inspected build. No advertising SDK or billing integration was found. |
 | User interaction / exchange of user-created content | **Yes**: direct email, multiple recipients, freeform text and file attachments. No public feed, random matching or anonymous chat-discovery feature was found. |
@@ -103,7 +148,7 @@ Use these facts when the corresponding question appears; inspect the actual word
 | Parental controls / adult action / safety reminder | **Yes, implemented:** separate adult setup and PIN, guardian contact/message controls and a safety reminder. Do not describe the PIN/date checks as independently verified legal parental consent. |
 | User blocking / abuse reporting | **Yes:** local sender blocking, local concerns for guardian review, and an adult-controlled provider report with explicit destination/payload confirmation. Local concerns are not automatically delivered to a provider or developer. |
 | Precise location / camera / microphone features | No corresponding runtime permission or capture feature was found. A user can still manually attach a file containing personal information; do not misdescribe all attachments as free of such data. |
-| Account creation | **No new provider identity is created in the app**; it signs into an existing mailbox. App access is restricted by mailbox login; the privacy policy is accessible without login. |
+| Account creation | **No new provider identity is created in the app**; real mail signs into an existing mailbox. Version 3 also provides a local sample without mailbox credentials. Age/guardian controls still apply; the privacy policy is accessible without login. |
 | Children's data / Families compliance | Authentication and mail data are involved. Age bands/PIN verification/approval records stay local. **Do not answer “no children's personal data”** based only on the absence of ads, analytics or a developer backend; audit the exact final data flows. |
 
 ### Final validation before an all-age submission
@@ -126,28 +171,28 @@ The separate Child Safety Standards declaration currently applies to Social/Dati
 
 ## Foreground service: declaration and evidence
 
-The exact-release [demonstration video and guide](https://pportilla.github.io/simple_webmail_upm/foreground-service/) are public and verified. The `specialUse` declaration is saved in Console. The local TLS fixture demonstrates real IDLE/notification behavior; it does not supply reusable reviewer access or establish UPM compatibility. These saved materials remain subject to Google review.
+The exact-version-3 [demonstration video and guide](https://pportilla.github.io/simple_webmail_upm/foreground-service/) were published and HTTP/hash verified; the updated `specialUse` declaration was saved and reloaded in Console. The 97.918-second local TLS fixture demonstrates real IDLE/notification behavior, including opt-in, background arrival and stopping the service. It does not establish UPM compatibility. Built-in sample arrivals are a separate local simulation and never start this service. The [version-2 evidence](https://pportilla.github.io/simple_webmail_upm/foreground-service/v2/) is archived separately. Saved materials remain subject to Google review.
 
-The manifest declares `FOREGROUND_SERVICE_SPECIAL_USE`, `PushService` uses `specialUse`, and its subtype describes an IMAP IDLE connection for incoming mail. Push is **off by default**, available only to the adult profile, and starts only after the user selects **Instantly (push)**. A foreground notification reports generic connection status without account identifiers. Users can stop push by changing **Settings > Notifications > Check for new mail** from **Instantly (push)** to a periodic/manual mode, or by removing all accounts. Switching to a supervised profile also stops the service and its live connections; guardian unlock does not enable it. Verify selection, stop and restart behavior on the final build.
+The manifest declares `FOREGROUND_SERVICE_SPECIAL_USE`, `PushService` uses `specialUse`, and its subtype describes an IMAP IDLE connection for incoming mail. Push is **off by default**, available only to the adult profile, and starts only after the user selects **Instantly (push)** with a real mailbox configured. Sample accounts are excluded. A foreground notification reports generic connection status without account identifiers. Users can stop push by changing **Settings > Notifications > Check for new mail** from **Instantly (push)** to a periodic/manual mode, or by removing all real accounts. Switching to a supervised profile also stops the service and its live connections; guardian unlock does not enable it. Exact-release opt-in and manual stopping were demonstrated; broader restart/device coverage remains separate.
 
 Google reviews `specialUse` explanations and requires a valid use case, user benefit, perceptibility/control, necessity and limited duration. It is not an automatic exemption from background-work rules. [Service type documentation](https://developer.android.com/develop/background-work/services/fgs/service-types#special-use), [FGS policy](https://support.google.com/googleplay/android-developer/answer/16559646)
 
-**Draft functionality explanation — verify before submitting:**
+**Functionality explanation supporting the saved declaration:**
 
-> UPM Mail receives mail for existing mailboxes through direct IMAP connections. When an adult user enables Instant push, the foreground service maintains an IMAP IDLE connection to each configured inbox and refreshes that inbox when the mail server reports a change. An ongoing notification shows generic connection status. Users can stop this service by choosing periodic or manual checking in Settings, removing all configured accounts, or switching to supervised mail. Supervised profiles cannot use this service. Periodic checks, queued sending and search indexing have separate scheduled jobs.
+> UPM Mail receives mail for existing real mailboxes through direct IMAP connections. When an adult user enables Instant push, the foreground service maintains an IMAP IDLE connection to each connected real inbox and refreshes it when the server reports a change. An ongoing notification shows generic connection status. Users can stop this service by choosing periodic or manual checking, removing all real accounts, or switching to supervised mail. Sample accounts and supervised profiles cannot use this service. Periodic checks, queued sending and search indexing have separate scheduled jobs.
 
-**Draft impact explanation — verify with recorded behavior:**
+**Interruption impact supported by the recorded behavior:**
 
-> Deferring or interrupting the IDLE connection delays notification of incoming mail until a reconnection, a scheduled check or the next foreground refresh. The user can choose those less frequent checking modes, but they do not provide the same notification timing as an active IDLE connection. The connection remains active while push is enabled and accounts exist; it pauses network work offline and reconnects when connectivity returns.
+> Deferring or interrupting the IDLE connection delays notification of incoming mail until a reconnection, a scheduled check or the next foreground refresh. The user can choose those less frequent checking modes, but they do not provide the same notification timing as an active IDLE connection. The connection remains active while push is enabled and real accounts exist; it pauses network work offline and reconnects when connectivity returns.
 
-**Type justification to complete:** explain why this persistent IMAP listener fits `specialUse` better than the defined types and why a scheduled alternative does not meet the chosen feature's purpose. Do not claim that every email client qualifies, that continuous lifetime is already approved, or that FCM is technically impossible without evidence. The app currently implements direct IMAP and no FCM integration; confirm available UPM server integrations and the architectural constraints with the owner.
+**Saved type rationale:** the optional listener waits for future IMAP changes of unknown timing; it is not a finite transfer or device-to-device messaging-continuity service. Scheduled polling remains an alternative with different timing. The app implements direct IMAP without FCM. This explanation and the public video are under review; they do not establish that Google has accepted the service type.
 
-- [ ] Review the final manifest subtype against actual service behavior.
-- [ ] Verify notification text explains the active work and a way to stop it. Do not base the justification on hiding ongoing work.
-- [ ] Check push startup, stop/restart, last-account removal, denied notifications, reboot and network-loss behavior on Android 14–16. Confirm that changing to supervised mail cancels active IDLE/keep-alive work and cannot restart it through alarms, queued jobs or guardian unlock.
-- [ ] Record a video of the exact release build: open the test mailbox, show the checking setting, enable/select push, show its ongoing notification, leave the app, receive synthetic mail, open the new-mail notification, then switch to periodic/manual checking and show push stopping.
-- [ ] Include English narration or captions, release version and relevant settings. Keep credentials and real mail out of the video. Make the link accessible to reviewers without requesting access.
-- [ ] Complete the Console FGS declaration with functionality, delay/interruption impact, use-case choice and video link. [Declaration and video requirements](https://support.google.com/googleplay/android-developer/answer/13392821)
+- [x] Review the final manifest subtype against the verified local TLS listener behavior; the submitted explanation and exact video are recorded in `release-output/foreground-service-console-v3.txt` and `release-output/demo-release-3/foreground-service-console.json`.
+- [x] Verify the ongoing notification explains the active connection and how to stop it in the exact-release video.
+- [ ] Broader runtime coverage remains: Android 14–16 restart/reboot, denied notifications, last-account removal and network-loss combinations. Focused automated safety tests passed, but the final device walkthrough does not establish this full matrix.
+- [x] Record the exact version-3 release using a configured local TLS mailbox: user opt-in, ongoing notification, background synthetic arrival, message opening and manual stopping. Service/ongoing-notification absence was verified afterward.
+- [x] Include English captions, release identity and relevant settings; publish without credentials or private mail and verify the public URL/hash.
+- [x] Save/reload the Console FGS declaration with functionality, delay/interruption impact, use-case choice and version-3 video link. This is not Google approval. [Declaration and video requirements](https://support.google.com/googleplay/android-developer/answer/13392821)
 
 **Acceptance is not guaranteed.** If the declaration is rejected, inspect Google's specific reason and revise the implementation or evidence. Do not relabel the service as a different type solely to bypass review. A release with periodic/manual checking is an implementation option if the persistent service cannot be justified, but its code, manifest, listing and privacy declarations would need to be updated together.
 
@@ -155,16 +200,16 @@ Google reviews `specialUse` explanations and requires a valid use case, user ben
 
 The release no longer declares `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` or launches the direct per-app exemption request. Its background-delivery help opens Android's general battery-optimization settings, with a general system-settings fallback. This removes the direct-request permission and its declaration rationale from the release. Android can still delay background mail when power restrictions apply. [Android background-power guidance](https://developer.android.com/training/monitoring-device-state/doze-standby)
 
-- [ ] Confirm the final merged release manifest lacks `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
+- [x] Confirm the final merged release manifest lacks `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (`release-output/demo-release-3/manifest.xml`).
 - [ ] Verify the help action opens general Android settings and gracefully handles devices without that screen.
 - [ ] Test manual/periodic mail access with power restrictions enabled. Selecting push remains optional and does not imply guaranteed delivery timing.
 
 ## Testing, review and launch
 
-1. Record what has actually been tested. Live UPM sign-in and external-provider receive/send/reply/forward, attachments, draft sync, outbox reconnect and push remain unverified; the owner declined to supply reviewer credentials. Exact-release local TLS authentication, IMAP IDLE, background arrival and push stopping were demonstrated with a disposable fixture; keep that scope explicit. Exercise offline guardian controls, local mail flows, permissions, both languages and the privacy-policy link on the final build without presenting them as live mail tests.
-2. Upload the signed AAB to internal testing and inspect Console validation/pre-launch reports. Resolve crashes, permission failures and inaccessible screens before wider release.
-3. This app's Console dashboard confirms production access is locked pending a closed test with at least **12 testers continuously opted in for 14 days**. Run that test, gather real feedback and then apply for production access. The available internal test does not satisfy this closed-test requirement or guarantee approval. [Testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465)
-4. Complete all unresolved identity, listing, app-access, privacy and service-evidence items, including the all-age/Families validation and provider-eligibility items above. Check the Console publishing overview and review the precise release/track changes before submitting them. An internal test is not evidence supporting unresolved policy attestations or wider distribution to children.
-5. Record the uploaded version, AAB SHA-256, signing fingerprint, policy-form version, test evidence, selected countries and review status. Do not mark the app published until Console confirms the intended release is available.
+1. Completed validation is recorded in `RELEASE_STATUS.md`: 673 automated tests, 16 exact-release device checks and a separate local TLS foreground-service demonstration. Live UPM login and external-provider delivery remain unverified. Broader device, locale and power-condition checks above are additional coverage, not incomplete Console declarations.
+2. Version 3 (1.0.1) is available to internal testers. Console validation reported zero errors and two advisory warnings about absent R8 mapping (the release is not obfuscated) and absent debug symbols for a prebuilt native library. The closed Alpha release and 16 changes are in review; all 11 app-content declarations show **In review**, with none awaiting completion.
+3. Await Google's review and address any findings or pre-launch report issues. Managed publishing is off, so approved closed-track changes publish automatically. Confirm availability before asking testers to join the [closed test](https://play.google.com/apps/testing/io.github.pportilla.upmmail). Existing internal participants must first leave the internal test, then opt into the closed test. [Google's track-switching guidance](https://support.google.com/googleplay/android-developer/answer/9845334?hl=en-en)
+4. Production access remains locked until at least **12 genuine testers have opted into the closed test continuously for 14 days**. Gather feedback and apply for production access afterward. Three configured addresses and internal participation do not satisfy this requirement. [Testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465)
+5. Preserve the uploaded AAB, version, signing fingerprint, recorded declarations, evidence and actual track state. The private owner handoff contains those records. Production is not published; successful submission does not establish Google approval.
 
-Recheck linked requirements at submission time, especially if this checklist is reused after the preparation date.
+Recheck linked requirements before a future submission or production-access application.
