@@ -19,10 +19,10 @@
   </style>
 </head>
 <body>
-  <p class="meta">For version 1.1.0 (code 7), prepared 25 October 2026. For versions 1.0.x (up to code 6), see the <a href="demo-review-v6.html">previous document</a>.</p>
+  <p class="meta">For version 1.1.0 (code 8), prepared 25 October 2026. For versions 1.0.x (up to code 6), see the <a href="demo-review-v6.html">previous document</a>.</p>
   <nav aria-label="Related documents"><a href="privacy.html">Privacy policy</a> · <a href="acceptable-use.html">Acceptable-use rules</a></nav>
   <h1>UPM Mail: interactive demo and reviewer guide</h1>
-  <p class="meta">Developer: zango · Package: <code>io.github.pportilla.upmmail</code> · Version 1.1.0 (code 7) · 25 October 2026</p>
+  <p class="meta">Developer: zango · Package: <code>io.github.pportilla.upmmail</code> · Version 1.1.0 (code 8) · 25 October 2026</p>
   <p class="notice">UPM Mail is a general email client for people aged 13 and over. This version removes the previous family interface, date-of-birth form, guardian PIN, contact approvals and per-message approvals. Eligible teenagers and adults use the same complete mailbox. Google Play checks may apply where the platform requires verification or approval.</p>
 
   <h2>Open the sample mailbox without credentials</h2>
@@ -57,6 +57,10 @@
     <li>With <strong>Only when I open the app</strong> selected, refresh after the delay. If Android ended the process during the delay, reopen the app and request another arrival.</li>
   </ol>
   <p>Sample mail opens no mail-server connection and does not start the persistent foreground service. Other connected real accounts retain their normal network activity. Real instant delivery requires an authorized connected mailbox; the public sample is not a UPM authentication test.</p>
+
+  <h2>Real-mail foreground service</h2>
+  <p>The <a href="foreground-service/">version 1.1.0 (code 8) recording and artifact identity</a> show a user enabling instant checking, its ongoing notification, a background IMAP arrival, opening the delivered message, and stopping the service. The unchanged signed release used a disposable, local TLS mailbox with fictional mail. The <a href="foreground-service/upm-mail-v8-foreground-service-demo.mp4">continuous video</a> contains no mailbox setup or credentials.</p>
+  <p>Separate exact-release checks verified TLS mail and attachment integrity, safe retry after a foreground interruption, foreground refresh and rejection of a wrong-hostname certificate. This does not establish UPM sign-in, external-provider delivery or real Google Play regional age decisions. Test credentials and temporary emulator trust were removed after recording.</p>
 
   <h2>Updates from earlier versions</h2>
   <p>Existing eligible profiles receive the short updated acknowledgment. Earlier teen profiles gain the normal interface, with accounts, drafts and blocked senders preserved. Old queued supervised messages are held for deliberate review and retry; an interrupted send is marked as potentially already delivered. Obsolete PIN and message-approval data is removed. A previously declared under-13 profile remains unsupported and is not silently relabeled as older.</p>

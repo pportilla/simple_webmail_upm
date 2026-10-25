@@ -6,7 +6,7 @@ PRUEBA EL CORREO DE EJEMPLO
 Explora un buzón ficticio sin credenciales de correo. El ejemplo permanece en tu dispositivo; envíos, respuestas y avisos al proveedor se simulan localmente y nunca llegan a direcciones reales. Prueba llegadas y notificaciones locales. Las demás cuentas reales conectadas conservan su actividad de red habitual.
 
 PARA PERSONAS DE 13 AÑOS EN ADELANTE
-Utiliza un buzón al que tengas permiso para acceder y cumple los requisitos de cuenta de tu proveedor. Una aceptación cubre los requisitos y las normas de uso. Adolescentes y adultos utilizan las mismas funciones, sin PIN de supervisión ni aprobación de mensajes.
+Utiliza un buzón al que tengas permiso para acceder y cumple los requisitos de cuenta de tu proveedor.
 
 BLOQUEA E INFORMA
 Bloquea direcciones no deseadas en este dispositivo y gestiónalas en Ajustes. Redacta un aviso a la dirección oficial de abuso o seguridad de tu proveedor, revisa la vista previa y decide cuándo enviarlo. No se adjunta automáticamente correspondencia original. El bloqueo local no cambia la entrega en el servidor ni afecta a otras apps.

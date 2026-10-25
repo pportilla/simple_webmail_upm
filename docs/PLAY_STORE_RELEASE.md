@@ -1,16 +1,20 @@
 # Google Play release checklist
 
 Updated **25 October 2026 (Europe/Madrid)** for `io.github.pportilla.upmmail`.
-**Version 6 (1.0.3) is approved/live in closed Alpha and available internally.** Version **7
-(1.1.0)** is being prepared for a general **13+** audience. Its signed build passed **698 tests**,
-lint with zero errors and artifact validation. Runtime and Console submission evidence remain
-pending; earlier release results do not validate this changed experience.
-Exact historical identities remain in [release status](RELEASE_STATUS.md).
+**Version 6 (1.0.3) is approved/live in closed Alpha and available internally.** Version **8
+(1.1.0)** replaces the unpublished version-7 candidate after runtime testing found an attachment-save
+failure on return from the system file picker during a transient access check. Version 8 passed
+**704 tests**, lint with zero errors, signed-artifact validation, focused UI/attachment checks
+and 13 exact-release TLS checks. Six closed-release/listing/audience changes were submitted at
+**14:33:01 Europe/Madrid on 25 October 2026**; Console reload and submission activity 4 confirm **In review** for closed Alpha, store listing
+and app content, with no running-check banner. Google approval is still pending. The
+internal release remains an unpublished draft; public evidence and both final listings are verified. Version-7 tests and metrics are
+preserved as superseded evidence in [release status](RELEASE_STATUS.md), not v8 validation.
 
-**Hold publication of version 7 on every track, including internal testing, until at least
-28 October 2026 at 00:00 UTC (01:00 Europe/Madrid).** Managed publishing is on for the update,
-but does not automatically protect an internal release. No automatic publication is scheduled.
-The English/Spanish significant-change notice is submitted successfully for that effective date.
+**Hold publication of this update on every track, including internal testing, until at least
+28 October 2026 at 00:00 UTC (01:00 Europe/Madrid).** Managed publishing is on, but does not
+automatically protect internal releases. The English/Spanish significant-change notice remains
+submitted for that effective date. No automatic publication is scheduled.
 
 ## Identity and current scope
 
@@ -19,10 +23,10 @@ The English/Spanish significant-change notice is submitted successfully for that
 | App / publisher | Independent, unofficial **UPM Mail**, developer **zango**, support **p.portilla89@gmail.com**, [repository/support website](https://github.com/pportilla/simple_webmail_upm). Keep the non-affiliation statement visible. |
 | Account / distribution | Existing verified personal Play developer account; free, Communication category, no ads or billing; current scope 178 countries/regions. No new developer account is needed. |
 | Audience | Only **13–15, 16–17 and 18+** are saved for the proposed update, pending review. This supersedes the earlier all-age intent. Normal teens receive ordinary mail; known under-13 profiles remain unsupported. Target audience and IARC ratings are separate. |
-| Version | Validated version code **7**, name **1.1.0**. Preserve the exact validated/uploaded AAB. For any later upload, use a code above every code already used in Console. |
+| Version | Validated version code **8**, name **1.1.0**; uploaded and submitted for closed review, with focused runtime validation passed; approval pending. Preserve the exact validated/uploaded AAB. For any later upload, use a code above every code already used in Console. |
 | Signing | Preserve the existing dedicated upload key outside Git and back it up securely. Never use the repository's public debug key or replace the existing key casually. |
-| Review access | Public **Try sample mail** needs no personal mailbox credentials. Version-7 instructions must describe the new 13+ acknowledgment, ordinary mail and any explicit Play requirement; remove old DOB/guardian-PIN instructions. Final signed walkthrough and saved Console update pending. |
-| Public policies | Existing HTTPS [privacy](https://pportilla.github.io/simple_webmail_upm/privacy.html) and [acceptable-use](https://pportilla.github.io/simple_webmail_upm/acceptable-use.html) URLs remain. Version-7 privacy, acceptable-use and reviewer-guide pages, plus archived v6 pages, returned HTTP 200 with matching source hashes at `gh-pages` commit `1dbfec998a59028f02717ebb63291cfb49246586`. |
+| Review access | Public **Try sample mail** needs no personal mailbox credentials. All five version-8 instructions are saved and reread: public sample, ordinary mail, blocking/reporting, sample arrival/retry and access/reset. Old DOB/guardian-PIN instructions are removed. Exact final UI/attachment and TLS evidence is recorded; actual regional Play screens were not exercised. |
+| Public policies | Existing HTTPS [privacy](https://pportilla.github.io/simple_webmail_upm/privacy.html) and [acceptable-use](https://pportilla.github.io/simple_webmail_upm/acceptable-use.html) URLs remain. Version-8 policies, reviewer guide and FGS evidence are deployed at `3614a831cb632f18783210881d2bd4545933c8cb`; 18 canonical URLs, including historical archives, passed HTTP/hash verification. |
 | Production gate | At least **12 genuine closed testers continuously opted in for 14 days**, then a production-access application. Three configured addresses and internal participation do not satisfy it. Last recorded qualifying opt-ins: zero; no new enrollment check is claimed. |
 
 ## General 13+ behavior to verify
@@ -83,38 +87,47 @@ more than two days apart is about spacing between changes, not a universal 48-ho
 - [x] Submit and verify the English/Spanish significant-change notice: effective **28 October
       2026**, editable until **26 October**; confirmed **25 October at 13:29:26 Europe/Madrid**.
       Exact confirmation and owner-authorized terms records are private.
-- [x] Validate the exact signed version-7 bundle; preserve its frozen hash and the date hold.
-- [ ] Complete declarations and closed review submission under managed publishing.
-- [ ] Keep any version-7 internal release **as an unpublished draft**. Do not use internal rollout
+- [x] Validate the exact version-8 signed bundle and discard both unpublished v7 drafts.
+- [x] Upload exact version 8; save closed release 6 with proposed 100% rollout and internal
+      release 7 as an unpublished draft. Neither saved draft is a live version-8 release.
+- [x] Finish matching EN/ES listings/screenshots and FGS evidence; submit the six v8 changes at
+      **14:33:01 Europe/Madrid on 25 October 2026**, with managed publishing on. Console shows
+      **In review** in submission activity 4 after reload; no running-check banner remains.
+- [x] Save version 8 **as an unpublished internal draft**. Version 7 was never submitted or published;
+      keep the replacement held too. Do not use internal rollout
       to bypass the date hold or assume managed publishing automatically holds that track.
 - [ ] At or after **28 October 2026, 00:00 UTC / 01:00 Europe/Madrid**, recheck the notice, review
       result, platform requirements and managed-publishing state before deliberate publication.
 
 No publication job or automatic schedule has been created. Review approval alone does not waive
-the date hold. Existing version-6 testing can continue while version 7 is held.
+the date hold. Existing version-6 testing can continue while version 8 is held.
 
-## Exact version-7 validation
+## Exact version-8 validation
 
-Do not mark these complete using version-5/6 counts or screenshots.
+Do not mark these complete using version-7 or earlier results.
 
-- [x] Freeze all **271** native source inputs and record exact AAB/derived-APK hashes in
-      `RELEASE_STATUS.md`. Package/version/API levels, non-debuggable release, disabled backup and
-      offline EN/ES availability passed validation.
-- [x] Pass **698 release tests**, with zero failures/errors/skips; lint reports **0 errors,
-      42 warnings, 2 hints**. Bundle/signatures and embedded R8 evidence passed. R8 8.11.26 is
-      enabled; DEX totals **4,368,636 bytes**, separate from any future observed Play score.
-- [x] Verify `PAGE_ALIGNMENT_16K`, all four ABI ELF load alignments and exact-universal ZIP alignment.
-      This is structural compatibility, not a 16 KB runtime-device test. Upload certificate retained.
-- [ ] Exercise fresh 13+ setup, public sample mail, blocking/report preview, attachments, search,
-      draft persistence and ordinary teen use without guardian screens.
-- [ ] Exercise legacy teen migration with accounts/drafts/blocks intact, queued mail held for review,
-      `SENDING` marked uncertain, and known under-13 access still unsupported.
-- [ ] Test optional sharing decline, explicit restriction/clearance, pending/error/late-response
-      handling, restart/persistence and live/queued transport stopping. Separate mocked decisions,
-      sideload behavior and any real Play account/region observations in the evidence.
-- [ ] Exercise exact-release TLS IMAP/SMTP, MIME attachments and wrong-hostname rejection; record
-      the new real-mail foreground-service demonstration. A local fixture is not UPM authentication.
-- [ ] Inspect actual EN/ES screens and captures; replace screenshots showing removed guardian UI.
+- [x] Freeze **271** unchanged inputs, committed at `02b67de977ed3dd8156a8cac9d38bbe40ef5a65e`,
+      and record exact AAB/universal/source hashes in `RELEASE_STATUS.md`. Code8/name1.1.0, API levels,
+      non-debuggable release, disabled backup and offline EN/ES availability passed validation.
+- [x] Pass **704 release tests**, zero failures/errors/skips; lint **0 errors / 42 warnings / 2 hints**.
+      Signatures and R8 mapping evidence passed; R8 8.11.26 is enabled with **4,369,820 DEX bytes**.
+- [x] Verify 16 KB bundle/ELF/ZIP structure and the unchanged upload certificate. This is not a
+      16 KB runtime-device test.
+- [x] Inspect the exact uploaded v8: **High**, **98% optimization / 98% obfuscation / 98% shrinking**,
+      **2.4 MB** new-install, **1.14 MB** update, **18,029** devices and **Supports 16 KB**.
+- [x] Retest uncached attachment export on exact v8 after **31 seconds** in the system picker:
+      all **101 bytes** and the expected content hash matched.
+- [x] Verify fresh v8 13+ setup/sample entry and ordinary EN/ES navigation. Preserve the earlier
+      17 v7 migration/general-mail checks as scoped history; do not claim a full v8 migration rerun.
+- [x] Pass automated eligibility/request-window/persistence/transport tests, and observe real
+      foreground cancellation in the exact-v8 TLS fixture. The emulator used the SDK
+      unavailable-service fallback; actual Google regional verification was not exercised.
+- [x] Pass **13 exact-v8 TLS checks**, including MIME attachment bytes, pre-DATA cancellation and
+      once-only delivery, warm manual refresh, wrong-hostname rejection and IDLE/manual stop.
+      Preserve the continuous **98.998256-second** v8 video; local fixtures do not verify UPM.
+- [x] Capture and visually inspect **ten** actual EN/ES v8 screenshots, five per locale, with no
+      guardian UI, keyboard or blank frames. Existing external-mailto screenshot protection is
+      documented separately; ordinary compose captures correctly.
 
 API 36 is configured; inspect the final bundle against the current [target API policy](https://support.google.com/googleplay/android-developer/answer/11926878)
 and [16 KB guidance](https://developer.android.com/guide/practices/page-sizes). The existing App
@@ -125,29 +138,31 @@ messages, drafts and queued work.
 ## Listing and Console declarations
 
 Use `fastlane/metadata/android/en-US/` and `es-ES/` for store text and genuine runtime screenshots.
-Use the version-specific `changelogs/7.txt`. These files do not publish themselves. Contact fields
+Use the version-specific `changelogs/8.txt`. These files do not publish themselves. Contact fields
 are entered in Console; do not rely on unsupported locale `contact_email.txt` metadata.
 
-- [ ] Save/reload the general 13+ EN/ES descriptions, current screenshots and version-7 notes;
-      remove blanket guardian claims and under-13 marketing from the active listing.
-- [ ] Save/reload App access using the actual no-credentials sample route and any explicit Play
-      eligibility screen. Do not provide a fictional password, suggest bypassing a platform hold,
+- [x] Save/reload the general 13+ EN/ES descriptions and version-8 notes; both descriptions match
+      local metadata and all ten screenshots are saved in 01–05 order. No unsaved listing changes
+      or removed guardian/under-13 marketing remain in the submitted listing.
+- [x] Update version labels and reread all five App access entries using the no-credentials sample route and any
+      explicit Play eligibility screen. Do not provide a fictional password, suggest bypassing a platform hold,
       or claim the sample tests production mail transport. [Review access](https://support.google.com/googleplay/android-developer/answer/15748846).
-- [x] Deploy and HTTP/hash-verify version-7 privacy, acceptable-use and reviewer-guide pages,
-      alongside the three archived v6 pages. Verification passed at **13:37:30 Europe/Madrid**;
-      retain matching SDK/privacy wording and update any runtime verification notice only after QA.
-- [ ] Recheck IARC interaction, blocking/reporting and parental-controls answers against version 7.
-      The earlier rating is historical until the changed declaration is verified; do not retain a
-      claim that the app itself provides guardian PIN/message controls.
-- [ ] Reconcile Data safety with live mail and the Play SDK. Earlier mail declarations were 13 types,
-      4 required/9 optional: required Email address, User IDs, Emails and App interactions. The sample
-      remains local, but SDK data handling needs a specific final review; the old answers are not
-      automatically a completed version-7 declaration. [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469).
-- [ ] Retain accurate account answers: the app connects existing external mailboxes, does not create
+- [x] Deploy version-8 page labels and exact reviewer/FGS evidence. All **18** canonical URLs
+      returned HTTP 200 and matching hashes at **14:26:17 Europe/Madrid on 25 October 2026**;
+      earlier evidence remains separately archived.
+- [x] Recheck the existing IARC summary: Communication with blocking/reporting remains accurate;
+      it contains no in-app parental-control promise to remove. Regional ratings remain separate
+      from the saved 13+ target-audience declaration.
+- [x] Reconcile the saved Data safety export/preview with live mail and the Play SDK: retain
+      13 types, 4 required/9 optional (required Email address, User IDs, Emails and App interactions),
+      encrypted transit and no declared sharing under the documented transfer exceptions. The
+      sample stays local and raw Play age signals are not sent to a developer server. [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469).
+- [x] Retain accurate account answers: the app connects existing external mailboxes, does not create
       a University identity and does not delete a provider account. Local removal differs from
       provider-side deletion. [Account deletion](https://support.google.com/googleplay/android-developer/answer/13327111).
-- [ ] Confirm publisher/support details, no-ads answer, Communication category and every app-specific
-      Console task. Save exact responses and actual review state privately.
+- [x] Confirm the app-specific Console declarations: final read-only preflight reports all
+      **11 actioned**, none needing attention, only the three 13+ groups, and matching saved
+      listings. Preserve exact responses and submission state privately.
 
 Selected device contacts become recipients only when used; the entire address book is not uploaded.
 Recipients, mail/attachments, remote resources, server searches and explicit export/sharing need
@@ -157,7 +172,7 @@ not Google OAuth; an OAuth client is not a Play-publishing credential for this i
 
 ## Foreground service and battery settings
 
-Version 7 retains optional direct IMAP IDLE for eligible real mailboxes. Push is off by default;
+Version 8 retains optional direct IMAP IDLE for eligible real mailboxes. Push is off by default;
 the user selects **Instantly (push)**. It has an ongoing generic notification and stops when the
 user chooses periodic/manual checks or no eligible real account remains. Sample accounts never
 run this service. An explicit platform hold and a transient access check must also gate network
@@ -165,17 +180,18 @@ work; the former universal adult-only/guardian rule is no longer the declared be
 
 The manifest uses `specialUse`, with an IMAP-listener subtype. The listener waits for future
 changes rather than performing a finite transfer; scheduled polling remains available with
-different notification timing. No FCM backend is implemented. The old version-5 video is historical;
-prepare a version-7 recording and description matching the changed eligibility behavior.
+different notification timing. No FCM backend is implemented. The successful version-7 video is historical. The exact version-8 recording is complete;
+its public deployment and matching Console description/video were verified and saved/reread.
 [Service type](https://developer.android.com/develop/background-work/services/fgs/service-types#special-use),
 [FGS policy](https://support.google.com/googleplay/android-developer/answer/16559646).
 
-- [ ] Record the exact final release enabling push, ongoing status, actual background arrival,
+- [x] Record the exact final release enabling push, ongoing status, actual background arrival,
       opening the message and stopping push. Use synthetic mail and keep credentials out of footage.
-- [ ] Publish only sanitized video/identity files; verify URL/hash and save/reload the updated
+- [x] Publish only sanitized video/identity files; verify URL/hash and save/reload the updated
       functionality, interruption impact, use-case rationale and evidence link in Console.
-- [ ] Confirm the final manifest still lacks `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and that help
-      uses general Android battery settings. Background timing is not guaranteed.
+- [x] Confirm the exact final manifest lacks `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; help still
+      uses general Android battery settings. Device-specific help behavior and power restrictions
+      are broader coverage limits, not incomplete Console declarations. Timing is not guaranteed.
 
 Broader Android 14–16 restart/reboot, notification-denial, long Doze and device-specific behavior
 remain separate coverage unless actually exercised. Do not relabel the service merely to avoid a
@@ -190,7 +206,7 @@ entered at hidden terminal prompts. Do not generate a replacement for the key al
 
 ```bash
 export UPM_SIGNING_PROPERTIES_FILE=/home/gablo/.config/upm-mail/signing.properties
-python3 scripts/build-release.py --version-code 7 --version-name 1.1.0
+python3 scripts/build-release.py --version-code 8 --version-name 1.1.0
 ```
 
 The helper runs release lint/tests/bundle generation, requires R8 mapping/renaming evidence and
@@ -212,7 +228,8 @@ Avoid concurrent Console/API edits. [API setup](https://developers.google.com/an
 
 ## Testing and later publication
 
-1. Preserve version 6 as the current available release while finishing and reviewing version 7.
+1. Preserve version 6 as the current available release while the submitted version 8 completes
+   Google review under managed publishing.
    Do not turn the significant-change date into a claim that publication is automatically scheduled.
 2. At or after the date hold, verify actual review and platform state, then deliberately publish
    the approved testing update. Keep signed artifacts and separate submission, approval and live-state records.

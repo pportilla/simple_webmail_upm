@@ -6,7 +6,7 @@ TRY SAMPLE MAIL
 Explore a fictional mailbox without mailbox credentials. Sample mail stays on your device; sending, replies and provider reports are simulated locally and never delivered to real addresses. Try local sample arrivals and notifications. Other connected real accounts keep their normal network activity.
 
 FOR AGES 13 AND OLDER
-Use a mailbox you are authorized to access and meet your provider's account requirements. One acknowledgement covers eligibility and acceptable-use rules. Teens and adults use the same mail features, without guardian PINs or message approvals.
+Use a mailbox you are authorized to access and meet your provider's account requirements.
 
 BLOCK AND REPORT
 Block unwanted sender addresses on this device and manage blocked addresses in Settings. Write a report to your mail provider's official abuse or safety address, preview it and choose when to send. Original correspondence is not attached automatically. Local blocking does not change server delivery or other apps.
