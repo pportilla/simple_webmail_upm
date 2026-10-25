@@ -58,6 +58,10 @@
   </ol>
   <p>Sample mail opens no mail-server connection and does not start the persistent foreground service. Other connected real accounts retain their normal network activity. Real instant delivery requires an authorized connected mailbox; the public sample is not a UPM authentication test.</p>
 
+  <h2>Real-mail foreground service</h2>
+  <p>The <a href="foreground-service/">version 1.1.0 (code 7) recording and artifact identity</a> show a user enabling instant checking, its ongoing notification, a background IMAP arrival, opening the delivered message, and stopping the service. The unchanged signed release used a disposable, local TLS mailbox with fictional mail. The <a href="foreground-service/upm-mail-v7-foreground-service-demo.mp4">continuous video</a> contains no mailbox setup or credentials.</p>
+  <p>Separate exact-release checks verified TLS mail and attachment integrity, safe retry after a foreground interruption, foreground refresh and rejection of a wrong-hostname certificate. This does not establish UPM sign-in, external-provider delivery or real Google Play regional age decisions. Test credentials and temporary emulator trust were removed after recording.</p>
+
   <h2>Updates from earlier versions</h2>
   <p>Existing eligible profiles receive the short updated acknowledgment. Earlier teen profiles gain the normal interface, with accounts, drafts and blocked senders preserved. Old queued supervised messages are held for deliberate review and retry; an interrupted send is marked as potentially already delivered. Obsolete PIN and message-approval data is removed. A previously declared under-13 profile remains unsupported and is not silently relabeled as older.</p>
   <p>If Google Play explicitly requires age verification or approval of an app change, the app shows a short notice with access to Play and a retry action. There is no separate app identity-verification or parental-control system. A temporary API error does not remove a restriction already received from Play.</p>
