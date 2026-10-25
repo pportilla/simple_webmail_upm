@@ -8,8 +8,14 @@ import android.os.SystemClock
 import android.util.Log
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.repository.SettingsRepository
+import io.github.pportilla.upmmail.data.safety.SafetyPolicy
+import io.github.pportilla.upmmail.mail.ImapIdler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -18,9 +24,41 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** Instant push requires an eligible account with acknowledged terms. */
+internal fun pushAllowedBySafety(safety: SafetyPolicy): Boolean =
+    safety.state.value.mailboxAccessAllowed &&
+        runCatching { safety.requireNetwork() }.isSuccess
+
+/** Also guards retries/keep-alives and cancels a live connection when its profile is revoked. */
+internal fun PushConnection.withPushSafety(safety: SafetyPolicy): PushConnection {
+    val delegate = this
+    return object : PushConnection {
+        override suspend fun run(onIdle: () -> Unit, onChange: (ImapIdler.Change) -> Unit) =
+            withPushAuthorization(safety) { delegate.run(onIdle, onChange) }
+
+        override suspend fun refresh(): Boolean = withPushAuthorization(safety) { delegate.refresh() }
+    }
+}
+
+private suspend fun <T> withPushAuthorization(safety: SafetyPolicy, action: suspend () -> T): T = coroutineScope {
+    if (!pushAllowedBySafety(safety)) throw CancellationException("Push authorization is unavailable")
+    val connectionScope = this
+    val authorization = launch(start = CoroutineStart.UNDISPATCHED) {
+        safety.state.collect {
+            if (!pushAllowedBySafety(safety)) connectionScope.cancel("Push authorization changed")
+        }
+    }
+    try {
+        if (!pushAllowedBySafety(safety)) throw CancellationException("Push authorization changed")
+        action()
+    } finally {
+        authorization.cancel()
+    }
+}
+
 /**
  * Decides when [PushService] runs: while push is enabled in the settings and there is at least
- * one account.
+ * one account, and the current account authorizes network access.
  *
  * Android 12+ lets an app start a foreground service only while it is visible or in a few
  * exempt situations (boot, app update, exemption from battery optimisation). Starts are
@@ -41,19 +79,20 @@ class PushController(
     @Volatile
     private var service: PushService? = null
 
-    /** Follows the settings and the account list, starting or stopping the service. */
+    /** Follows settings, accounts and safety authorization, including profile transitions. */
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
             combine(
                 settings.settings.map { it.pushEnabled }.distinctUntilChanged(),
                 store.accounts.observeAll()
-                    .map { it.isNotEmpty() }
+                    .map { accounts -> accounts.any { !it.isDemo } }
                     .catch { e ->
                         Log.w(TAG, "Could not read the accounts", e)
                         emit(false)
                     },
-            ) { enabled, hasAccounts -> enabled && hasAccounts }
+                store.safety.state.map { pushAllowedBySafety(store.safety) }.distinctUntilChanged(),
+            ) { enabled, hasAccounts, authorized -> enabled && hasAccounts && authorized }
                 .distinctUntilChanged()
                 .collect { wanted -> if (wanted) startService() else stopService() }
         }
@@ -69,17 +108,19 @@ class PushController(
         if (service == null && isWanted()) startService()
     }
 
-    /** Push is enabled and there is an account. Queries the database. */
+    /** Push is enabled, authorized and there is an account. Queries the database. */
     fun isWanted(): Boolean =
-        settings.settings.value.pushEnabled &&
+        pushAllowedBySafety(store.safety) && settings.settings.value.pushEnabled &&
             try {
-                store.accounts.count() > 0
+                store.accounts.getAll().any { !it.isDemo }
             } catch (e: Exception) {
                 Log.w(TAG, "Could not count the accounts", e)
                 false
             }
 
     private fun startService() {
+        // Alarm/foreground callbacks may race with a change in account authorization.
+        if (!isWanted()) return
         try {
             context.startForegroundService(Intent(context, PushService::class.java))
         } catch (e: IllegalStateException) {
@@ -93,6 +134,8 @@ class PushController(
 
     private fun stopService() {
         cancelAlarm()
+        // Cancel sockets before waiting for Android to dispatch Service.onDestroy().
+        service?.stopForSafety()
         try {
             context.stopService(Intent(context, PushService::class.java))
         } catch (e: RuntimeException) {
@@ -104,7 +147,11 @@ class PushController(
 
     internal fun onServiceStarted(service: PushService) {
         this.service = service
-        scheduleAlarm()
+        if (pushAllowedBySafety(store.safety) && settings.settings.value.pushEnabled) {
+            scheduleAlarm()
+        } else {
+            stopService()
+        }
     }
 
     internal fun onServiceStopped(service: PushService) {
@@ -118,6 +165,10 @@ class PushController(
      * until done, at most [ALARM_WORK_TIMEOUT]), or tries to start it if it died.
      */
     suspend fun onAlarm() {
+        if (!isWanted()) {
+            stopService()
+            return
+        }
         val running = service
         if (running == null) {
             startIfWanted()

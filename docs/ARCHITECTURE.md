@@ -33,6 +33,7 @@ then the full address.
 | `data.db` | `SqlDatabase` abstraction, schema, DAOs, table-change observer | DAOs yes; only `AndroidSqlDatabase` touches Android |
 | `data.repository` | `Repositories.kt` (interfaces = UI contract) and their implementations | interfaces yes |
 | `data.security` | Keystore-backed password store | no |
+| `data.safety` | Local 13+ eligibility, terms version, blocked senders, legacy migration and platform access restrictions | policy and storage format yes |
 | `data.settings` | `SharedPreferences`-backed `SettingsRepository`, `AppLanguage` choices | `AppLanguage` yes |
 | `data` | `DefaultAppContainer`, `AttachmentProvider` | no |
 | `sync` | `SyncEngine`, `PushWatcher`, `ServerSearch` and `HeaderIndexer` (pure), `SyncJobService` + scheduler, `PushService` + `PushController`, `IndexJobService` + `IndexScheduler` (Android) | engine, watcher, search and indexer yes |
@@ -45,7 +46,9 @@ then the full address.
  Compose screen ──► ViewModel ──► Repository interface (data.repository.Repositories.kt)
        ▲                               │
        │ Flow<…> (DB observer)         ▼
-       └──────────── SQLite cache ◄── SyncEngine ◄──► ImapClient / SmtpClient (mail)
+       └──────────── SQLite cache ◄── SyncEngine ◄──► MailClientProvider
+                                                        ├─ real TLS IMAP / SMTP
+                                                        └─ local sample transports
 ```
 
 - The UI never talks to the network directly. It observes the SQLite cache via `Flow`s and asks
@@ -59,18 +62,74 @@ then the full address.
   appended to the Sent folder.
 - Background checks run as a periodic `JobScheduler` job (interval from settings). While the app
   is visible, the INBOX is polled every 2 minutes.
-- Instant push (the default, `AppSettings.pushEnabled`): `PushService`, a foreground service of
-  type `specialUse`, runs one `PushWatcher` per account. Each keeps an IMAP IDLE connection
+- Instant push (off by default, `AppSettings.pushEnabled`): after ordinary 13+ access setup,
+  `PushService`, a foreground service of type `specialUse`, runs one `PushWatcher` per real
+  account. Sample accounts are excluded. Each watcher keeps an IMAP IDLE connection
   (`ImapIdler`) to the INBOX and syncs it through `SyncEngine` (debounced, never concurrently)
   when the server reports a change, so notifications take the usual path. Reconnection uses
   exponential backoff; servers without IDLE are polled every 2 minutes. An inexact
   `setAndAllowWhileIdle` alarm checks the connections in Doze. `PushController` starts the
   service when Android allows it (app visible, boot, app update, periodic job when exempt from
-  battery optimisation). The periodic job stays on (15 minutes) as a safety net. Installs from
-  before push get it only if they kept the default 15-minute interval.
+  battery optimisation). The periodic job stays on (15 minutes) as a safety net.
 - Search looks at two local sources at once: the cached messages and a **header index** of every
   folder, built in the background. It then searches the server progressively. See
   [Search and the header index](#search-and-the-header-index).
+
+## General audience and access policy
+
+The app targets people aged 13 and older. `SafetyRoot` presents one local acknowledgement of
+eligibility, authorized mailbox use and acceptable-use terms, then composes the ordinary
+navigation graph. It collects no birth date or guardian PIN. Users aged 13–17 have the same mail
+features as adults. The persisted `Audience.ADULT` name is retained for compatibility and now
+means ordinary eligible access; new installations store `AgeBand.AGE_13_PLUS`.
+
+`LocalSafetyRepository` checks access below the UI at the account, network, attachment,
+message and outgoing-mail boundaries. Sender blocking remains a user-controlled exact-address
+filter; it hides messages and prevents communication locally without changing server delivery.
+The message menu and Settings expose blocking and a provider-report composer. A report is an
+explicit ordinary send to the address the user supplies, with preview and no automatic copying
+of original correspondence. There is no guardian dashboard or per-message approval API.
+
+The version-1 local safety record is migrated to version 2. Existing teen profiles gain ordinary
+access only after legacy queued/sending mail is transactionally held with `REVIEW_REQUIRED` and
+the current terms are accepted. Those messages and attachments remain available for review and
+explicit retry. A failed migration cannot release them. Known under-13 profiles stay blocked.
+Old PIN verification data, approved contacts and message approvals are discarded; blocked
+addresses, the previously selected age band and historical local review requests are retained.
+
+Google Play Age Signals provides applicable platform eligibility information. Eligible teens
+retain ordinary access. Explicit under-13, verification-required, or pending/declined approval
+for a significant app change may restrict mail; Google's own flow handles applicable verification
+or sharing choices. Declining optional sharing does not add a restriction, and temporary errors
+cannot remove an existing restriction. Only a coarse access restriction is persisted, not the
+Play age range or identity documents. The SDK communicates with Google; the app has no developer
+backend for this information.
+
+## Public local sample mailbox
+
+`Account.isDemo` is an explicit persisted transport choice. Schema version 4 adds
+`accounts.is_demo NOT NULL DEFAULT 0`, preserving existing accounts as real mail. The normal
+setup action creates or reopens `review@example.invalid`; it never infers sample mode from an
+address or host name. Account updates cannot change the flag, sample identity, server settings
+or password. A separate account is required for real mail.
+
+`MailClientProvider` selects `DemoMailBackend` through the shared `ImapTransport`, `SmtpTransport`
+and `IdleTransport` interfaces before password lookup. Its sample transports use local files,
+without sockets, DNS or mail-server authentication. The same repositories, SQLite cache,
+`SyncEngine`, outbox, search and access policy still apply. Simulated sends and reports remain
+local and are labeled throughout the UI.
+
+`DemoBackendRegistry` stores one backend per persisted account ID under private
+`files/demo-mail/<accountId>/`. Construction and removal share a per-account lock and re-read
+the database identity. Removing an account invalidates retained clients and deletes only that
+sample directory, preventing delayed work from recreating a removed mailbox. Removing and
+re-adding the sample resets its content without deleting real accounts.
+
+The delayed sample-arrival action rechecks the current account and access policy. Instant
+mode refreshes the sample locally and uses normal notification gates. Neither `PushController`
+nor `PushService` includes sample accounts in the
+persistent foreground service. Other real accounts retain their normal connections, and explicit
+browser/export actions retain their normal behavior.
 
 ## Mail engine API (`mail` package)
 
@@ -318,15 +377,19 @@ search screen (or a stopped index job) ends its network traffic at once.
 
 **Database versions.** `MailSchema.CREATE_V1` is version 1 exactly as shipped, and it is never
 edited. Later versions are steps in `MailSchema.MIGRATIONS`, and a fresh install runs version 1
-plus every step, so new and upgraded databases are identical. `MigrationTest` checks that every
+plus every step, so new and upgraded databases are identical. The current schema is version 4;
+its final migration adds the sample-account flag. `MigrationTest` checks that every
 version has a step, and `Sqlite318CompatTest` runs the schema and queries on SQLite 3.18 (Android
 8): no UPSERT, RETURNING, window functions or FTS5. A step that fails rolls back, but the app then
 fails on every start until a fixed build ships. A missing step, or a downgrade (`onDowngrade`),
 recreates the database and loses the local data.
 
-**`versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Android therefore
-refuses to install an older build over a newer one (INSTALL_FAILED_VERSION_DOWNGRADE) instead of
-letting it wipe the database. A local build cannot be installed over a CI build. Forcing it
+**Debug `versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Release
+numbering is independent: the current default is 3, overridden with `releaseVersionCode` or
+`UPM_RELEASE_VERSION_CODE`, and must increase for every Play upload. Debug and release packages
+are separate. Android refuses to install an older build over a newer build of the same package
+(INSTALL_FAILED_VERSION_DOWNGRADE) instead of letting it wipe the database. A local debug build
+cannot be installed over a CI debug build. Forcing it
 (`adb install -d`) wipes the database when the forced build's schema version is older.
 Uninstalling always deletes the accounts, drafts, outbox and changes not yet sent.
 

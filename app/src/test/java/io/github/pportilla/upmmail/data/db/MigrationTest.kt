@@ -12,6 +12,21 @@ import org.junit.Test
 class MigrationTest {
 
     @Test
+    fun sampleAccountMigrationPreservesExistingMailAndDefaultsToRealTransport() {
+        val db = JdbcSqlDatabase.inMemoryVersion1()
+        val seeded = Version1Fixture.seed(db)
+        db.transaction { MailSchema.migrate(db, 1, 3) }
+        val rowsBefore = Version1Fixture.rowCounts(db)
+        db.transaction { MailSchema.migrate(db, 3, MailSchema.VERSION) }
+        val store = MailStore(db, TableObserver())
+        assertFalse(store.accounts.get(seeded.accountId)!!.isDemo)
+        assertEquals(rowsBefore, Version1Fixture.rowCounts(db))
+        val account = store.accounts.get(seeded.accountId)!!
+        store.accounts.update(account.copy(isDemo = true))
+        assertTrue(store.accounts.get(account.id)!!.isDemo)
+    }
+
+    @Test
     fun upgradeFromVersion1KeepsEveryRowAndDetachesRowsOutsideTheWindow() {
         val db = JdbcSqlDatabase.inMemoryVersion1()
         val seeded = Version1Fixture.seed(db)

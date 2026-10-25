@@ -2,12 +2,18 @@ package io.github.pportilla.upmmail.model
 
 /** Broad failure categories the UI can explain to the user in plain words. */
 enum class MailErrorKind {
+    /** A short foreground platform check pauses access; safe work resumes without consuming retries. */
+    ACCESS_CHECK_PENDING,
+    /** An older queued message needs an explicit user retry after an app-profile migration. */
+    REVIEW_REQUIRED,
     /** Wrong username or password (or the account is locked). */
     AUTHENTICATION,
     /** No connectivity, DNS failure, timeout, connection reset. */
     NETWORK,
     /** TLS handshake / certificate validation failed. */
     CERTIFICATE,
+    /** A legacy or supplied server setting would send credentials without TLS. */
+    INSECURE_CONNECTION,
     /** The server answered with an error (NO/BAD, 5xx...). */
     SERVER,
     /** Folder or message no longer exists on the server. */
@@ -18,6 +24,8 @@ enum class MailErrorKind {
     TOO_LARGE,
     /** The whole message went out but the server's answer did not arrive: it may have been sent. */
     SEND_UNCERTAIN,
+    /** Eligibility, app setup or the user's own blocked-sender list does not permit this operation. */
+    SAFETY_BLOCKED,
     UNKNOWN,
 }
 
@@ -36,5 +44,5 @@ class MailException(
     val temporary: Boolean = false,
 ) : Exception(message ?: kind.name, cause) {
     /** Network failures and temporary refusals are worth retrying automatically; the rest need the user. */
-    val isTransient: Boolean get() = kind == MailErrorKind.NETWORK || temporary
+    val isTransient: Boolean get() = kind == MailErrorKind.NETWORK || kind == MailErrorKind.ACCESS_CHECK_PENDING || temporary
 }

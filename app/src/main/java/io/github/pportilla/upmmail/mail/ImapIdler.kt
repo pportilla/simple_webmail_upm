@@ -53,7 +53,7 @@ class ImapIdler(
     private val folderName: String = INBOX,
     private val refreshIntervalMillis: Long = REFRESH_INTERVAL_MS,
     private val checkTimeoutMillis: Long = CHECK_TIMEOUT_MS,
-) {
+) : IdleTransport {
     /** A change announced by the server. */
     enum class Change {
         /** New messages (EXISTS). */
@@ -68,7 +68,7 @@ class ImapIdler(
 
     /** Whether the server advertises IDLE; null until [run] has logged in once. */
     @Volatile
-    var idleSupported: Boolean? = null
+    override var idleSupported: Boolean? = null
         private set
 
     /** Capabilities treated as absent (upper case), so tests can exercise the polling fallback. */
@@ -89,7 +89,7 @@ class ImapIdler(
      * Returns normally only when the server does not support IDLE ([idleSupported] is then
      * false): the caller should poll instead. A failed or lost connection throws [MailException].
      */
-    suspend fun run(onIdle: () -> Unit = {}, onChange: (Change) -> Unit) {
+    override suspend fun run(onIdle: () -> Unit, onChange: (Change) -> Unit) {
         val connection = Connection()
         try {
             coroutineScope {
@@ -132,7 +132,7 @@ class ImapIdler(
      * check timeout, or whose check is cancelled, is closed, which makes [run] throw. Returns
      * false at once when [run] is not idling.
      */
-    suspend fun refresh(): Boolean {
+    override suspend fun refresh(): Boolean {
         val connection = active.get() ?: return false
         return checkLock.withLock { check(connection) }
     }

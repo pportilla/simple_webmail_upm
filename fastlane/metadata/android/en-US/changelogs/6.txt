@@ -1,0 +1,1 @@
+Unread emails now stand out with a tinted background and an accent bar in the mailbox and search results, in both light and dark themes.

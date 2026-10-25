@@ -169,6 +169,17 @@ class OutboxDao internal constructor(private val store: MailStore) {
         stale.map { withAttachments(it).item.copy(state = OutboxState.FAILED, lastError = error) }
     }
 
+    /** Preserve all old supervised queued mail; only an explicit Retry can resume delivery. */
+    fun holdForAudienceMigration() = store.tx {
+        val changed = sql.executeUpdateDelete(
+            "UPDATE outbox SET last_error = CASE WHEN state = ? THEN ? ELSE ? END, state = ?, state_changed_at = ? WHERE state IN (?, ?)",
+            listOf(OutboxState.SENDING, io.github.pportilla.upmmail.model.MailErrorKind.SEND_UNCERTAIN.name,
+                io.github.pportilla.upmmail.model.MailErrorKind.REVIEW_REQUIRED.name, OutboxState.FAILED,
+                store.now(), OutboxState.QUEUED, OutboxState.SENDING),
+        )
+        if (changed > 0) store.changed(Tables.OUTBOX)
+    }
+
     /** Every attachment URI referenced by the outbox. */
     fun attachmentUris(): Set<String> =
         sql.query("SELECT uri FROM outbox_attachments", emptyList()) { it.stringOrEmpty("uri") }.toSet()

@@ -1,10 +1,18 @@
 package io.github.pportilla.upmmail.sync
 
 import io.github.pportilla.upmmail.data.security.PasswordStore
+import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
+import io.github.pportilla.upmmail.data.safety.SafetyPolicy
 import io.github.pportilla.upmmail.mail.ImapClient
+import io.github.pportilla.upmmail.mail.ImapTransport
+import io.github.pportilla.upmmail.mail.SmtpTransport
+import io.github.pportilla.upmmail.mail.IdleTransport
+import io.github.pportilla.upmmail.mail.demo.DemoMailBackend
 import io.github.pportilla.upmmail.mail.ImapIdler
+import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.MailErrors
 import io.github.pportilla.upmmail.mail.SmtpClient
+import io.github.pportilla.upmmail.mail.requireEncryptedTransport
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
@@ -67,10 +75,16 @@ suspend inline fun <T> mailResult(crossinline block: suspend () -> T): Result<T>
 class MailClientProvider(
     private val accountLookup: (Long) -> Account?,
     private val passwords: PasswordStore,
-    private val imapFactory: (ServerSettings, () -> String) -> ImapClient = { s, p -> ImapClient(s, p) },
-    private val smtpFactory: (ServerSettings, () -> String) -> SmtpClient = { s, p -> SmtpClient(s, p) },
+    private val imapFactory: (ServerSettings, () -> String) -> ImapTransport = { s, p ->
+        ImapClient(s, p, ImapOptions.DEFAULT.copy(abortable = true))
+    },
+    private val smtpFactory: (ServerSettings, () -> String) -> SmtpTransport = { s, p -> SmtpClient(s, p) },
+    /** Only local mock-server tests replace this policy; production always requires TLS. */
+    private val transportPolicy: (ServerSettings) -> Unit = ::requireEncryptedTransport,
+    private val safety: SafetyPolicy = LocalSafetyRepository(),
+    private val demoFactory: ((Account) -> DemoMailBackend)? = null,
 ) {
-    private class Cached(val settings: ServerSettings, val client: ImapClient)
+    private class Cached(val settings: ServerSettings, val isDemo: Boolean, val client: ImapTransport)
 
     private val imapClients = HashMap<Long, Cached>()
     private val invalidations = MutableSharedFlow<Long>(
@@ -97,28 +111,42 @@ class MailClientProvider(
         if (!exists) forget(accountId)
     }
 
-    fun imap(accountId: Long): ImapClient {
+    fun imap(accountId: Long): ImapTransport {
+        safety.requireNetwork()
         val account = account(accountId)
-        val stale: ImapClient?
-        val client: ImapClient
+        if (!account.isDemo) transportPolicy(account.imap)
+        val stale: ImapTransport?
+        val client: ImapTransport
         synchronized(imapClients) {
+            safety.requireNetwork()
             val cached = imapClients[accountId]
-            if (cached != null && cached.settings == account.imap) return cached.client
+            if (cached != null && cached.settings == account.imap && cached.isDemo == account.isDemo) return cached.client
             stale = cached?.client
-            client = imapFactory(account.imap, passwordProvider(accountId))
-            imapClients[accountId] = Cached(account.imap, client)
+            client = if (account.isDemo) demo(account).imap(demoAuthorization(accountId))
+                else imapFactory(account.imap, passwordProvider(accountId))
+            imapClients[accountId] = Cached(account.imap, account.isDemo, client)
         }
         stale?.closeQuietly()
         return client
     }
 
-    fun smtp(accountId: Long): SmtpClient {
+    fun smtp(accountId: Long): SmtpTransport {
+        safety.requireNetwork()
         val account = account(accountId)
+        if (account.isDemo) return demo(account).smtp(demoAuthorization(accountId))
+        transportPolicy(account.smtp)
         return smtpFactory(account.smtp, passwordProvider(accountId))
     }
 
     /** A push connection to the account's INBOX, with its current server settings and password. */
-    fun idler(accountId: Long): ImapIdler = ImapIdler(account(accountId).imap, passwordProvider(accountId))
+    fun idler(accountId: Long): IdleTransport {
+        safety.requireNetwork()
+        val account = account(accountId)
+        if (account.isDemo) return demo(account).idler(demoAuthorization(accountId))
+        val settings = account.imap
+        transportPolicy(settings)
+        return ImapIdler(settings, passwordProvider(accountId))
+    }
 
     /** Closes and forgets the account's IMAP connection, and tells [invalidated] collectors. */
     fun invalidate(accountId: Long) {
@@ -133,16 +161,31 @@ class MailClientProvider(
 
     fun closeAll() {
         val all = synchronized(imapClients) { imapClients.values.toList().also { imapClients.clear() } }
+        // Interrupt in-flight protocol work before waiting for a graceful close.
+        all.forEach { it.client.abort() }
         all.forEach { it.client.closeQuietly() }
     }
 
+    private fun demo(account: Account): DemoMailBackend = demoFactory?.invoke(account)
+        ?: throw MailException(MailErrorKind.UNKNOWN, "Local sample transport is unavailable")
+
+    private fun demoAuthorization(accountId: Long): () -> Unit = {
+        safety.requireNetwork()
+        // This callback runs under a backend lock. Do not call account(), whose missing-row
+        // cleanup takes the provider cache lock and would invert the construction/deletion order.
+        if (accountLookup(accountId)?.isDemo != true) throw MailException(MailErrorKind.NOT_FOUND, "Sample account was removed")
+    }
+
     private fun passwordProvider(accountId: Long): () -> String = {
+        // The account may have been revoked after the connection object was obtained.
+        safety.requireNetwork()
         passwords.get(accountId)
             ?: throw MailException(MailErrorKind.AUTHENTICATION, "No stored password for account $accountId")
     }
 
-    private fun ImapClient.closeQuietly() {
+    private fun ImapTransport.closeQuietly() {
         try {
+            abort()
             close()
         } catch (_: Throwable) {
             // Closing a dead connection may fail; nothing to do about it.

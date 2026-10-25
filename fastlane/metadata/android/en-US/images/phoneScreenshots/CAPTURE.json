@@ -1,0 +1,97 @@
+{
+  "01-inbox.png": {
+    "captured_utc": "2026-10-25T13:14:04.403730+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running signed release app",
+    "device": "emulator-5556",
+    "package": "io.github.pportilla.upmmail",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "sha256": "5ad5db2aebddcafeaa52eaf628ce6425b062f4e68e1947c2e31dc11bdcd79d5d",
+    "installed_release_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
+    "app_version_code": 8,
+    "app_version_name": "1.1.0",
+    "fixture": "Fresh local sample mailbox and fictional example.invalid addresses; no real mailbox data or credentials.",
+    "audience_flow": "One general13+ eligibility and acceptable-use acknowledgement; ordinary mailbox without guardian setup.",
+    "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
+  },
+  "02-message.png": {
+    "captured_utc": "2026-10-25T13:14:14.110169+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running signed release app",
+    "device": "emulator-5556",
+    "package": "io.github.pportilla.upmmail",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "sha256": "6d4d96fbc556bd0c47163c11bb98f1fc81ed23b362984d5d347233688f32b2ff",
+    "installed_release_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
+    "app_version_code": 8,
+    "app_version_name": "1.1.0",
+    "fixture": "Fresh local sample mailbox and fictional example.invalid addresses; no real mailbox data or credentials.",
+    "audience_flow": "One general13+ eligibility and acceptable-use acknowledgement; ordinary mailbox without guardian setup.",
+    "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
+  },
+  "03-compose.png": {
+    "captured_utc": "2026-10-25T13:17:08.840194+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running signed release app",
+    "device": "emulator-5556",
+    "package": "io.github.pportilla.upmmail",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "sha256": "4ded59d90b661b4175f364e14fe5dd441c2e5646172a13f88dfb716f61ea33dc",
+    "installed_release_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
+    "app_version_code": 8,
+    "app_version_name": "1.1.0",
+    "fixture": "Fresh local sample mailbox and fictional example.invalid addresses; no real mailbox data or credentials.",
+    "audience_flow": "One general13+ eligibility and acceptable-use acknowledgement; ordinary mailbox without guardian setup.",
+    "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
+  },
+  "04-settings.png": {
+    "captured_utc": "2026-10-25T13:18:08.727231+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running signed release app",
+    "device": "emulator-5556",
+    "package": "io.github.pportilla.upmmail",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "sha256": "963bd0c903bd01cc8100ff5e7ab4156d76c4a088b7e5eb17c78899c187d04b70",
+    "installed_release_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
+    "app_version_code": 8,
+    "app_version_name": "1.1.0",
+    "fixture": "Fresh local sample mailbox and fictional example.invalid addresses; no real mailbox data or credentials.",
+    "audience_flow": "One general13+ eligibility and acceptable-use acknowledgement; ordinary mailbox without guardian setup.",
+    "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
+  },
+  "05-blocking.png": {
+    "captured_utc": "2026-10-25T13:17:42.038355+00:00",
+    "source": "Unmodified adb exec-out screencap -p output from running signed release app",
+    "device": "emulator-5556",
+    "package": "io.github.pportilla.upmmail",
+    "locale": "en-US",
+    "android_api": "36",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "sha256": "410901157b0cc64bda7e065cf92c6e0d8c977013147561f481f9079717182565",
+    "installed_release_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
+    "app_version_code": 8,
+    "app_version_name": "1.1.0",
+    "fixture": "Fresh local sample mailbox and fictional example.invalid addresses; no real mailbox data or credentials.",
+    "audience_flow": "One general13+ eligibility and acceptable-use acknowledgement; ordinary mailbox without guardian setup.",
+    "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
+  }
+}

@@ -77,13 +77,8 @@ class PrefsSettingsRepository(context: Context) : SettingsRepository {
             return AppSettings(
                 themeMode = enumOf(prefs.getString(THEME, null), defaults.themeMode),
                 dynamicColor = prefs.getBoolean(DYNAMIC_COLOR, defaults.dynamicColor),
-                pushEnabled = if (prefs.contains(PUSH)) {
-                    prefs.getBoolean(PUSH, defaults.pushEnabled)
-                } else {
-                    // Saved before push existed: on only with the default check interval, which push
-                    // keeps as its safety net; "Manually only" or a longer interval stays as chosen.
-                    prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes) == defaults.syncIntervalMinutes
-                },
+                // Persistent foreground work starts only after the user selects instant push.
+                pushEnabled = prefs.getBoolean(PUSH, defaults.pushEnabled),
                 syncIntervalMinutes = prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes).coerceAtLeast(0),
                 language = AppLanguage.normalize(prefs.getString(LANGUAGE, null)),
                 notificationsEnabled = prefs.getBoolean(NOTIFICATIONS, defaults.notificationsEnabled),

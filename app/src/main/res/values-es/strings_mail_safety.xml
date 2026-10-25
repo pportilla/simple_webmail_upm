@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mail_welcome_title">Te damos la bienvenida a UPM Mail</string>
+    <string name="mail_welcome_notice">Un cliente de correo independiente para personas de 13 años en adelante. Utiliza un buzón al que tengas permiso para acceder y cumple los requisitos de cuenta de tu proveedor.</string>
+    <string name="mail_acceptable_use">Utiliza el correo con respeto. No envíes acoso, amenazas, odio, estafas, spam, software malicioso, material ilegal, explotación sexual ni información privada sin permiso. No envíes contenido sexual a menores. Puedes bloquear remitentes en este dispositivo e informar de abusos a tu proveedor de correo.</string>
+    <string name="mail_accept_terms">Tengo 13 años o más, tengo autorización para usar mi buzón y acepto estas normas.</string>
+    <string name="mail_continue">Continuar</string>
+    <string name="mail_setup_updating">Actualizando tu buzón</string>
+    <string name="mail_setup_updating_notice">Conservando los mensajes pendientes para que puedas revisarlos.</string>
+    <string name="mail_unsupported_title">UPM Mail es para personas de 13 años en adelante</string>
+    <string name="mail_unsupported_notice">Este dispositivo se configuró para una persona menor de 13 años. Esta versión ya no ofrece correo supervisado, por lo que el buzón sigue sin estar disponible aquí. Tu cuenta del proveedor no se ha eliminado.</string>
+    <string name="mail_unsupported_help">Pide ayuda a un adulto de confianza para utilizar un servicio de correo compatible con tu edad y las normas de cuenta de tu proveedor. Si necesitas ayuda con los datos locales de la app, escribe a zango: p.portilla89@gmail.com.</string>
+    <string name="mail_action_failed">No se ha podido completar la acción. Comprueba los datos y la conexión e inténtalo de nuevo.</string>
+    <string name="mail_action_blocked">Esta acción no está disponible. Comprueba que la configuración esté completa y que la dirección no aparezca en Ajustes → Remitentes bloqueados.</string>
+    <string name="mail_review_required">Este mensaje se guardó antes de actualizar la app. Revísalo antes de volver a intentarlo.</string>
+    <string name="mail_privacy_controls">Privacidad y avisos</string>
+    <string name="mail_blocked_senders">Remitentes bloqueados</string>
+    <string name="mail_block_sender">Bloquear remitente</string>
+    <string name="mail_block_notice">El bloqueo oculta el correo de esta dirección exacta e impide comunicarse con ella en esta app y dispositivo. No bloquea la entrega en el servidor ni en otras apps. El remitente puede usar otra dirección. Puedes deshacerlo en Ajustes → Remitentes bloqueados.</string>
+    <string name="mail_sender_address">Dirección de correo</string>
+    <string name="mail_no_blocked_senders">No hay remitentes bloqueados.</string>
+    <string name="mail_unblock">Desbloquear</string>
+    <string name="mail_sender_blocked">Remitente bloqueado en este dispositivo</string>
+    <string name="mail_report_provider">Informar a mi proveedor de correo</string>
+    <string name="mail_report_subject">Aviso de seguridad del correo</string>
+    <string name="mail_provider_report_notice">Utiliza la dirección oficial de abuso o seguridad publicada por tu proveedor de correo. Introdúcela y describe solo lo necesario. No se incluyen automáticamente mensajes originales, cabeceras ni adjuntos. Si el proveedor utiliza un formulario web, accede a su sitio oficial. El desarrollador no gestiona un servicio de moderación del correo.</string>
+    <string name="mail_report_needs_account">Añade un buzón autorizado para enviar un aviso a tu proveedor.</string>
+    <string name="mail_provider_report_address">Correo oficial de abuso o seguridad del proveedor</string>
+    <string name="mail_report_description">Describe lo que te preocupa</string>
+    <string name="mail_preview_report">Vista previa del aviso</string>
+    <string name="mail_report_exact_notice">El texto siguiente se enviará a través de tu buzón con tu identidad de remitente y las cabeceras habituales del correo. Confirma el destino oficial y elimina los datos personales innecesarios antes de enviar.</string>
+    <string name="mail_send_report">Enviar aviso</string>
+    <string name="mail_report_queued">Aviso en cola. Comprueba la bandeja de salida o enviados antes de darlo por entregado.</string>
+    <string name="mail_play_check_title">Comprobando Google Play</string>
+    <string name="mail_play_check_notice">Comprobando si se aplica algún requisito de verificación de la cuenta.</string>
+    <string name="mail_play_requirement_title">Google Play requiere una comprobación</string>
+    <string name="mail_play_under13_notice">Google Play indica que esta cuenta pertenece a alguien menor de 13 años. UPM Mail es para personas de 13 años en adelante. Si los datos de la cuenta son incorrectos, compruébalos en Google Play y vuelve a intentarlo aquí.</string>
+    <string name="mail_play_verification_notice">Google Play requiere verificar la edad antes de utilizar el correo. Completa la verificación en Google Play y vuelve a intentarlo aquí.</string>
+    <string name="mail_play_pending_notice">Google Play está esperando la aprobación de un cambio importante de la app. Comprueba la solicitud pendiente en Google Play y vuelve a intentarlo aquí.</string>
+    <string name="mail_play_declined_notice">Google Play indica que se ha denegado la aprobación de un cambio importante de la app. El correo seguirá sin estar disponible hasta que Play permita el acceso. Comprueba la cuenta en Google Play y vuelve a intentarlo aquí.</string>
+    <string name="mail_open_google_play">Abrir Google Play</string>
+    <string name="mail_retry_play_check">Comprobar de nuevo</string>
+    <string name="mail_play_open_failed">No se ha podido abrir Google Play. Abre Play Store en este dispositivo, comprueba tu cuenta y vuelve a intentarlo.</string>
+</resources>

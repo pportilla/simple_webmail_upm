@@ -1,5 +1,5 @@
 [versions]
-agp = "8.11.1"
+agp = "8.11.2"
 kotlin = "2.2.21"
 composeBom = "2025.06.01"
 activityCompose = "1.10.1"
@@ -9,6 +9,7 @@ coroutines = "1.10.2"
 jakartaMail = "2.1.5"
 angusMail = "2.0.5"
 jsoup = "1.21.2"
+playAgeSignals = "0.0.4"
 junit = "4.13.2"
 greenmail = "2.1.5"
 sqliteJdbc = "3.50.3.0"
@@ -33,6 +34,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 jakarta-mail-api = { group = "jakarta.mail", name = "jakarta.mail-api", version.ref = "jakartaMail" }
 angus-mail = { group = "org.eclipse.angus", name = "angus-mail", version.ref = "angusMail" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+play-age-signals = { group = "com.google.android.play", name = "age-signals", version.ref = "playAgeSignals" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 greenmail = { group = "com.icegreen", name = "greenmail", version.ref = "greenmail" }
 sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqliteJdbc" }

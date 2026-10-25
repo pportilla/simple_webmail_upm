@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.ui.compose
 
+import io.github.pportilla.upmmail.ui.components.accountAddressLabel
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -106,7 +107,7 @@ internal fun FromRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = selected?.email.orEmpty(),
+                text = accountAddressLabel(selected),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
@@ -130,7 +131,7 @@ internal fun FromRow(
                                 Text(account.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Text(
-                                text = account.email,
+                                text = accountAddressLabel(account),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,

@@ -13,8 +13,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Keeps the CPU awake while new mail found by push is downloaded. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Lets the user exempt the app from battery optimisation, so push is not delayed in Doze. -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Optional, asked at runtime: suggests device contacts when typing recipients. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 

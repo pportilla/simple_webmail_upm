@@ -287,6 +287,8 @@ class HeaderIndexerTest : SyncTestBase() {
             { store.accounts.get(it) },
             passwords,
             imapFactory = { settings, password -> ImapClient(settings) { logins.incrementAndGet(); password() } },
+            transportPolicy = ::allowLoopbackTransport,
+            safety = store.safety,
         )
         val own = HeaderIndexer(store, counting, Dispatchers.IO, clock::now, ImapOptions.INDEX, MutableStateFlow(emptySet())) {}
         try {

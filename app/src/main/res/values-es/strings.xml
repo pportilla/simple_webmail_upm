@@ -51,6 +51,7 @@
     <string name="error_authentication">Usuario o contraseña incorrectos. Revisa tus credenciales UPM.</string>
     <string name="error_network">No se puede conectar con el servidor de correo. Revisa tu conexión.</string>
     <string name="error_certificate">No se ha podido verificar el certificado de seguridad del servidor.</string>
+    <string name="error_insecure_connection">Las conexiones de correo sin cifrar están bloqueadas. Elige SSL/TLS o STARTTLS en los ajustes del servidor de la cuenta.</string>
     <string name="error_server">El servidor de correo ha devuelto un error. Inténtalo más tarde.</string>
     <string name="error_not_found">La carpeta o el mensaje ya no existe en el servidor.</string>
     <string name="error_invalid_recipient">El servidor ha rechazado uno o más destinatarios.</string>

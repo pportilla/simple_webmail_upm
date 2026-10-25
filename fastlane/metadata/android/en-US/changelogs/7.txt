@@ -1,0 +1,3 @@
+General email for ages 13 and older, with the same features for teens and adults.
+Removed guardian PINs, contact approvals and message-by-message supervision.
+Kept sender blocking, provider reporting, secure mail connections and clear unread highlights.

@@ -4,6 +4,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.repository.AccountRepository
+import io.github.pportilla.upmmail.data.safety.AgeBand
+import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
 import io.github.pportilla.upmmail.data.repository.AppContainer
 import io.github.pportilla.upmmail.data.repository.ComposeRepository
 import io.github.pportilla.upmmail.data.repository.ContactRepository
@@ -195,6 +197,7 @@ class SearchViewModelTest {
         settings: AppSettings,
         override val applicationScope: CoroutineScope,
     ) : AppContainer {
+        override val safetyRepository = LocalSafetyRepository().apply { chooseAgeBand(AgeBand.ADULT); acceptTerms() }
         override val accountRepository: AccountRepository = object : AccountRepository {
             override val accounts: Flow<List<Account>> = MutableStateFlow(accounts)
 

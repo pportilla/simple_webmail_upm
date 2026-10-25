@@ -40,7 +40,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.Locale
+import java.io.File
+import io.github.pportilla.upmmail.mail.demo.DemoBackendRegistry
 
 /**
  * The app's object graph, created once in Application.onCreate. Everything heavy is lazy; the
@@ -56,13 +59,25 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     val files = LocalFiles(app.filesDir)
 
-    val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app)) }
+    override val safetyRepository by lazy {
+        io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(
+            io.github.pportilla.upmmail.data.safety.PrefsSafetyStorage(app), protectExistingOutbox = true)
+    }
+
+    val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app), safety = safetyRepository) }
 
     override val settingsRepository: SettingsRepository by lazy { PrefsSettingsRepository(app) }
 
     val passwordStore: PasswordStore by lazy { KeystorePasswordStore(app) }
 
-    val clients: MailClientProvider by lazy { MailClientProvider({ store.accounts.get(it) }, passwordStore) }
+    private val demoBackends by lazy { DemoBackendRegistry(File(app.filesDir, "demo-mail")) { store.accounts.get(it) } }
+
+    val clients: MailClientProvider by lazy {
+        MailClientProvider(
+            { store.accounts.get(it) }, passwordStore, safety = safetyRepository,
+            demoFactory = { account -> demoBackends.get(account.id) },
+        )
+    }
 
     val notifier: MailNotifier by lazy {
         MailNotifier(app, store, settingsRepository) { androidSyncController.isForeground }
@@ -82,10 +97,13 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
         FlushScheduler(
             scope = applicationScope,
             flush = { accountId -> engine.flushPendingOps(accountId) },
-            onBlocked = { _, error ->
-                // Offline: let JobScheduler retry once the network is back. Login problems
-                // wait for the user (the next sync shows the error).
-                if (error.kind == MailErrorKind.NETWORK) androidSyncController.requestPendingOpsFlush()
+            onBlocked = { accountId, error ->
+                // A platform lookup is brief and must not strand draft/flag operations.
+                if (error.kind == MailErrorKind.ACCESS_CHECK_PENDING) {
+                    flushScheduler.schedule(accountId, System.currentTimeMillis() + 2_000L)
+                } else if (error.kind == MailErrorKind.NETWORK) {
+                    androidSyncController.requestPendingOpsFlush()
+                }
             },
             onFlushed = { _, result -> refreshTouchedFolders(result) },
         )
@@ -159,7 +177,29 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
             settings = settingsRepository,
             files = files,
             scope = applicationScope,
-            onAccountRemoved = { accountId -> notifier.cancelAccount(accountId) },
+            onAccountRemoved = { accountId ->
+                try { notifier.cancelAccount(accountId) }
+                finally { demoBackends.remove(accountId) }
+            },
+            onDemoArrivalRequested = { accountId ->
+                applicationScope.launch(Dispatchers.IO) {
+                    delay(5_000)
+                    step("local sample arrival") {
+                        safetyRepository.requireNetwork()
+                        val backend = demoBackends.get(accountId)
+                        backend.simulateIncoming {
+                            safetyRepository.requireNetwork()
+                            if (store.accounts.get(accountId)?.isDemo != true) {
+                                throw io.github.pportilla.upmmail.model.MailException(io.github.pportilla.upmmail.model.MailErrorKind.NOT_FOUND)
+                            }
+                        }
+                        if (settingsRepository.settings.value.pushEnabled &&
+                            safetyRepository.state.value.mailboxAccessAllowed) {
+                            engine.syncFolder(engine.inboxOf(accountId).id)
+                        }
+                    }
+                }
+            },
         )
     }
 
@@ -192,6 +232,28 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
     val locale: StateFlow<Locale> = appLocale.asStateFlow()
 
     init {
+        applicationScope.launch(Dispatchers.IO) {
+            var previous: io.github.pportilla.upmmail.data.safety.SafetyState? = null
+            safetyRepository.state.collect { current ->
+                val effects = io.github.pportilla.upmmail.data.safety.safetyTransitionEffects(previous, current)
+                previous = current
+                if (effects.clearNotifications) {
+                    step("safety notification cleanup") { notifier.clearPrivateNotifications() }
+                }
+                if (effects.closeConnections) {
+                    step("safety connection cleanup") {
+                        clients.closeAll()
+                        store.accounts.getAll().forEach { account -> clients.invalidate(account.id) }
+                    }
+                }
+                if (effects.refreshForeground) {
+                    // A lookup may have paused the initial foreground poll. Resume it after
+                    // cancellation/cleanup completes, without changing the activity's lifecycle.
+                    androidSyncController.requestOutboxSend()
+                    androidSyncController.refreshIfForeground()
+                }
+            }
+        }
         applicationScope.launch(Dispatchers.IO) { housekeeping() }
         // Channel names are shown in the system settings: keep them in the app's language.
         applicationScope.launch(Dispatchers.IO) {
@@ -209,6 +271,9 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     /** Work for every process start: channels, push, interrupted sends, queued work, the mail index, stale files. */
     private suspend fun housekeeping() {
+        step("general audience migration") {
+            safetyRepository.completeGeneralAudienceMigration { store.outbox.holdForAudienceMigration() }
+        }
         step("notification channels") { notifier.createChannels() }
         step("push") { pushController.start() }
         step("stale sends") { engine.failStaleSending() }

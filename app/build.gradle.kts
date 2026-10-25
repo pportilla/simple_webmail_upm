@@ -1,9 +1,85 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+import java.security.KeyStore
+import java.security.PrivateKey
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+}
+
+// Release numbering is independent of debug CI runs. Increase this for each Play upload.
+val releaseVersionCode = providers.gradleProperty("releaseVersionCode")
+    .orElse(providers.environmentVariable("UPM_RELEASE_VERSION_CODE"))
+    .orElse("8").get().toIntOrNull()?.takeIf { it in 1..2_100_000_000 }
+    ?: throw GradleException("releaseVersionCode must be an integer between 1 and 2100000000.")
+val releaseVersionName = providers.gradleProperty("releaseVersionName")
+    .orElse(providers.environmentVariable("UPM_RELEASE_VERSION_NAME"))
+    .orElse("1.1.0").get().also {
+        require(it.isNotBlank() && it.length <= 100) { "releaseVersionName must contain 1–100 characters." }
+    }
+val debugVersionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
+    ?.toIntOrNull()?.let { it + 100 } ?: 1
+val unsignedRelease = providers.gradleProperty("unsignedRelease").orNull == "true"
+val requireReleaseSigning = providers.gradleProperty("requireReleaseSigning").orNull == "true"
+require(!(unsignedRelease && requireReleaseSigning)) { "A required signed release cannot be unsigned." }
+
+// Secrets belong in the environment or an external, owner-readable properties file.
+// No release ever falls back to the public debug key.
+val uploadProperties = Properties()
+if (!unsignedRelease) {
+    providers.environmentVariable("UPM_SIGNING_PROPERTIES_FILE").orNull?.let { path ->
+        val propertiesFile = File(path)
+        require(propertiesFile.isAbsolute && propertiesFile.isFile) {
+            "UPM_SIGNING_PROPERTIES_FILE must identify an existing absolute file outside the repository."
+        }
+        require(!propertiesFile.canonicalFile.toPath().startsWith(rootDir.canonicalFile.toPath())) {
+            "Keep signing properties outside the repository."
+        }
+        propertiesFile.reader(Charsets.UTF_8).use { uploadProperties.load(it) }
+    }
+}
+fun uploadSetting(environmentName: String, propertyName: String): String? =
+    if (unsignedRelease) null else providers.environmentVariable(environmentName).orNull
+        ?: uploadProperties.getProperty(propertyName)
+
+val uploadStorePath = uploadSetting("UPM_UPLOAD_KEYSTORE", "storeFile")
+val uploadStorePassword = uploadSetting("UPM_UPLOAD_STORE_PASSWORD", "storePassword")
+val uploadKeyAlias = uploadSetting("UPM_UPLOAD_KEY_ALIAS", "keyAlias")
+val uploadKeyPassword = uploadSetting("UPM_UPLOAD_KEY_PASSWORD", "keyPassword")
+val uploadSettings = listOf(uploadStorePath, uploadStorePassword, uploadKeyAlias, uploadKeyPassword)
+val hasUploadSigning = uploadSettings.all { !it.isNullOrEmpty() }
+if (!unsignedRelease && uploadSettings.any { it != null } && !hasUploadSigning) {
+    throw GradleException("Incomplete upload signing configuration. All four upload signing settings are required.")
+}
+if (requireReleaseSigning && !hasUploadSigning) {
+    throw GradleException("Upload signing is required. Run scripts/setup-signing.py and set UPM_SIGNING_PROPERTIES_FILE, or supply the four UPM_UPLOAD_* variables.")
+}
+if (hasUploadSigning) {
+    val uploadFile = File(requireNotNull(uploadStorePath))
+    require(uploadFile.isAbsolute && uploadFile.isFile &&
+        !uploadFile.canonicalFile.toPath().startsWith(rootDir.canonicalFile.toPath())) {
+        "The upload keystore must be an existing absolute file outside the repository."
+    }
+    val uploadStore = try {
+        KeyStore.getInstance(uploadFile, requireNotNull(uploadStorePassword).toCharArray())
+    } catch (_: Exception) {
+        throw GradleException("Cannot open the upload keystore. Check its format and store password.")
+    }
+    val uploadKey = try {
+        uploadStore.getKey(uploadKeyAlias, requireNotNull(uploadKeyPassword).toCharArray())
+    } catch (_: Exception) {
+        throw GradleException("Cannot unlock the upload key. Check its alias and key password.")
+    }
+    require(uploadKey is PrivateKey) { "The upload alias must identify a private signing key." }
+    val uploadCertificate = requireNotNull(uploadStore.getCertificate(uploadKeyAlias)) {
+        "The upload key must have a signing certificate."
+    }
+    val debugStore = KeyStore.getInstance(file("debug.keystore"), "android".toCharArray())
+    require(!uploadCertificate.encoded.contentEquals(debugStore.getCertificate("androiddebugkey").encoded)) {
+        "The public debug signing certificate is forbidden for Play releases."
+    }
 }
 
 android {
@@ -14,18 +90,21 @@ android {
         applicationId = "io.github.pportilla.upmmail"
         minSdk = 26
         targetSdk = 36
-        // CI builds count up with the workflow run, so Android refuses to install an older build
-        // over a newer one (INSTALL_FAILED_VERSION_DOWNGRADE) instead of letting the app wipe its
-        // database in onDowngrade. A local build (versionCode 1) therefore cannot be installed over
-        // a CI build; forcing it with `adb install -d` wipes the local data (drafts, outbox and
-        // changes not yet sent) when its database version is older.
-        versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull()?.let { it + 100 } ?: 1
-        versionName = "1.0.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
     }
 
     signingConfigs {
-        // A committed, well-known debug key so every CI build can be installed as an update
-        // over the previous one. It is NOT a secret and must not be used for store releases.
+        if (hasUploadSigning) {
+            create("upload") {
+                storeFile = File(requireNotNull(uploadStorePath))
+                storePassword = uploadStorePassword
+                keyAlias = uploadKeyAlias
+                keyPassword = uploadKeyPassword
+            }
+        }
+        // A committed, well-known debug key keeps sideloaded builds update-compatible.
+        // It is public and must never be used for store releases.
         getByName("debug") {
             storeFile = file("debug.keystore")
             storePassword = "android"
@@ -40,10 +119,11 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            // Jakarta Mail discovers its providers reflectively; shrinking buys little here.
-            isMinifyEnabled = false
+            // Keep reflective mail entry points in proguard-rules.pro while optimizing the app.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasUploadSigning) signingConfigs.getByName("upload") else null
         }
     }
 
@@ -55,6 +135,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // The in-app language picker must work offline, including on Android 8–12.
+    bundle {
+        language {
+            enableSplit = false
+        }
     }
 
     packaging {
@@ -72,6 +159,13 @@ android {
         unitTests {
             isReturnDefaultValues = true
         }
+    }
+}
+
+// Keep sideloaded debug APKs on their existing CI version sequence.
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { it.versionCode.set(debugVersionCode) }
     }
 }
 
@@ -101,6 +195,7 @@ dependencies {
     implementation(libs.jakarta.mail.api)
     implementation(libs.angus.mail)
     implementation(libs.jsoup)
+    implementation(libs.play.age.signals)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
