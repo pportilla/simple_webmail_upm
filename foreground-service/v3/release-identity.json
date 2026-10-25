@@ -1,0 +1,74 @@
+{
+  "package": "io.github.pportilla.upmmail",
+  "android_api": 36,
+  "foreground_service_type": "specialUse",
+  "fixture": "Disposable loopback-only GreenMail IMAP/SMTP behind TLS 1.3; authenticated synthetic mailbox demo@example.invalid. Emulator-only localhost port mappings. Temporary CA installed only in the disposable emulator system trust store.",
+  "app_changes_for_demo": "None. Exact signed universal APK from the final AAB; production TLS and authentication checks unchanged.",
+  "scope_limits": [
+    "Not a UPM sign-in test.",
+    "Not external-provider delivery or reviewer mailbox access.",
+    "No Google approval is implied.",
+    "Demo mailbox and credentials are disposable, local-only, and excluded from public evidence."
+  ],
+  "version_name": "1.0.1",
+  "version_code": 3,
+  "aab_sha256": "39df4200ef71c74f5ccc18fca82532d6fc7c9638c7bbe8c4b36aedbf36e75df3",
+  "installed_universal_apk_sha256": "42df1b413c7cc2d4bdae0fc86e62f21e73b4a04b0a606838e784f17fab206f8c",
+  "source_commit": "58504452f76c6d274ecd8a93eebe14d42f70f8a8",
+  "built_in_sample_account_used": false,
+  "video_sha256": "5acca5614813d5f03e7170976c3f357b7694871639659fa49daff813a7ebb83d",
+  "video_bytes": 2904301,
+  "duration_seconds": 97.918067,
+  "recording": "One continuous screen recording of the exact release APK; English captions and padding added outside the captured app screen. No setup or credential entry recorded.",
+  "validation": {
+    "authenticated_tls_login": true,
+    "tls_version": "TLSv1.3",
+    "foreground_type_hex": "0x40000000",
+    "new_mail_arrived_while_backgrounded": true,
+    "arrival_seconds_after_injection": 2.16,
+    "service_absent_after_manual_selection": true,
+    "ongoing_notification_absent_after_manual_selection": true
+  },
+  "timeline": [
+    {
+      "seconds": 0.0,
+      "event": "Exact release 1.0.1 (code 3). Local synthetic TLS mailbox; no UPM connection."
+    },
+    {
+      "seconds": 9.0,
+      "event": "Open Settings and choose Check for new mail."
+    },
+    {
+      "seconds": 25.31,
+      "event": "User selects Instantly (push)."
+    },
+    {
+      "seconds": 29.39,
+      "event": "The app is now in the background; IMAP IDLE stays connected."
+    },
+    {
+      "seconds": 42.43,
+      "event": "Ongoing notification explains the connection and how to stop it."
+    },
+    {
+      "seconds": 48.55,
+      "event": "Inject one synthetic message through authenticated TLS SMTP."
+    },
+    {
+      "seconds": 50.71,
+      "event": "Real new-mail notification arrived while app remained in background."
+    },
+    {
+      "seconds": 61.75,
+      "event": "Open the notification to read the delivered message."
+    },
+    {
+      "seconds": 75.05,
+      "event": "Return to Settings to stop instant mail."
+    },
+    {
+      "seconds": 93.41,
+      "event": "Manual checking selected. Foreground service and ongoing notification stopped."
+    }
+  ]
+}
