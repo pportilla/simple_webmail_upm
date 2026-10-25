@@ -1056,7 +1056,6 @@ class SyncEngine(
                 db { store.outbox.delete(item.id) }
                 return@withContext SendOutcome.Skipped
             }
-            val attempts = item.attempts + 1
             val composed = try {
                 store.safety.requireQueuedSend(item.id, item.draft)
                 checkAttachments(item.draft.attachments)
@@ -1066,7 +1065,7 @@ class SyncEngine(
                 val error = e.toMailException().let {
                     if (it.kind == MailErrorKind.NETWORK) MailException(MailErrorKind.UNKNOWN, it.message, it) else it
                 }
-                return@withContext markFailed(entry, attempts, error)
+                return@withContext markFailed(entry, item.attempts + 1, error)
             }
             // Saved before sending, so that only one transaction separates the delivery from
             // the removal of the message from the outbox (see recordSent).
@@ -1076,6 +1075,9 @@ class SyncEngine(
             } catch (e: Exception) {
                 sentCopy?.let { withContext(io) { it.file.delete() } }
                 val error = e.toMailException()
+                // Recompute from the immutable queued item after suspension: keeping this Int
+                // live across the send/cleanup emits an invalid coroutine spill with R8 8.11.
+                val attempts = item.attempts + 1
                 if (error.isTransient && attempts < MAX_SEND_ATTEMPTS) {
                     db { store.outbox.requeue(item.id, attempts, error.kind.name, clock() + retryDelay(attempts)) }
                     return@withContext SendOutcome.Retry
