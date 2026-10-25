@@ -8,7 +8,6 @@ import android.os.SystemClock
 import android.util.Log
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.repository.SettingsRepository
-import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.data.safety.SafetyPolicy
 import io.github.pportilla.upmmail.mail.ImapIdler
 import kotlinx.coroutines.CancellationException
@@ -25,9 +24,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Supervised mail uses periodic/manual checks; guardian unlock never enables instant push. */
+/** Instant push requires an eligible account with acknowledged terms. */
 internal fun pushAllowedBySafety(safety: SafetyPolicy): Boolean =
-    safety.state.value.audience == Audience.ADULT &&
+    safety.state.value.mailboxAccessAllowed &&
         runCatching { safety.requireNetwork() }.isSuccess
 
 /** Also guards retries/keep-alives and cancels a live connection when its profile is revoked. */
@@ -59,7 +58,7 @@ private suspend fun <T> withPushAuthorization(safety: SafetyPolicy, action: susp
 
 /**
  * Decides when [PushService] runs: while push is enabled in the settings and there is at least
- * one account, and the current adult profile authorizes network access.
+ * one account, and the current account authorizes network access.
  *
  * Android 12+ lets an app start a foreground service only while it is visible or in a few
  * exempt situations (boot, app update, exemption from battery optimisation). Starts are
@@ -120,7 +119,7 @@ class PushController(
             }
 
     private fun startService() {
-        // Alarm/foreground callbacks may race with a guardian switching the active profile.
+        // Alarm/foreground callbacks may race with a change in account authorization.
         if (!isWanted()) return
         try {
             context.startForegroundService(Intent(context, PushService::class.java))

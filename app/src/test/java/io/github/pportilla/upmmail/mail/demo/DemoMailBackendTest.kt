@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.mail.demo
 
+import io.github.pportilla.upmmail.data.safety.RevocableTestSafety
+import io.github.pportilla.upmmail.data.safety.legacySafetyStorage
 import io.github.pportilla.upmmail.data.safety.AgeBand
 import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
 import io.github.pportilla.upmmail.data.security.PasswordStore
@@ -65,7 +67,7 @@ class DemoMailBackendTest {
         assertTrue(runCatching { DemoMailBackend(temporary.root, real) }.isFailure)
     }
 
-    @Test fun unconfiguredAndRevokedProfilesCannotUseSampleToBypassSafety() = runBlocking {
+    @Test fun unconfiguredAndKnownUnder13ProfilesCannotUseSampleToBypassEligibility() = runBlocking {
         val safety = LocalSafetyRepository()
         val backend = backend()
         var factoryCalls = 0
@@ -76,9 +78,15 @@ class DemoMailBackendTest {
         safety.chooseAgeBand(AgeBand.ADULT); safety.acceptTerms()
         val imap = clients.imap(1)
         assertTrue(imap.status("INBOX").messageCount > 0)
-        safety.enableSupervised(AgeBand.UNDER_13, "713529", java.time.LocalDate.of(1980, 1, 1))
-        safety.lockGuardian()
-        assertEquals(MailErrorKind.SAFETY_BLOCKED, (runCatching { imap.status("INBOX") }.exceptionOrNull() as MailException).kind)
+        val under13 = LocalSafetyRepository(legacySafetyStorage(AgeBand.UNDER_13))
+        val blocked = MailClientProvider({ account() }, forbiddenPasswords, safety = under13,
+            demoFactory = { error("Must not open sample mailbox") })
+        assertEquals(MailErrorKind.SAFETY_BLOCKED, (runCatching { blocked.imap(1) }.exceptionOrNull() as MailException).kind)
+        val revocable = RevocableTestSafety()
+        val active = MailClientProvider({ account() }, forbiddenPasswords, safety = revocable, demoFactory = { backend })
+        val retained = active.imap(1)
+        revocable.revoke()
+        assertEquals(MailErrorKind.SAFETY_BLOCKED, (runCatching { retained.status("INBOX") }.exceptionOrNull() as MailException).kind)
     }
 
     @Test fun movesFlagsAttachmentsAndDraftsPersistAndAccountsStayIsolated() = runBlocking {

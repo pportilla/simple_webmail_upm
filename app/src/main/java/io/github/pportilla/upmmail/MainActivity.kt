@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.ui.safety.SafetyRoot
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.ui.components.AppSnackbarController
@@ -94,6 +93,7 @@ class MainActivity : ComponentActivity() {
                 ?.let { LaunchRequest.Compose(it) }
         }
         val container = appContainer
+        (application as UpmMailApp).ageSignals.refresh(this)
 
         setContent {
             LaunchedEffect(protectedSafetySurface, activityResumed) {
@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                     window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 } else {
                     // Retain protection until the replacement safe surface has actually drawn.
-                    // A guardian frame must never become the task's background snapshot.
+                    // An onboarding or restricted frame must not become a task snapshot.
                     withFrameNanos { }
                     withFrameNanos { }
                     if (!protectedSafetySurface && activityResumed) {
@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(LocalAppSnackbar provides snackbar) {
                     SafetyRoot(
                         container,
+                        onRetryPlatformCheck = { (application as UpmMailApp).ageSignals.refresh(this, force = true) },
                         onDiscardExternalRequest = { pendingRequest = null },
                         onProtectSurface = { protect ->
                             if (protect) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -147,7 +148,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val safety by container.safetyRepository.state.collectAsStateWithLifecycle()
-                if (safety.termsAccepted && (safety.audience == Audience.ADULT || safety.guardianUnlocked)) {
+                if (safety.mailboxAccessAllowed) {
                     NotificationPermissionRequest(hasAccounts = !accounts.isNullOrEmpty())
                 }
             }
@@ -159,7 +160,7 @@ class MainActivity : ComponentActivity() {
         intent.removeNavigationDeepLink()
         setIntent(intent)
         // A plain launcher intent (app already running) keeps the current screen.
-        if (appContainer.safetyRepository.state.value.audience == Audience.ADULT) {
+        if (appContainer.safetyRepository.state.value.mailboxAccessAllowed) {
             LaunchRequest.fromIntent(intent, packageName)?.let { pendingRequest = it }
         } else {
             pendingRequest = null
@@ -169,7 +170,7 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         (pendingRequest as? LaunchRequest.Compose)?.takeIf {
-            appContainer.safetyRepository.state.value.audience == Audience.ADULT
+            appContainer.safetyRepository.state.value.mailboxAccessAllowed
         }?.let { request ->
             outState.putBundle(STATE_PENDING_COMPOSE, ComposeArgsState.toBundle(request.args, composeTextSpill()))
         }
@@ -179,11 +180,13 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         // The per-app language may have been changed in the system settings meanwhile.
         (application as? UpmMailApp)?.mirrorSystemLanguage()
+        (application as UpmMailApp).ageSignals.refresh(this)
         appContainer.syncController.onAppForeground()
     }
 
     override fun onResume() {
         super.onResume()
+        (application as UpmMailApp).ageSignals.refresh(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         activityResumed = true
     }
@@ -192,13 +195,11 @@ class MainActivity : ComponentActivity() {
         // Protect before Android can take a task snapshot, including on pre-Android-13 devices.
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         activityResumed = false
-        appContainer.safetyRepository.lockGuardian()
-        if (appContainer.safetyRepository.state.value.audience != Audience.ADULT) pendingRequest = null
+        if (!appContainer.safetyRepository.state.value.mailboxAccessAllowed) pendingRequest = null
         super.onPause()
     }
 
     override fun onStop() {
-        appContainer.safetyRepository.lockGuardian()
         super.onStop()
         if (!isChangingConfigurations) appContainer.syncController.onAppBackground()
     }

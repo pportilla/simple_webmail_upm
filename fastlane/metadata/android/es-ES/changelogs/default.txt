@@ -1,4 +1,3 @@
-Primera versión en Play del cliente no oficial UPM Mail.
-Las herramientas para adultos incluyen carpetas, búsqueda, borradores, adjuntos y opciones de notificación.
-El correo supervisado añade configuración por un adulto, contactos aprobados, revisión del correo entrante y aprobación de cada envío.
-Interfaces en español e inglés con política de privacidad en la aplicación.
+Correo para personas de 13 años en adelante, con las mismas funciones para adolescentes y adultos.
+Eliminados los PIN de supervisión y las aprobaciones de contactos y mensajes.
+Se mantienen los bloqueos, los avisos al proveedor, las conexiones seguras y los destacados de correo sin leer.

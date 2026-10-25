@@ -1,6 +1,5 @@
 package io.github.pportilla.upmmail.sync
 
-import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.data.db.FolderDao
 import io.github.pportilla.upmmail.data.db.FolderListEntry
 import io.github.pportilla.upmmail.data.db.FolderSyncState
@@ -486,7 +485,7 @@ class SyncEngine(
             db { storeParsedBody(ref.id, body) }
         }
         db { store.messages.detail(messageId)?.let(store.safety::requireMessageAccess) }
-        if (inlineImages && store.safety.state.value.audience == Audience.ADULT) downloadInlineImages(messageId)
+        if (inlineImages && store.safety.state.value.mailboxAccessAllowed) downloadInlineImages(messageId)
     }
 
     /** Stores a downloaded body (text for search, snippet, attachments); also used by [ServerSearch]. */
@@ -514,7 +513,7 @@ class SyncEngine(
     }
 
     private suspend fun prefetchBodies(folder: Folder) {
-        if (store.safety.state.value.audience != Audience.ADULT) return
+        if (!store.safety.state.value.mailboxAccessAllowed) return
         val candidates = try {
             db { store.messages.needingBody(folder.id, PREFETCH_COUNT, PREFETCH_MAX_SIZE) }
         } catch (_: Exception) {
@@ -699,6 +698,10 @@ class SyncEngine(
             } catch (e: Exception) {
                 val error = e.toMailException()
                 val keep = when {
+                    error.kind == MailErrorKind.ACCESS_CHECK_PENDING -> {
+                        db { store.pendingOps.release(op.id, op.attempts, clock() + ACCESS_CHECK_RETRY_DELAY) }
+                        true
+                    }
                     error.kind in ACCOUNT_KINDS -> {
                         db { store.pendingOps.release(op.id, op.attempts) }
                         true
@@ -754,9 +757,8 @@ class SyncEngine(
 
     private suspend fun execute(op: PendingOp, touched: MutableSet<Long>) {
         store.safety.requireNetwork()
-        // No background draft uploads, stale adult uploads or implicit mailbox changes after
-        // a device is handed to a child. Only explicitly approved SMTP submissions leave it.
-        if (store.safety.state.value.audience != Audience.ADULT) throw MailException(MailErrorKind.SAFETY_BLOCKED)
+        // Recheck account access before each queued mailbox mutation.
+        if (!store.safety.state.value.mailboxAccessAllowed) throw MailException(MailErrorKind.SAFETY_BLOCKED)
 
         val imap = clients.imap(op.accountId)
         when (op.type) {
@@ -1009,6 +1011,9 @@ class SyncEngine(
     private suspend fun sendOutboxOnIo(accountId: Long?): OutboxResult = outboxLock.withLock { sendOutboxLocked(accountId) }
 
     private suspend fun sendOutboxLocked(accountId: Long?): OutboxResult {
+        // A terms-only upgrade is not a failed send or permission to release old supervised mail.
+        // The controller wakes this queue when acknowledgement restores ordinary access.
+        if (store.safety.state.value.awaitingTermsAcknowledgement) return OutboxResult(0, 0, 0, null)
         failStaleSending()
         val due = db { store.outbox.due(accountId, clock()) }
         var sent = 0
@@ -1065,6 +1070,7 @@ class SyncEngine(
                 val error = e.toMailException().let {
                     if (it.kind == MailErrorKind.NETWORK) MailException(MailErrorKind.UNKNOWN, it.message, it) else it
                 }
+                if (error.kind == MailErrorKind.ACCESS_CHECK_PENDING) return@withContext deferAccessCheck(entry)
                 return@withContext markFailed(entry, item.attempts + 1, error)
             }
             // Saved before sending, so that only one transaction separates the delivery from
@@ -1075,6 +1081,7 @@ class SyncEngine(
             } catch (e: Exception) {
                 sentCopy?.let { withContext(io) { it.file.delete() } }
                 val error = e.toMailException()
+                if (error.kind == MailErrorKind.ACCESS_CHECK_PENDING) return@withContext deferAccessCheck(entry)
                 // Recompute from the immutable queued item after suspension: keeping this Int
                 // live across the send/cleanup emits an invalid coroutine spill with R8 8.11.
                 val attempts = item.attempts + 1
@@ -1090,6 +1097,12 @@ class SyncEngine(
         } finally {
             sendingNow -= item.id
         }
+    }
+
+    /** A foreground eligibility lookup is a pause, not a failed delivery attempt. */
+    private suspend fun deferAccessCheck(entry: OutboxEntry): SendOutcome {
+        db { store.outbox.requeue(entry.item.id, entry.item.attempts, null, clock() + ACCESS_CHECK_RETRY_DELAY) }
+        return SendOutcome.Retry
     }
 
     /**
@@ -1134,7 +1147,7 @@ class SyncEngine(
 
     /** Saves the message for its Sent copy; null without a Sent folder or if it cannot be written. */
     private suspend fun saveSentCopy(account: Account, message: ComposedMessage): SentCopy? {
-        if (store.safety.state.value.audience != Audience.ADULT) return null
+        if (!store.safety.state.value.mailboxAccessAllowed) return null
         val sent = db { store.folders.findByRole(account.id, FolderRole.SENT) } ?: return null
         return withContext(io) {
             val file = File(sentCopiesDir, UUID.randomUUID().toString() + ".eml")
@@ -1206,7 +1219,7 @@ class SyncEngine(
      * refresh, if the copy was stored there and the folder is being synchronised.
      */
     private suspend fun afterSend(entry: OutboxEntry, outcome: SendOutcome.Sent): Long? {
-        if (store.safety.state.value.audience != Audience.ADULT) return null
+        if (!store.safety.state.value.mailboxAccessAllowed) return null
         val account = outcome.account
         val draft = entry.item.draft
         if (!account.isDemo) withContext(NonCancellable) {
@@ -1242,7 +1255,7 @@ class SyncEngine(
 
     /** \Answered or $Forwarded on the message replied to or forwarded. */
     private fun recordSourceFlag(draft: Draft) {
-        if (store.safety.state.value.audience != Audience.ADULT) return
+        if (!store.safety.state.value.mailboxAccessAllowed) return
         val sourceId = draft.sourceMessageId ?: return
         val (localFlag, serverFlag) = when (draft.mode) {
             ComposeMode.REPLY, ComposeMode.REPLY_ALL -> LocalFlag.ANSWERED to MessageFlag.ANSWERED
@@ -1491,6 +1504,7 @@ class SyncEngine(
         private const val IN_FLIGHT_WAIT = 15_000L
         private const val COMPLETED_MOVE_TTL = 5 * 60_000L
         private const val STALE_SENDING = 10 * 60_000L
+        private const val ACCESS_CHECK_RETRY_DELAY = 2_000L
         private const val FIRST_RETRY_DELAY = 30_000L
         private const val MAX_RETRY_DELAY = 15 * 60_000L
 

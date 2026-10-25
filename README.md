@@ -13,10 +13,13 @@ over IMAP and SMTP with TLS, so the mailbox is the same one you see in the UPM w
   search, edit drafts and simulate sending with fictional messages. Sample mail never connects
   to an email server. Other real accounts retain their normal network activity. See the
   [interactive demo guide](docs/demo-review.html).
-- **Supervised mail for users under 18.** Guardian setup, approved contacts, individual incoming
-  message review and exact outgoing-message approval protect the supervised interface. Age
-  declarations and a local guardian PIN do not independently verify identity or legal consent.
-  The remaining features below describe the adult interface; supervised mail has tighter limits.
+- **General email for ages 13 and older.** One acknowledgement covers eligibility, authorized
+  mailbox use and acceptable-use rules. Eligible teens and adults use the same mail interface,
+  without guardian PINs, approved-contact lists or per-message approvals. Applicable Google Play
+  verification requirements use Google's own flow; provider account requirements still apply.
+- **Block and report unwanted mail.** Block exact sender addresses locally from a message,
+  manage the list in Settings, or write a report to your provider's official abuse address.
+  Blocking affects this app and device, not server delivery or other apps.
 - **Sign in with just your UPM address and password.** Servers, ports and security are
   pre-configured for staff, students and external accounts. The login name format is detected
   automatically. Advanced server settings are available if needed.
@@ -105,7 +108,7 @@ secret, and it must not be used to publish the app on a store.
 
 The release package is `io.github.pportilla.upmmail`; debug installs use the separate
 `io.github.pportilla.upmmail.debug` package. Release builds never use the public debug key.
-The release version defaults to `1.0.3` / code `6`, independently of the debug CI sequence.
+The release version defaults to `1.1.0` / code `7`, independently of the debug CI sequence.
 Choose a version code greater than **every** version already uploaded to this app in Play Console.
 If this app was published before, preserve its package ID and use its registered upload key.
 
@@ -138,7 +141,7 @@ the local upload key signs bundles submitted to Play.
 
 ```bash
 export UPM_SIGNING_PROPERTIES_FILE="$HOME/.config/upm-mail/signing.properties"
-python3 scripts/build-release.py --version-code 6 --version-name 1.0.3
+python3 scripts/build-release.py --version-code 7 --version-name 1.1.0
 ```
 
 The signed build fails if credentials are missing, checks the bundle signature, and rejects the

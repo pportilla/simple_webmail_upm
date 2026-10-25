@@ -3,12 +3,13 @@ Manage your Universidad Politécnica de Madrid email from a native Android app. 
 UPM Mail is an independent, unofficial app. It is not affiliated with or endorsed by Universidad Politécnica de Madrid. Use an existing UPM mailbox or configure a compatible TLS IMAP/SMTP account. The app does not create a provider account.
 
 TRY SAMPLE MAIL
-Explore a fictional mailbox without mailbox credentials. Sample mail stays on your device; sending, replies and provider reports are simulated locally and never delivered to real addresses. Try local sample arrivals and notifications. Age and guardian controls still apply. Other connected real accounts keep their normal network activity.
+Explore a fictional mailbox without mailbox credentials. Sample mail stays on your device; sending, replies and provider reports are simulated locally and never delivered to real addresses. Try local sample arrivals and notifications. Other connected real accounts keep their normal network activity.
 
-SUPERVISED MAIL
-Users under 18 use a separate supervised interface. Mailbox access stays blocked until setup is complete. An adult sets it up with a guardian PIN before connecting a permitted mailbox. The guardian approves contacts, reviews each incoming message before it appears, and approves the exact content and recipients of each outgoing message. Sending can be disabled. The supervised interface uses plain text for reading and writing and does not offer attachments, external links, remote images, device-contact import, exports or search. Younger children can read and write together with their guardian. The PIN provides local controls, not independent identity verification.
+FOR AGES 13 AND OLDER
+Use a mailbox you are authorized to access and meet your provider's account requirements. One acknowledgement covers eligibility and acceptable-use rules. Teens and adults use the same mail features, without guardian PINs or message approvals.
 
-The features below describe the standard mail interface for adults.
+BLOCK AND REPORT
+Block unwanted sender addresses on this device and manage blocked addresses in Settings. Write a report to your mail provider's official abuse or safety address, preview it and choose when to send. Original correspondence is not attached automatically. Local blocking does not change server delivery or other apps.
 
 YOUR MAIL, ORGANISED
 Switch between multiple accounts and browse Inbox, Sent, Drafts, Archive, Trash, Spam and your own folders. Read conversations, star messages and use swipe or multi-select actions to archive, move, delete or mark mail as read. Undo recent actions and cancel a queued send during its undo period.

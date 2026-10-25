@@ -109,7 +109,7 @@ class SmtpClient(
                     if (e is CancellationException || e is VirtualMachineError) throw e
                     val error = MailErrors.map(e)
                     // Once the terminator went out, a lost reply stays uncertain even when the
-                    // socket was closed by a guardian. Never automatically resend that mail.
+                    // socket was closed after an authorization or blocked-recipient change. Never automatically resend that mail.
                     if (error.kind == MailErrorKind.SEND_UNCERTAIN) throw error
                     throw refusal.get() ?: error
                 } finally {

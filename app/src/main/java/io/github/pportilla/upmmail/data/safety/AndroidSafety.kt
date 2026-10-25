@@ -6,7 +6,7 @@ import io.github.pportilla.upmmail.UpmMailApp
 /** Android callbacks may outlive a screen or profile; check again at the external boundary. */
 fun Context.hasAdultExternalAccess(): Boolean = runCatching {
     val state = (applicationContext as? UpmMailApp)?.container?.safetyRepository?.state?.value
-    state?.audience == Audience.ADULT && state.termsAccepted
+    state?.mailboxAccessAllowed == true
 }.getOrDefault(false)
 
 fun Context.requireAdultExternalAccess() {

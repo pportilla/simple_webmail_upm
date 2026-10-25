@@ -112,6 +112,8 @@ import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 import io.github.pportilla.upmmail.ui.setup.findActivity
 import io.github.pportilla.upmmail.ui.setup.openWebPage
 import io.github.pportilla.upmmail.ui.theme.supportsDynamicColor
+import io.github.pportilla.upmmail.ui.safety.BlockedSendersScreen
+import io.github.pportilla.upmmail.ui.safety.ProviderReportScreen
 
 /** Public repository of the app. */
 const val SOURCE_CODE_URL = "https://github.com/pportilla/simple_webmail_upm"
@@ -175,6 +177,17 @@ fun SettingsScreen(navigator: AppNavigator) {
         }
     }
 
+    var showBlockedSenders by rememberSaveable { mutableStateOf(false) }
+    var showProviderReport by rememberSaveable { mutableStateOf(false) }
+    if (showBlockedSenders) {
+        BlockedSendersScreen(container, onBack = { showBlockedSenders = false })
+        return
+    }
+    if (showProviderReport) {
+        ProviderReportScreen(container, onBack = { showProviderReport = false })
+        return
+    }
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -230,6 +243,21 @@ fun SettingsScreen(navigator: AppNavigator) {
                     onOpenAccount = navigator::openAccountSettings,
                     onAddAccount = navigator::openAddAccount,
                 )
+                item(key = "mail-controls") {
+                    Column {
+                        PreferenceSectionHeader(stringResource(R.string.mail_privacy_controls))
+                        ClickablePreference(
+                            title = stringResource(R.string.mail_blocked_senders),
+                            icon = Icons.Outlined.Block,
+                            onClick = { showBlockedSenders = true },
+                        )
+                        ClickablePreference(
+                            title = stringResource(R.string.mail_report_provider),
+                            icon = Icons.Outlined.Shield,
+                            onClick = { showProviderReport = true },
+                        )
+                    }
+                }
                 aboutSection(openUrl)
             }
         }

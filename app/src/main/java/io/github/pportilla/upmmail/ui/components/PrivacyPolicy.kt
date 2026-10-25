@@ -52,6 +52,7 @@ fun PrivacyPolicyDialog(onDismiss: () -> Unit, onOpenUrl: ((String) -> Unit)? = 
                         Text(stringResource(R.string.privacy_updated))
                         Text(stringResource(R.string.privacy_intro))
                         PrivacySection(R.string.privacy_families_title, R.string.privacy_families_body)
+                        PrivacySection(R.string.privacy_play_age_title, R.string.privacy_play_age_body)
                         PrivacySection(R.string.privacy_demo_title, R.string.privacy_demo_body)
                         PrivacySection(R.string.privacy_servers_title, R.string.privacy_servers_body)
                         PrivacySection(R.string.privacy_storage_title, R.string.privacy_storage_body)

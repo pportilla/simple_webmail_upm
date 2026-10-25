@@ -1,6 +1,5 @@
 package io.github.pportilla.upmmail.mail
 
-import io.github.pportilla.upmmail.data.safety.AgeBand
 import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
 import io.github.pportilla.upmmail.model.Draft
 import io.github.pportilla.upmmail.model.EmailAddress
@@ -23,7 +22,6 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.time.LocalDate
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,8 +30,8 @@ import kotlin.concurrent.thread
 /** Revocation must interrupt the live SMTP transaction, not merely block the next retry. */
 class SmtpSafetyTest {
     @Test(timeout = 20_000)
-    fun disablingCommunicationWhileMailCommandWaitsSendsNoMessageData() = runBlocking {
-        exercise(Pause.MAIL) { it.setCommunicationEnabled(false) }
+    fun blockingARecipientWhileMailCommandWaitsSendsNoMessageData() = runBlocking {
+        exercise(Pause.MAIL) { it.blockSender(RECIPIENT) }
     }
 
     @Test(timeout = 20_000)
@@ -42,35 +40,39 @@ class SmtpSafetyTest {
     }
 
     @Test(timeout = 20_000)
-    fun lockingGuardianInterruptsAProviderReportBeforeData() = runBlocking {
-        exercise(Pause.RCPT, report = true) { it.lockGuardian() }
+    fun blockingAProviderReportRecipientInterruptsBeforeData() = runBlocking {
+        exercise(Pause.RCPT, report = true) { it.blockSender("abuse@provider.invalid") }
     }
 
     @Test(timeout = 20_000)
     fun revokingAfterTheTerminatorPreservesUncertainDelivery() = runBlocking {
-        exercise(Pause.ACCEPTED, expected = MailErrorKind.SEND_UNCERTAIN) { it.revokeAllApprovals() }
+        exercise(Pause.ACCEPTED, expected = MailErrorKind.SEND_UNCERTAIN) { it.blockSender(RECIPIENT) }
+    }
+
+    @Test(timeout = 20_000)
+    fun foregroundCheckDuringRcptIsTransientAndSendsNoData() = runBlocking {
+        exercise(Pause.RCPT, expected = MailErrorKind.ACCESS_CHECK_PENDING, transient = true) { it.setPlatformCheckPending(true) }
+    }
+
+    @Test(timeout = 20_000)
+    fun foregroundCheckAfterTerminatorRemainsUncertainAndMustNotAutoRetry() = runBlocking {
+        exercise(Pause.ACCEPTED, expected = MailErrorKind.SEND_UNCERTAIN) { it.setPlatformCheckPending(true) }
     }
 
     private suspend fun exercise(
         pause: Pause,
         report: Boolean = false,
         expected: MailErrorKind = MailErrorKind.SAFETY_BLOCKED,
+        transient: Boolean = false,
         revoke: (LocalSafetyRepository) -> Unit,
     ): Unit = coroutineScope {
-        val policy = LocalSafetyRepository().apply {
-            chooseAgeBand(AgeBand.UNDER_13)
-            acceptTerms()
-            setupGuardian("724961", LocalDate.of(1980, 1, 1))
-            approveContact(RECIPIENT)
-            setCommunicationEnabled(true)
-        }
+        val policy = LocalSafetyRepository().apply { completeGeneralSetup() }
         val draft = Draft(
             accountId = 1,
             to = listOf(EmailAddress(if (report) "abuse@provider.invalid" else RECIPIENT)),
-            subject = "Guardian reviewed text",
+            subject = "Local transport test",
             body = "A fictional message for the local transport test.",
         )
-        if (report) policy.approveGuardianReport(draft) else policy.approveOutgoing(draft)
         val outboxId = policy.enqueueApproved(draft) { 17L }
         val message = MessageComposer.build(EmailAddress("sender@example.invalid"), draft, emptyList()).mime
         PausedSmtpServer(pause).use { server ->
@@ -87,7 +89,7 @@ class SmtpSafetyTest {
                 val error = withTimeout(5_000) { sending.await() }
                 assertTrue("Expected MailException, got $error", error is MailException)
                 assertEquals(expected, (error as MailException).kind)
-                assertFalse("Policy refusal/uncertain delivery must not retry automatically", error.isTransient)
+                assertEquals("Only a temporary check before possible delivery may retry", transient, error.isTransient)
                 server.resume.countDown()
                 assertTrue("SMTP connection did not finish", server.finished.awaitBounded())
                 if (pause == Pause.ACCEPTED) {

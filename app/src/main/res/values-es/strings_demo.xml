@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="demo_try">Probar correo de ejemplo</string>
-    <string name="demo_intro">Explora un buzón ficticio sin credenciales. Los mensajes se guardan en este dispositivo y los envíos se simulan. Se mantienen los controles de edad y supervisión.</string>
+    <string name="demo_intro">Explora un buzón ficticio sin credenciales. Los mensajes se guardan en este dispositivo y los envíos se simulan.</string>
     <string name="demo_loading">Preparando correo de ejemplo…</string>
     <string name="demo_opened">Buzón de ejemplo abierto. Este buzón no utiliza una conexión de correo real.</string>
     <string name="demo_error">No se pudo abrir el correo de ejemplo</string>
     <string name="demo_account_label">Ejemplo · %1$s</string>
     <string name="demo_notice">Correo de ejemplo: ficticio y guardado en este dispositivo. Los envíos se simulan; no se entrega nada a una dirección real.</string>
     <string name="demo_send">Simular envío</string>
-    <string name="demo_approve_send">Aprobar simulación</string>
-    <string name="demo_request_send">Pedir permiso para simular el envío</string>
     <string name="demo_sending">Simulando envío local…</string>
     <string name="demo_queued">Simulación en cola local. No se entregará ningún mensaje a una dirección real.</string>
     <string name="demo_already_sent">La simulación de envío local ya ha terminado.</string>
@@ -21,5 +19,5 @@
     <string name="demo_push_notice">Las llegadas de ejemplo se simulan localmente mientras la aplicación está en ejecución; el correo instantáneo real utiliza una conexión al servidor. El correo de ejemplo no inicia una conexión persistente.</string>
     <string name="demo_receive">Recibir correo de ejemplo en 5 segundos</string>
     <string name="demo_receive_queued">Llegada de ejemplo programada. Con la recepción instantánea activada, el correo de ejemplo se actualiza localmente; las notificaciones también necesitan permiso y estar activadas para la cuenta. En modo manual, actualiza la bandeja tras 5 segundos.</string>
-    <string name="demo_receive_error">No se pudo programar el correo de ejemplo. Desbloquea los ajustes de supervisión si es necesario e inténtalo de nuevo.</string>
+    <string name="demo_receive_error">No se pudo programar el correo de ejemplo. Inténtalo de nuevo.</string>
 </resources>

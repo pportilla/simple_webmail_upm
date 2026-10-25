@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.sync
 
+import io.github.pportilla.upmmail.data.safety.RevocableTestSafety
 import io.github.pportilla.upmmail.data.safety.AgeBand
 import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
 import io.github.pportilla.upmmail.mail.ImapIdler
@@ -12,7 +13,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PushSafetyTest {
@@ -56,8 +56,8 @@ class PushSafetyTest {
     }
 
     @Test
-    fun switchingToSupervisedCancelsAnActiveIdleConnectionAndBlocksReconnect() = runTest {
-        val safety = LocalSafetyRepository().apply { acceptTerms(); chooseAgeBand(AgeBand.ADULT) }
+    fun revokedAccessCancelsAnActiveIdleConnectionAndBlocksReconnect() = runTest {
+        val safety = RevocableTestSafety()
         val connection = Connection()
         val guarded = connection.withPushSafety(safety)
         val active = launch { guarded.run({}, {}) }
@@ -65,12 +65,10 @@ class PushSafetyTest {
         assertEquals(1, connection.connections)
         assertFalse(active.isCompleted)
 
-        safety.enableSupervised(AgeBand.UNDER_13, "246810", LocalDate.of(1980, 1, 1))
+        safety.revoke()
         runCurrent()
         assertTrue(active.isCancelled)
         assertEquals(1, connection.closed)
-        safety.setCommunicationEnabled(true)
-        assertTrue(safety.state.value.guardianUnlocked)
         assertFalse(pushAllowedBySafety(safety))
         val retry = launch { guarded.run({}, {}) }
         runCurrent()
@@ -79,19 +77,18 @@ class PushSafetyTest {
     }
 
     @Test
-    fun aKeepAliveIsCancelledWhenTheAdultProfileBecomesSupervised() = runTest {
-        val safety = LocalSafetyRepository().apply { acceptTerms(); chooseAgeBand(AgeBand.ADULT) }
+    fun aKeepAliveIsCancelledWhenAccessIsRevoked() = runTest {
+        val safety = RevocableTestSafety()
         val connection = Connection()
         val guarded = connection.withPushSafety(safety)
         val active = launch { guarded.refresh() }
         runCurrent()
         assertEquals(1, connection.refreshes)
 
-        safety.enableSupervised(AgeBand.TEEN, "246810", LocalDate.of(1980, 1, 1))
+        safety.revoke()
         runCurrent()
         assertTrue(active.isCancelled)
         assertEquals(1, connection.closed)
-        safety.lockGuardian()
         val retry = launch { guarded.refresh() }
         runCurrent()
         assertTrue(retry.isCancelled)

@@ -30,7 +30,7 @@ import java.io.File
  */
 
 interface AccountRepository {
-    /** Opens a fictional, local-only account; normal age and guardian policy still applies. */
+    /** Opens a fictional, local-only account; normal eligibility and app setup still apply. */
     suspend fun addDemoAccount(): Result<Account> = Result.failure(UnsupportedOperationException("Sample mail is unavailable"))
 
     /** Schedules one fictional local arrival, for trying notification and refresh controls. */

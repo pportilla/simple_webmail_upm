@@ -60,7 +60,8 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
     val files = LocalFiles(app.filesDir)
 
     override val safetyRepository by lazy {
-        io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(io.github.pportilla.upmmail.data.safety.PrefsSafetyStorage(app))
+        io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(
+            io.github.pportilla.upmmail.data.safety.PrefsSafetyStorage(app), protectExistingOutbox = true)
     }
 
     val store: MailStore by lazy { MailStore(AndroidSqlDatabase(app), safety = safetyRepository) }
@@ -96,10 +97,13 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
         FlushScheduler(
             scope = applicationScope,
             flush = { accountId -> engine.flushPendingOps(accountId) },
-            onBlocked = { _, error ->
-                // Offline: let JobScheduler retry once the network is back. Login problems
-                // wait for the user (the next sync shows the error).
-                if (error.kind == MailErrorKind.NETWORK) androidSyncController.requestPendingOpsFlush()
+            onBlocked = { accountId, error ->
+                // A platform lookup is brief and must not strand draft/flag operations.
+                if (error.kind == MailErrorKind.ACCESS_CHECK_PENDING) {
+                    flushScheduler.schedule(accountId, System.currentTimeMillis() + 2_000L)
+                } else if (error.kind == MailErrorKind.NETWORK) {
+                    androidSyncController.requestPendingOpsFlush()
+                }
             },
             onFlushed = { _, result -> refreshTouchedFolders(result) },
         )
@@ -190,7 +194,7 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
                             }
                         }
                         if (settingsRepository.settings.value.pushEnabled &&
-                            safetyRepository.state.value.audience == io.github.pportilla.upmmail.data.safety.Audience.ADULT) {
+                            safetyRepository.state.value.mailboxAccessAllowed) {
                             engine.syncFolder(engine.inboxOf(accountId).id)
                         }
                     }
@@ -229,11 +233,24 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     init {
         applicationScope.launch(Dispatchers.IO) {
-            safetyRepository.state.collect {
-                step("safety notification cleanup") { notifier.clearPrivateNotifications() }
-                step("safety connection cleanup") {
-                    clients.closeAll()
-                    store.accounts.getAll().forEach { account -> clients.invalidate(account.id) }
+            var previous: io.github.pportilla.upmmail.data.safety.SafetyState? = null
+            safetyRepository.state.collect { current ->
+                val effects = io.github.pportilla.upmmail.data.safety.safetyTransitionEffects(previous, current)
+                previous = current
+                if (effects.clearNotifications) {
+                    step("safety notification cleanup") { notifier.clearPrivateNotifications() }
+                }
+                if (effects.closeConnections) {
+                    step("safety connection cleanup") {
+                        clients.closeAll()
+                        store.accounts.getAll().forEach { account -> clients.invalidate(account.id) }
+                    }
+                }
+                if (effects.refreshForeground) {
+                    // A lookup may have paused the initial foreground poll. Resume it after
+                    // cancellation/cleanup completes, without changing the activity's lifecycle.
+                    androidSyncController.requestOutboxSend()
+                    androidSyncController.refreshIfForeground()
                 }
             }
         }
@@ -254,6 +271,9 @@ class DefaultAppContainer(private val app: Application) : AppContainer {
 
     /** Work for every process start: channels, push, interrupted sends, queued work, the mail index, stale files. */
     private suspend fun housekeeping() {
+        step("general audience migration") {
+            safetyRepository.completeGeneralAudienceMigration { store.outbox.holdForAudienceMigration() }
+        }
         step("notification channels") { notifier.createChannels() }
         step("push") { pushController.start() }
         step("stale sends") { engine.failStaleSending() }

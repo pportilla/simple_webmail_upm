@@ -110,19 +110,17 @@ class RepositoriesTest {
     }
 
     @Test
-    fun sampleSetupCannotUnlockOrResetSupervisedPolicy() = runBlocking {
-        val safety = store.safety as io.github.pportilla.upmmail.data.safety.SafetyRepository
-        safety.enableSupervised(io.github.pportilla.upmmail.data.safety.AgeBand.UNDER_13, "735182", java.time.LocalDate.of(1980, 1, 1))
-        safety.lockGuardian()
+    fun sampleSetupCannotUnlockKnownUnder13Policy() = runBlocking {
+        val safety = io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(
+            io.github.pportilla.upmmail.data.safety.legacySafetyStorage(io.github.pportilla.upmmail.data.safety.AgeBand.UNDER_13))
+        store = MailStore(store.sql, safety = safety)
         val before = safety.state.value
         val repository = accounts(FakeChecker("never", "never"))
         assertTrue(repository.addDemoAccount().isFailure)
         assertEquals(before, safety.state.value)
         assertTrue(store.accounts.getAll().isEmpty())
-        assertTrue(safety.unlockGuardian("735182"))
-        assertTrue(repository.addDemoAccount().getOrThrow().isDemo)
-        assertEquals(io.github.pportilla.upmmail.data.safety.Audience.SUPERVISED, safety.state.value.audience)
-        assertTrue(safety.state.value.approvedContacts.isEmpty())
+        assertTrue(runCatching { safety.completeGeneralSetup() }.isFailure)
+        assertTrue(repository.addDemoAccount().isFailure)
     }
 
     @Test

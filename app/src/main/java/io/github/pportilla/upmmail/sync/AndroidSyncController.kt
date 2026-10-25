@@ -110,7 +110,13 @@ class AndroidSyncController(
 
     override fun onAppForeground() {
         isForeground = true
+        refreshIfForeground()
+    }
+
+    /** May be called from IO after a platform check; never revives a backgrounded activity. */
+    fun refreshIfForeground() {
         synchronized(lock) {
+            if (!isForeground) return
             pollJob?.cancel()
             pollJob = scope.launch(Dispatchers.IO) { pollWhileVisible() }
         }
@@ -170,7 +176,8 @@ class AndroidSyncController(
      */
     private fun planOutbox(minDelay: Long) {
         synchronized(planLock) {
-            val next = safely(null) { store.outbox.nextSendAt() }
+            val next = if (store.safety.state.value.awaitingTermsAcknowledgement) null
+                else safely(null) { store.outbox.nextSendAt() }
             if (next == null) {
                 outboxRunner.cancel(OUTBOX_KEY)
                 synchronized(lock) {

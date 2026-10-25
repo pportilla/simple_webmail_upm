@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Keep one instance per account. All connections, including derived search connections, share
  * its atomic snapshot and local change stream. The normal repositories/engine retain ownership
- * of safety authorization, exact send approval, outbox, undo and cached-message projections.
+ * of access authorization, blocked senders, outbox, undo and cached-message projections.
  */
 class DemoMailBackend(
     root: File,
@@ -419,9 +419,10 @@ class DemoMailBackend(
         add(state, "INBOX", sample("Sample attachment / Adjunto de ejemplo",
             "A harmless text attachment to try downloading and forwarding.\n\nUn adjunto de texto para probar la descarga y el reenvío.", attachments = listOf(attachment)))
         add(state, "INBOX", sample("Read and write safely / Lee y escribe con seguridad",
-            "If a message worries you, stop and ask a trusted adult. In supervised mail your guardian must approve the contact and each message. " +
-                "No sample contact or message is preapproved.\n\nSi un mensaje te preocupa, para y habla con un adulto de confianza. " +
-                "En el correo supervisado tu adulto debe aprobar el contacto y cada mensaje. Ningún contacto ni mensaje de ejemplo está aprobado de antemano."))
+            "Check sender addresses and links before replying or sharing information. You can block an unwanted sender from a message menu " +
+                "and manage blocked addresses in Settings. Report abuse through your provider's official channel.\n\n" +
+                "Comprueba las direcciones y los enlaces antes de responder o compartir información. Puedes bloquear un remitente desde " +
+                "el menú del mensaje y gestionar los bloqueos en Ajustes. Informa de abusos a través del canal oficial de tu proveedor."))
         add(state, "Projects", sample("Practice search / Practica la búsqueda", "The library workshop meets on Friday. Search for library or biblioteca.\n\nEl taller de la biblioteca se reúne el viernes."), RemoteFlags(seen = true))
         add(state, "Archive", sample("Archived example / Ejemplo archivado", "Move this fictional message between folders.\n\nMueve este mensaje ficticio entre carpetas."), RemoteFlags(seen = true))
         val draft = MessageComposer.build(EmailAddress(account.email, account.displayName), Draft(accountId = account.id,

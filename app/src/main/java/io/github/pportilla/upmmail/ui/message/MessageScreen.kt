@@ -107,6 +107,8 @@ import io.github.pportilla.upmmail.ui.components.folderDisplayName
 import io.github.pportilla.upmmail.ui.components.folderIcon
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 import io.github.pportilla.upmmail.ui.navigation.ComposeArgs
+import io.github.pportilla.upmmail.ui.safety.BlockSenderDialog
+import io.github.pportilla.upmmail.ui.safety.ProviderReportScreen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -146,6 +148,8 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
     var confirmConversationDelete by rememberSaveable { mutableStateOf(false) }
     var confirmMessageDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
+    var senderToBlock by rememberSaveable { mutableStateOf<String?>(null) }
+    var showProviderReport by rememberSaveable { mutableStateOf(false) }
 
     val printer = remember(context) { MessagePrinter(context) }
     DisposableEffect(printer) {
@@ -313,6 +317,8 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
             onLinkClick = ::handleLink,
             onOpenAttachment = viewModel::openAttachment,
             onShareAttachment = viewModel::shareAttachment,
+            onBlockSender = { senderToBlock = it },
+            onReportToProvider = { showProviderReport = true },
             onSaveAttachment = { attachment ->
                 pendingSaveId = attachment.id
                 pendingSaveName = attachment.fileName
@@ -340,6 +346,20 @@ fun MessageScreen(messageId: Long, navigator: AppNavigator) {
     var headerHeight by remember { mutableIntStateOf(0) }
     val showTitle by remember { derivedStateOf { headerHeight > 0 && scrollState.value > headerHeight } }
     val ready = state.status == ThreadStatus.READY
+
+    if (showProviderReport) {
+        ProviderReportScreen(container, onBack = { showProviderReport = false }, initialAccountId = accountId)
+        return
+    }
+    senderToBlock?.let { address ->
+        BlockSenderDialog(address, onDismiss = { senderToBlock = null }) {
+            runCatching { container.safetyRepository.blockSender(address) }.fold(
+                onSuccess = { snackbar.show(context.getString(R.string.mail_sender_blocked)); close() },
+                onFailure = ::showError,
+            )
+            senderToBlock = null
+        }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),

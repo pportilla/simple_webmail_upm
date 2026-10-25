@@ -190,7 +190,7 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     val pickFiles = {
         try {
             if (context.hasAdultExternalAccess()) attachmentPicker.launch(arrayOf("*/*"))
-            else snackbar.show(context.getString(R.string.family_action_blocked))
+            else snackbar.show(context.getString(R.string.mail_action_blocked))
         } catch (_: ActivityNotFoundException) {
             snackbar.show(context.getString(R.string.compose_no_file_picker))
         }

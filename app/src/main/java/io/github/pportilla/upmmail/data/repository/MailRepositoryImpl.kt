@@ -1,6 +1,5 @@
 package io.github.pportilla.upmmail.data.repository
 
-import io.github.pportilla.upmmail.data.safety.Audience
 import kotlinx.coroutines.flow.flowOn
 import io.github.pportilla.upmmail.data.db.LocalFlag
 import io.github.pportilla.upmmail.data.db.MailStore
@@ -76,7 +75,7 @@ class MailRepositoryImpl(
     private var indexJobMetered = false
 
     override fun observeFolders(accountId: Long): Flow<List<Folder>> = combine(store.folders.observeByAccount(accountId), store.safety.state) { folders, safety ->
-        if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED) emptyList() else folders
+        if (!safety.mailboxAccessAllowed) emptyList() else folders
     }
 
     override suspend fun getFolder(folderId: Long): Folder? = db { store.safety.requireAccountManagement(); store.folders.get(folderId) }
@@ -94,7 +93,7 @@ class MailRepositoryImpl(
         val from = db { store.accounts.get(folder.accountId) }?.let { EmailAddress(it.email, it.displayName.takeIf(String::isNotBlank)) }
         emitAll(
             combine(cached, store.drafts.observeUnsynced(folder)) { rows, local ->
-                if (store.safety.state.value.audience == Audience.ADULT) LocalDraftRows.merge(rows, local, folder, from, limit) else rows
+                if (store.safety.state.value.mailboxAccessAllowed) LocalDraftRows.merge(rows, local, folder, from, limit) else rows
             },
         )
     }
@@ -138,7 +137,7 @@ class MailRepositoryImpl(
     }
 
     override suspend fun ensureBodyLoaded(messageId: Long): Result<Unit> = mailResult {
-        engine.loadBody(messageId, inlineImages = store.safety.state.value.audience == Audience.ADULT)
+        engine.loadBody(messageId, inlineImages = store.safety.state.value.mailboxAccessAllowed)
     }
 
     // ------------------------------------------------------------------ flags
@@ -418,7 +417,7 @@ class MailRepositoryImpl(
 
     override suspend fun searchLocalHits(query: String, filters: SearchFilters, limit: Int): List<SearchHit> = db {
         val cached = store.messages.searchHits(query, filters, limit).filter { store.messages.detail(it.message.id)?.let(store.safety::projectMessage) != null }
-        val indexed = if (store.safety.state.value.audience == Audience.ADULT && store.safety.state.value.termsAccepted) store.headerIndex.search(query, filters, limit).filterNot { store.safety.isSenderBlocked(it.from?.address) }.map(SearchHit::Indexed) else emptyList()
+        val indexed = if (store.safety.state.value.mailboxAccessAllowed) store.headerIndex.search(query, filters, limit).filterNot { store.safety.isSenderBlocked(it.from?.address) }.map(SearchHit::Indexed) else emptyList()
         mergeHits(cached, indexed, limit = limit)
     }
 
@@ -427,7 +426,7 @@ class MailRepositoryImpl(
         var latest: ServerSearchProgress? = null
         fun project(progress: ServerSearchProgress): ServerSearchProgress {
             val state = store.safety.state.value
-            return if (state.audience != Audience.ADULT || !state.termsAccepted) {
+            return if (!state.mailboxAccessAllowed) {
                 progress.copy(hits = emptyList(), finished = true, error = MailException(MailErrorKind.SAFETY_BLOCKED))
             } else progress.copy(hits = progress.hits.filterNot { store.safety.isSenderBlocked(it.display.from?.address) })
         }
@@ -546,9 +545,8 @@ class MailRepositoryImpl(
 
     private fun visible(rows: List<MessageSummary>): List<MessageSummary> {
         val state = store.safety.state.value
-        if (!state.termsAccepted || state.audience == Audience.UNCONFIGURED) return emptyList()
-        if (state.audience == Audience.ADULT) return rows.filterNot { store.safety.isSenderBlocked(it.from?.address) }
-        return rows.mapNotNull { row -> store.messages.detail(row.id)?.let(store.safety::projectMessage)?.summary?.copy(threadCount = row.threadCount) }
+        if (!state.mailboxAccessAllowed) return emptyList()
+        return rows.filterNot { store.safety.isSenderBlocked(it.from?.address) }
     }
     private fun visibleIds(ids: List<Long>): List<Long> = ids.filter { id -> store.messages.detail(id)?.let(store.safety::projectMessage) != null }
 

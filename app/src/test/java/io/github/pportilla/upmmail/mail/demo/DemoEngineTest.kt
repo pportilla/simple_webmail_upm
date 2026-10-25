@@ -16,7 +16,6 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.time.LocalDate
 
 /** Exercises the unchanged repository/outbox/safety path against the local protocol backend. */
 class DemoEngineTest {
@@ -89,30 +88,22 @@ class DemoEngineTest {
         assertEquals(1, backend.imap().fetchNewest("Sent", 20).messages.count { it.subject == "Retry practice" })
     }
 
-    @Test fun supervisedSampleNeedsExactApprovalAndRevocationPreventsQueuedSend() = runBlocking {
+    @Test fun blockedSampleRecipientPreventsQueuedSendAndRetryWorksAfterExplicitUnblock() = runBlocking {
         setup()
         val safety = store.safety as SafetyRepository
-        safety.enableSupervised(AgeBand.UNDER_13, "734619", LocalDate.of(1980, 1, 1))
-        safety.approveContact("tutor@example.invalid")
-        safety.setCommunicationEnabled(true)
         val draft = Draft(accountId = account.id, to = listOf(EmailAddress("tutor@example.invalid")),
-            subject = "Reviewed sample", body = "Exact approved text")
-        assertTrue(runCatching { compose.send(draft, 0) }.isFailure)
-        safety.approveOutgoing(draft)
-        assertTrue(runCatching { compose.send(draft.copy(body = "Changed after review"), 0) }.isFailure)
-        safety.approveOutgoing(draft)
+            subject = "Ordinary sample", body = "Preserved text")
         val queued = compose.send(draft, 0)
         val before = backend.imap().status("INBOX").messageCount
-        safety.revokeAllApprovals()
+        safety.blockSender("tutor@example.invalid")
+        assertTrue(runCatching { compose.send(draft, 0) }.isFailure)
         assertEquals(0, engine.sendOutbox(account.id).sent)
         assertNotNull(store.outbox.get(queued))
         assertEquals(before, backend.imap().status("INBOX").messageCount)
-        safety.setCommunicationEnabled(true)
-        safety.approveOutgoing(draft)
-        val second = compose.send(draft, 0)
-        safety.lockGuardian()
+        safety.unblockSender("tutor@example.invalid")
+        compose.retrySend(queued)
         assertEquals(1, engine.sendOutbox(account.id).sent)
-        assertNull(store.outbox.get(second))
+        assertNull(store.outbox.get(queued))
         assertEquals(before + 1, backend.imap().status("INBOX").messageCount)
     }
 }

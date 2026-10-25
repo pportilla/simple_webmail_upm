@@ -3,12 +3,13 @@ Gestiona tu correo de la Universidad Politécnica de Madrid desde una aplicació
 UPM Mail es una aplicación independiente y no oficial. No está afiliada a la Universidad Politécnica de Madrid ni cuenta con su respaldo. Utiliza un buzón UPM existente o configura una cuenta compatible con IMAP/SMTP mediante TLS. La aplicación no crea una cuenta del proveedor.
 
 PRUEBA EL CORREO DE EJEMPLO
-Explora un buzón ficticio sin credenciales de correo. El ejemplo permanece en tu dispositivo; envíos, respuestas y avisos al proveedor se simulan localmente y nunca llegan a direcciones reales. Prueba llegadas y notificaciones locales. Se mantienen los controles de edad y supervisión. Las demás cuentas reales conectadas conservan su actividad de red habitual.
+Explora un buzón ficticio sin credenciales de correo. El ejemplo permanece en tu dispositivo; envíos, respuestas y avisos al proveedor se simulan localmente y nunca llegan a direcciones reales. Prueba llegadas y notificaciones locales. Las demás cuentas reales conectadas conservan su actividad de red habitual.
 
-CORREO SUPERVISADO
-Los menores de 18 años utilizan una interfaz supervisada independiente. El acceso al buzón permanece bloqueado hasta completar la configuración. Un adulto la configura con un PIN antes de conectar un buzón permitido. El adulto aprueba los contactos, revisa cada mensaje entrante antes de que aparezca y aprueba el contenido y los destinatarios exactos de cada envío. Los envíos se pueden desactivar. La interfaz supervisada permite leer y escribir texto sin formato y no ofrece adjuntos, enlaces externos, imágenes remotas, importación de contactos del dispositivo, exportaciones ni búsquedas. Los más pequeños pueden leer y escribir junto al adulto. El PIN ofrece controles locales, no una verificación independiente de identidad.
+PARA PERSONAS DE 13 AÑOS EN ADELANTE
+Utiliza un buzón al que tengas permiso para acceder y cumple los requisitos de cuenta de tu proveedor. Una aceptación cubre los requisitos y las normas de uso. Adolescentes y adultos utilizan las mismas funciones, sin PIN de supervisión ni aprobación de mensajes.
 
-Las funciones siguientes describen la interfaz de correo estándar para adultos.
+BLOQUEA E INFORMA
+Bloquea direcciones no deseadas en este dispositivo y gestiónalas en Ajustes. Redacta un aviso a la dirección oficial de abuso o seguridad de tu proveedor, revisa la vista previa y decide cuándo enviarlo. No se adjunta automáticamente correspondencia original. El bloqueo local no cambia la entrega en el servidor ni afecta a otras apps.
 
 TU CORREO, ORGANIZADO
 Cambia entre varias cuentas y consulta Recibidos, Enviados, Borradores, Archivo, Papelera, Spam y tus propias carpetas. Lee conversaciones, destaca mensajes y utiliza gestos o selección múltiple para archivar, mover, eliminar o marcar el correo como leído. Deshaz acciones recientes y cancela un envío en cola durante su periodo de cancelación.

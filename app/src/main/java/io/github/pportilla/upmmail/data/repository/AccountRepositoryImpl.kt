@@ -23,7 +23,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
-import io.github.pportilla.upmmail.data.safety.Audience
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
@@ -107,13 +106,13 @@ class AccountRepositoryImpl(
 ) : AccountRepository {
 
     override val accounts: Flow<List<Account>> = combine(store.accounts.observeAll(), store.safety.state) { accounts, safety ->
-        if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED) emptyList() else accounts
+        if (!safety.mailboxAccessAllowed) emptyList() else accounts
     }
 
     override suspend fun getAccount(id: Long): Account? = db { store.safety.requireAccountManagement(); store.accounts.get(id) }
 
     override suspend fun addDemoAccount(): Result<Account> = mailResult {
-        // Sample mail is a separate account, never a way to reset or bypass age/guardian policy.
+        // Sample mail is a separate account, never a way to reset or bypass eligibility and app setup.
         store.safety.requireAccountManagement()
         store.safety.requireNetwork()
         val account = db {

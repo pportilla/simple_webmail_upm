@@ -21,7 +21,6 @@ import io.github.pportilla.upmmail.MainActivity
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.repository.SettingsRepository
-import io.github.pportilla.upmmail.data.safety.Audience
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
@@ -344,7 +343,7 @@ class MailNotifier(
         adultNotificationsAllowed() && settings.settings.value.notificationsEnabled && hasPermission() && manager.areNotificationsEnabled()
 
     private fun adultNotificationsAllowed(): Boolean = store.safety.state.value.let {
-        it.audience == Audience.ADULT && it.termsAccepted
+        it.mailboxAccessAllowed
     }
 
     private fun hasPermission(): Boolean =

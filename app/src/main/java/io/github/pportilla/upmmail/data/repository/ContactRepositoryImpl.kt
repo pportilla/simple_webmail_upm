@@ -37,14 +37,14 @@ class ContactRepositoryImpl(
         val sample = withContext(io) { store.accounts.get(accountId)?.isDemo == true }
         if (!sample || store.safety.state.value.audience == Audience.SUPERVISED) return suggest(query, exclude, limit)
         val state = store.safety.state.value
-        if (!state.termsAccepted || state.audience != Audience.ADULT || query.isBlank() || limit <= 0) return emptyList()
+        if (!state.mailboxAccessAllowed || query.isBlank() || limit <= 0) return emptyList()
         val excluded = exclude.mapTo(HashSet()) { it.trim().lowercase() } + state.blockedSenders
         return listOf(
             EmailAddress("tutor@example.invalid", "Sample tutor / Tutor de ejemplo"),
             EmailAddress("alex@example.invalid", "Alex (sample / ejemplo)"),
             EmailAddress("fail-once@example.invalid", "Retry example / Ejemplo de reintento"),
         ).filter { it.address !in excluded && SearchText.matchesWordPrefixes(query.trim(), it.name, it.address) }
-            .take(limit).filter { store.safety.state.value.audience == Audience.ADULT && !store.safety.isSenderBlocked(it.address) }
+            .take(limit).filter { store.safety.state.value.mailboxAccessAllowed && !store.safety.isSenderBlocked(it.address) }
             .map { ContactSuggestion(it, ContactSource.HISTORY) }
     }
 
@@ -53,10 +53,7 @@ class ContactRepositoryImpl(
         if (text.isEmpty() || limit <= 0) return emptyList()
         return withContext(io) {
             val safety = store.safety.state.value
-            if (!safety.termsAccepted || safety.audience == Audience.UNCONFIGURED) return@withContext emptyList()
-            if (safety.audience == Audience.SUPERVISED) return@withContext safety.approvedContacts
-                .filter { it !in safety.blockedSenders && it !in exclude && it.contains(text, ignoreCase = true) }
-                .take(limit).map { ContactSuggestion(EmailAddress(it), ContactSource.HISTORY) }
+            if (!safety.mailboxAccessAllowed) return@withContext emptyList()
             val excluded = exclude.mapTo(HashSet()) { it.trim().lowercase() } + safety.blockedSenders
             val now = clock()
             val merged = LinkedHashMap<String, Scored>()
@@ -103,7 +100,7 @@ class ContactRepositoryImpl(
                 )
                 .take(limit)
                 .map { it.suggestion }
-                .filter { store.safety.state.value.audience == Audience.ADULT && !store.safety.isSenderBlocked(it.address.address) }
+                .filter { store.safety.state.value.mailboxAccessAllowed && !store.safety.isSenderBlocked(it.address.address) }
         }
     }
 

@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.mail
 
+import io.github.pportilla.upmmail.data.safety.SafetyPolicy
+import io.github.pportilla.upmmail.data.safety.RevocableTestSafety
 import io.github.pportilla.upmmail.data.safety.AgeBand
 import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
 import io.github.pportilla.upmmail.data.security.InMemoryPasswordStore
@@ -19,7 +21,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
 
 /** Exercise the production provider factory, not a hand-created abortable test client. */
 class MailClientSafetyTest {
@@ -28,7 +29,7 @@ class MailClientSafetyTest {
         return Account(1, "fixture@example.invalid", "Fixture", server, server, "", 0, false, 0)
     }
 
-    private fun provider(account: Account, safety: LocalSafetyRepository): MailClientProvider =
+    private fun provider(account: Account, safety: SafetyPolicy): MailClientProvider =
         MailClientProvider(
             { account.takeIf { id -> id.id == it } },
             InMemoryPasswordStore().apply { set(account.id, "fixture-password") },
@@ -66,7 +67,7 @@ class MailClientSafetyTest {
         FakeImapServer(handler = { /* Deliberately leave the search command unanswered. */ }).use { server ->
             server.exists = 1
             server.uidNext = 2
-            val safety = adult()
+            val safety = RevocableTestSafety()
             val provider = provider(account(server.port), safety)
             val client = provider.imap(1)
             try {
@@ -74,8 +75,7 @@ class MailClientSafetyTest {
                     runCatching { client.searchUids("INBOX", ServerQuery.parse("fixture", ServerQuery.HEADER_FIELDS)!!, null, 10) }
                 }
                 waitUntil { server.count("UID SEARCH") == 1 }
-                safety.enableSupervised(AgeBand.UNDER_13, "625184", LocalDate.of(1980, 1, 1))
-                safety.lockGuardian()
+                safety.revoke()
                 // DefaultAppContainer observes policy changes and performs this invalidation.
                 provider.invalidate(1)
                 assertTrue(withTimeout(2_000) { operation.await() }.isFailure)

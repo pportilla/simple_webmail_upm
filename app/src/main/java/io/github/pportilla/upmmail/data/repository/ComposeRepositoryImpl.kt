@@ -23,7 +23,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.combine
-import io.github.pportilla.upmmail.data.safety.Audience
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -168,7 +167,7 @@ class ComposeRepositoryImpl(
     /** Empty space to type in, then the signature, then the quoted or forwarded text. */
     private fun bodyWith(account: Account, quoted: String?): String {
         val parts = mutableListOf("")
-        if (store.safety.state.value.audience == Audience.ADULT && account.signature.isNotBlank()) parts += SIGNATURE_SEPARATOR + account.signature.trimEnd()
+        if (store.safety.state.value.mailboxAccessAllowed && account.signature.isNotBlank()) parts += SIGNATURE_SEPARATOR + account.signature.trimEnd()
         if (!quoted.isNullOrEmpty()) parts += quoted
         return if (parts.size == 1) "" else parts.joinToString("\n\n")
     }
@@ -179,7 +178,7 @@ class ComposeRepositoryImpl(
         return runCatching { HtmlText.toPlainText(html) }.getOrNull()?.trimEnd()
     }
 
-    override suspend fun loadDraft(draftId: Long): Draft? = db { store.safety.requireAccountManagement(); store.drafts.get(draftId)?.let { if (store.safety.state.value.audience == Audience.SUPERVISED) it.copy(attachments = emptyList()) else it } }
+    override suspend fun loadDraft(draftId: Long): Draft? = db { store.safety.requireAccountManagement(); store.drafts.get(draftId) }
 
     override suspend fun draftFromServerMessage(messageId: Long): Result<Draft> = mailResult {
         draftFromServerMessageInternal(messageId)
@@ -215,7 +214,7 @@ class ComposeRepositoryImpl(
     override suspend fun saveDraft(draft: Draft, upload: Boolean): Long {
         store.safety.requireAccountManagement()
         if (draft.attachments.isNotEmpty()) store.safety.requireAttachments()
-        val uploadAllowed = upload && store.safety.state.value.audience == Audience.ADULT
+        val uploadAllowed = upload && store.safety.state.value.mailboxAccessAllowed
         val id = db {
             store.tx {
                 val id = store.drafts.save(continued(draft).copy(updatedAt = clock()))
@@ -313,12 +312,7 @@ class ComposeRepositoryImpl(
     }
 
     override fun observeOutbox(accountId: Long?): Flow<List<OutboxItem>> = combine(store.outbox.observe(accountId), store.safety.state) { items, safety ->
-        when {
-            !safety.termsAccepted || safety.audience == Audience.UNCONFIGURED -> emptyList()
-            safety.audience == Audience.ADULT -> items
-            safety.guardianUnlocked -> items.map { it.copy(draft = it.draft.copy(attachments = emptyList())) }
-            else -> items.filter { runCatching { store.safety.requireQueuedSend(it.id, it.draft) }.isSuccess }
-        }
+        if (safety.mailboxAccessAllowed) items else emptyList()
     }
 
     override suspend fun retrySend(outboxId: Long) {
