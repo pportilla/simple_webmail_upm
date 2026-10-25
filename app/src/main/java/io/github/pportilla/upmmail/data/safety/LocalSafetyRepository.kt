@@ -78,7 +78,9 @@ class LocalSafetyRepository(
 
     override fun setPlatformCheckPending(pending: Boolean) = synchronized(monitor) {
         if (state.value.platformCheckPending != pending) {
-            val next = state.value.copy(platformCheckPending = pending, revision = state.value.revision + 1)
+            val next = state.value.copy(platformCheckPending = pending,
+                platformCheckGeneration = state.value.platformCheckGeneration + if (pending) 1 else 0,
+                revision = state.value.revision + 1)
             saved = saved.copy(state = next)
             mutableState.value = next
         }

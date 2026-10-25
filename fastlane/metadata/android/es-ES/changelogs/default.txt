@@ -1,3 +1,4 @@
 Correo para personas de 13 años en adelante, con las mismas funciones para adolescentes y adultos.
 Eliminados los PIN de supervisión y las aprobaciones de contactos y mensajes.
 Se mantienen los bloqueos, los avisos al proveedor, las conexiones seguras y los destacados de correo sin leer.
+Corregido el guardado de adjuntos después de elegir un destino.

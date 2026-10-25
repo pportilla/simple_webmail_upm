@@ -25,6 +25,7 @@ import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.IndexBudget
 import io.github.pportilla.upmmail.sync.SyncEngine
 import io.github.pportilla.upmmail.sync.mailResult
+import io.github.pportilla.upmmail.sync.toMailException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -407,7 +409,28 @@ class MailRepositoryImpl(
     }
 
     override suspend fun downloadAttachment(attachmentId: Long): Result<File> = mailResult {
-        engine.downloadAttachment(attachmentId)
+        downloadAttachmentAfterPlatformCheck(attachmentId)
+    }
+
+    /** Keep a user's open/share/export request alive across a foreground platform lookup. */
+    private suspend fun downloadAttachmentAfterPlatformCheck(attachmentId: Long): File {
+        while (true) {
+            val checkGeneration = store.safety.state.value.platformCheckGeneration
+            try {
+                // Cached files remain immediately usable; only a read that needs network waits.
+                return engine.downloadAttachment(attachmentId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val error = e.toMailException()
+                val interruptedRead = error.kind == MailErrorKind.NETWORK &&
+                    store.safety.state.value.platformCheckGeneration != checkGeneration
+                if (error.kind != MailErrorKind.ACCESS_CHECK_PENDING && !interruptedRead) throw e
+                // An explicit restriction must fail immediately, even while the lookup still runs.
+                store.safety.state.first { !it.platformCheckPending || !it.mailboxAccessAllowed }
+                store.safety.requireAttachments()
+            }
+        }
     }
 
     // ------------------------------------------------------------------ search

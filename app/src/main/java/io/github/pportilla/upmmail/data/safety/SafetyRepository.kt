@@ -18,6 +18,8 @@ data class SafetyState(
     val platformRestriction: PlatformRestriction = PlatformRestriction.NONE,
     /** A foreground platform request is in flight; never persisted across process death. */
     val platformCheckPending: Boolean = false,
+    /** Identifies a foreground check that interrupted a read; process-only, never persisted. */
+    val platformCheckGeneration: Long = 0,
     /** Legacy queued mail must be held before an old teen profile gains ordinary access. */
     val migrationPending: Boolean = false,
     /** Changes whenever local access or blocked senders change. */

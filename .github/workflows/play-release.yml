@@ -11,7 +11,7 @@ on:
       version_code:
         description: Release version code (must exceed every prior Play upload)
         required: true
-        default: '7'
+        default: '8'
         type: string
       version_name:
         description: Version shown to users

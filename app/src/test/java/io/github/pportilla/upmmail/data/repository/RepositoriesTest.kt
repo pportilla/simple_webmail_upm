@@ -20,6 +20,19 @@ import io.github.pportilla.upmmail.model.ServerSettings
 import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
 import io.github.pportilla.upmmail.sync.SyncEngine
+import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
+import io.github.pportilla.upmmail.data.safety.PlatformRestriction
+import io.github.pportilla.upmmail.mail.ImapTransport
+import io.github.pportilla.upmmail.mail.demo.DemoMailBackend
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeout
+import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertArrayEquals
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
@@ -286,4 +299,111 @@ class RepositoriesTest {
         val fresh = repository.createDraft(account.id, ComposeMode.NEW, null).getOrThrow()
         assertEquals("\n\n-- \nAna Pérez\nETSI Informáticos", fresh.body)
     }
+    private data class AttachmentFixture(
+        val mail: MailRepositoryImpl,
+        val id: Long,
+        val policy: LocalSafetyRepository,
+    )
+
+    /** Real sample MIME/data with the normal repository/cache; a test-only wrapper can interrupt reads. */
+    private suspend fun attachmentFixture(onDownload: (suspend (Int) -> Unit)? = null): AttachmentFixture {
+        val sample = accounts(FakeChecker("never", "never")).addDemoAccount().getOrThrow()
+        val backend = DemoMailBackend(temp.newFolder("attachment-sample"), sample)
+        val attempts = AtomicInteger()
+        val source = backend.imap()
+        if (onDownload != null) store.accounts.update(sample.copy(isDemo = false))
+        val clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety,
+            demoFactory = { backend },
+            imapFactory = { _, _ -> object : ImapTransport by source {
+                override suspend fun downloadPart(folder: String, uid: Long, partPath: String, destination: File) {
+                    onDownload!!(attempts.incrementAndGet())
+                    source.downloadPart(folder, uid, partPath, destination)
+                }
+            } })
+        // Unconfined makes the pre-network policy boundary deterministic in these coroutine tests.
+        engine = SyncEngine(store, clients, files, FileAttachmentOpener, io = Dispatchers.Unconfined)
+        engine.syncAccount(sample.id)
+        val inbox = store.folders.findByRole(sample.id, FolderRole.INBOX)!!
+        val message = store.messages.list(inbox.id, 50, false).single { it.hasAttachments }
+        engine.loadBody(message.id, inlineImages = false)
+        val attachment = store.messages.detail(message.id)!!.attachments.single()
+        assertNull(attachment.localPath)
+        val scheduler = FlushScheduler(inertScope, engine::flushPendingOps)
+        val mail = MailRepositoryImpl(store, engine, scheduler, settings, inertScope, io = Dispatchers.Unconfined)
+        return AttachmentFixture(mail, attachment.id, store.safety as LocalSafetyRepository)
+    }
+
+    private val sampleAttachmentBytes =
+        "SAMPLE FILE / ARCHIVO DE EJEMPLO\nRead, write and learn together. / Leed, escribid y aprended juntos.\n".toByteArray(Charsets.UTF_8)
+
+    @Test fun uncachedAttachmentRequestWaitsForForegroundCheckAndReturnsOriginalBytes() = runBlocking {
+        val fixture = attachmentFixture()
+        fixture.policy.setPlatformCheckPending(true)
+        val download = async(start = CoroutineStart.UNDISPATCHED) { fixture.mail.downloadAttachment(fixture.id) }
+        assertFalse("The export request must wait, not return an error and delete its destination", download.isCompleted)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+        fixture.policy.setPlatformCheckPending(false)
+        val file = withTimeout(3_000) { download.await() }.getOrThrow()
+        assertArrayEquals(sampleAttachmentBytes, file.readBytes())
+    }
+
+    @Test fun explicitRestrictionWhileAttachmentWaitsStillFailsWithoutDownloading() = runBlocking {
+        val fixture = attachmentFixture()
+        fixture.policy.setPlatformCheckPending(true)
+        val download = async(start = CoroutineStart.UNDISPATCHED) { fixture.mail.downloadAttachment(fixture.id) }
+        assertFalse(download.isCompleted)
+        fixture.policy.updatePlatformRestriction(PlatformRestriction.APPROVAL_DECLINED)
+        val error = withTimeout(3_000) { download.await() }.exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.SAFETY_BLOCKED, error.kind)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+    }
+
+    @Test fun cancellingWaitingAttachmentRequestPropagatesAndDoesNotDownloadLater() = runBlocking {
+        val fixture = attachmentFixture()
+        fixture.policy.setPlatformCheckPending(true)
+        val download = async(start = CoroutineStart.UNDISPATCHED) { fixture.mail.downloadAttachment(fixture.id) }
+        assertFalse(download.isCompleted)
+        download.cancelAndJoin()
+        fixture.policy.setPlatformCheckPending(false)
+        assertTrue(download.isCancelled)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+    }
+
+    @Test fun cachedAttachmentDoesNotWaitForAnUnrelatedPlatformCheck() = runBlocking {
+        val fixture = attachmentFixture()
+        val cached = fixture.mail.downloadAttachment(fixture.id).getOrThrow()
+        fixture.policy.setPlatformCheckPending(true)
+        val file = withTimeout(1_000) { fixture.mail.downloadAttachment(fixture.id) }.getOrThrow()
+        assertEquals(cached, file)
+        assertArrayEquals(sampleAttachmentBytes, file.readBytes())
+    }
+
+    @Test fun attachmentReadInterruptedByACompletedPlatformCheckRetriesTheReadOnly() = runBlocking {
+        val policy = store.safety as LocalSafetyRepository
+        var reads = 0
+        val fixture = attachmentFixture { attempt ->
+            reads = attempt
+            if (attempt == 1) {
+                policy.setPlatformCheckPending(true)
+                policy.setPlatformCheckPending(false)
+                throw MailException(MailErrorKind.NETWORK, "Socket closed during foreground lookup")
+            }
+        }
+        val file = fixture.mail.downloadAttachment(fixture.id).getOrThrow()
+        assertEquals(2, reads)
+        assertArrayEquals(sampleAttachmentBytes, file.readBytes())
+    }
+
+    @Test fun ordinaryAttachmentNetworkFailureIsNotHiddenOrRetried() = runBlocking {
+        var reads = 0
+        val fixture = attachmentFixture { attempt ->
+            reads = attempt
+            throw MailException(MailErrorKind.NETWORK, "Ordinary disconnected network")
+        }
+        val error = fixture.mail.downloadAttachment(fixture.id).exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.NETWORK, error.kind)
+        assertEquals(1, reads)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+    }
+
 }
