@@ -1,6 +1,6 @@
 # Google Play release checklist
 
-Updated on **2026-10-25 (Europe/Madrid)** for `io.github.pportilla.upmmail`. Version **3 (1.0.1)** is approved and available in closed Alpha, with policy declarations approved. The dashboard currently reports zero qualifying closed-test opt-ins. Optimized **version 5 (1.0.2)** passed automated and exact-APK sample, guardian and real-TLS checks and is **available to internal testers**. Its closed update was submitted; Console shows **Changes in review**, with automated pre-review checks still running at the last observation. Version 5 is not yet approved for closed distribution. Production requires the qualifying closed test and production-access approval. Exact evidence and limits are in [`RELEASE_STATUS.md`](RELEASE_STATUS.md).
+Updated on **2026-10-25 (Europe/Madrid)** for `io.github.pportilla.upmmail`. Version **6 (1.0.3)** is available to internal testers after signed-artifact validation and 11 focused UI checks for clearer unread-mail styling. Its closed update was submitted; Console reload confirms **Changes in review**, awaiting Google approval. Optimized **version 5 (1.0.2)** remains **approved/live in closed Alpha**. The last recorded dashboard count was zero qualifying closed-test opt-ins; it has not been rechecked for this change. Production requires the qualifying closed test and production-access approval. Exact evidence and limits are in [`RELEASE_STATUS.md`](RELEASE_STATUS.md).
 
 ## Confirmed identity and account setup
 
@@ -18,7 +18,36 @@ Updated on **2026-10-25 (Europe/Madrid)** for `io.github.pportilla.upmmail`. Ver
 
 The app is an unofficial native IMAP/SMTP client for existing UPM accounts, not the University's official app or a website wrapper. Keep the non-affiliation statement visible in both store descriptions. Current sign-in does not use Google OAuth; a Gmail OAuth client is not a publishing prerequisite.
 
-## Version 5 optimization update
+## Version 6 unread-mail visibility update
+
+The shared mailbox/search row gives unread messages a theme-aware background tint and a **4 dp
+leading accent**. Bold text, the unread dot, accessibility states and selection behavior are
+retained; the accent follows layout direction. The source is committed at
+`a4090d492a88b3066215326d008bbdc0f5313373`. Mail processing, guardian controls, service behavior,
+privacy and acceptable-use terms are unchanged.
+
+- [x] Validate the exact signed code-6/1.0.3 AAB and derived APK: **673 tests passed**,
+      lint **0 errors / 41 warnings / 2 hints**, signatures/bundle and 16 KB structural checks
+      passed; all 264 source inputs remained unchanged. Exact hashes are in `RELEASE_STATUS.md`.
+- [x] Complete 11 focused exact-APK checks: upgrade/read-state persistence, light/dark appearance,
+      read/unread transitions and selection, previews disabled, actual sample search and dynamic
+      colors. Only an adult fictional sample on one Android 16 emulator was used; guardian/TLS
+      scenarios, TalkBack and a right-to-left locale were not repeated.
+- [x] Record version-6 reviewer-guide scope; retain the explicitly version-5 service video.
+- [x] Publish the internal update at **12:41:02 Europe/Madrid on 25 October 2026** and verify
+      availability after reload; submit the same artifact to closed Alpha at **12:42:52**.
+- [x] Deploy and HTTP/hash-verify the version-6 reviewer guide at `gh-pages` commit `67a6843`;
+      save and reload the first reviewer instruction identifying version 6, retaining the other four.
+- [ ] Await Google's decision on the version-6 closed update.
+
+The exact version-6 upload independently retains **High** DEX optimization and **98% optimization /
+98% obfuscation / 98% shrinking** in Play Console, with a **2.42 MB** new-install and **235 KB**
+update estimate. Its supported-device count remains **18,029**. The internal release is available
+and Console reload confirms **Changes in review** for the closed full-rollout update. Managed
+publishing is off; Google approval is pending.
+The version-5 runtime results below remain evidence for that exact earlier artifact.
+
+## Version 5 optimization update — approved
 
 The code-5/1.0.2 release enables R8 optimization/obfuscation and resource shrinking,
 using AGP 8.11.2/R8 8.11.26 and narrow mail-provider, MIME-constructor and hostname-alias keep
@@ -44,8 +73,8 @@ behavior. No coroutine optimization exclusion remains. Source changes are commit
       2026 at 11:56:26 Europe/Madrid**.
 - [x] Verify the public version-5 reviewer guide and FGS evidence (HTTP 200 and matching hashes),
       save/reload the declaration and submit the closed update at **11:58:26 Europe/Madrid**.
-- [ ] Await automated pre-review checks and Google review. Console shows **Changes in review**;
-      managed publishing is off, so the accepted rollout is published after approval.
+- [x] Confirm approval and availability in closed Alpha; Console showed the version-5 release
+      live when the version-6 update began.
 
 Embedded `r8.json`, mapping evidence, retained class-name measurements and total DEX byte
 reduction answer different questions. Do not label a local byte reduction or class-name count
@@ -53,15 +82,14 @@ as Play's optimization percentage. Google documents the metadata/fallback rules 
 [Android vitals](https://developer.android.com/google/play/vitals/code-optimization).
 Final code 5 contains **4,404,944 uncompressed DEX bytes**, a **90.6096% reduction** from version 3.
 The exact hashes, R8 8.11.26 metadata and independently observed Play scores are recorded in
-`RELEASE_STATUS.md`. The internal release and public evidence are available; the closed update is
-submitted with automated pre-review checks and review pending.
+`RELEASE_STATUS.md`. The internal release, approved closed release and public evidence are available.
 
 ## Version 3 review access and completed release checks
 
-The exact version-3 AAB is available internally and **approved/live in closed Alpha**, across
-178 countries/regions with three configured tester addresses. Its policy declarations are approved.
-The dashboard reports zero qualifying closed-test opt-ins; configuration alone does not start the
-required test period. This is not production publication.
+The exact version-3 AAB was published internally and approved for closed Alpha across
+178 countries/regions with three configured tester addresses. It has been superseded by version 5.
+Its policy declarations and historical evidence remain recorded. Configuring tester addresses alone
+does not start the required test period. This is not production publication.
 
 The normal setup screen now offers **Try sample mail** / **Probar correo de ejemplo**, labeled
 **Sample · review@example.invalid**. The sample uses the normal repositories, mail engine and
@@ -119,10 +147,10 @@ Once the signing configuration exists:
 
 ```bash
 export UPM_SIGNING_PROPERTIES_FILE=/home/gablo/.config/upm-mail/signing.properties
-python3 scripts/build-release.py --version-code 5 --version-name 1.0.2
+python3 scripts/build-release.py --version-code 6 --version-name 1.0.3
 ```
 
-Version code `5` is the uploaded optimized update. Use a larger code for a new Play upload; preserve the frozen version-5 AAB. The helper runs release lint, release unit tests and the bundle build, checks embedded R8 mapping evidence and DEX size, then verifies the signature and rejects the public debug key. `--unsigned` is a separate validation option; its output is not ready for Play upload. `--check-optimization /absolute/path/app.aab` checks an existing bundle's R8 evidence without rebuilding or verifying signing. The release workflow can also produce an artifact when its signing secrets are configured, but does not publish the app.
+Version code `6` is the uploaded unread-mail visibility update. Before any new upload, use a code greater than every code already uploaded in Play; preserve each frozen uploaded AAB. The helper runs release lint, release unit tests and the bundle build, checks embedded R8 mapping evidence and DEX size, then verifies the signature and rejects the public debug key. `--unsigned` is a separate validation option; its output is not ready for Play upload. `--check-optimization /absolute/path/app.aab` checks an existing bundle's R8 evidence without rebuilding or verifying signing. The release workflow can also produce an artifact when its signing secrets are configured, but does not publish the app.
 
 ## Bundle and compatibility
 
@@ -147,8 +175,8 @@ synchronization makes App interactions required for ordinary real-mail reading; 
 loading is an additional optional path. The selected purpose is App functionality, with
 non-ephemeral collection and no declared sharing under the documented user-initiated/disclosed
 transfer exceptions. The local sample adds no off-device mail collection. This records verified
-field answers, approved with the version-3 release. The optimization update changes build behavior,
-not the app's declared data flows.
+field answers, approved with the version-3 release. The optimization and unread-styling updates do
+not change the app's declared data flows.
 
 - [ ] Confirm the listing title, supported languages, short/full descriptions and release notes. Do not claim guaranteed instant delivery, end-to-end encryption, or encryption of every local file.
 - [ ] Supply a store icon, feature graphic and actual phone screenshots meeting the current Console specifications. Use synthetic mailbox content and hide reviewer credentials. Do not use screenshots of private university correspondence.
@@ -210,7 +238,7 @@ The separate Child Safety Standards declaration currently applies to Social/Dati
 
 ## Foreground service: declaration and evidence
 
-The exact-version-5 [demonstration video and guide](https://pportilla.github.io/simple_webmail_upm/foreground-service/) are public and HTTP/hash verified at `gh-pages` commit `6323e00`. The 109.731-second local TLS fixture demonstrates real IDLE/notification behavior, including opt-in, background arrival and stopping the service. The updated `specialUse` description/video were saved, reloaded and submitted with the version-5 closed update; approval is pending. This does not establish UPM compatibility. Built-in sample arrivals are a separate local simulation and never start this service. The approved [version-3 evidence](https://pportilla.github.io/simple_webmail_upm/foreground-service/v3/) and earlier [version-2 evidence](https://pportilla.github.io/simple_webmail_upm/foreground-service/v2/) are archived separately.
+The exact-version-5 [demonstration video and guide](https://pportilla.github.io/simple_webmail_upm/foreground-service/) are public and HTTP/hash verified at `gh-pages` commit `6323e00`. The 109.731-second local TLS fixture demonstrates real IDLE/notification behavior, including opt-in, background arrival and stopping the service. The updated `specialUse` description/video were saved, reloaded and submitted with the now-approved version-5 closed update. The version-6 styling change leaves the service unchanged; this remains an explicitly **version-5** recording, not a repeat version-6 service test. It does not establish UPM compatibility. Built-in sample arrivals are a separate local simulation and never start this service. The approved [version-3 evidence](https://pportilla.github.io/simple_webmail_upm/foreground-service/v3/) and earlier [version-2 evidence](https://pportilla.github.io/simple_webmail_upm/foreground-service/v2/) are archived separately.
 
 The manifest declares `FOREGROUND_SERVICE_SPECIAL_USE`, `PushService` uses `specialUse`, and its subtype describes an IMAP IDLE connection for incoming mail. Push is **off by default**, available only to the adult profile, and starts only after the user selects **Instantly (push)** with a real mailbox configured. Sample accounts are excluded. A foreground notification reports generic connection status without account identifiers. Users can stop push by changing **Settings > Notifications > Check for new mail** from **Instantly (push)** to a periodic/manual mode, or by removing all real accounts. Switching to a supervised profile also stops the service and its live connections; guardian unlock does not enable it. Exact-release opt-in and manual stopping were demonstrated; broader restart/device coverage remains separate.
 
@@ -224,7 +252,7 @@ Google reviews `specialUse` explanations and requires a valid use case, user ben
 
 > Deferring or interrupting the IDLE connection delays notification of incoming mail until a reconnection, a scheduled check or the next foreground refresh. The user can choose those less frequent checking modes, but they do not provide the same notification timing as an active IDLE connection. The connection remains active while push is enabled and real accounts exist; it pauses network work offline and reconnects when connectivity returns.
 
-**Saved type rationale:** the optional listener waits for future IMAP changes of unknown timing; it is not a finite transfer or device-to-device messaging-continuity service. Scheduled polling remains an alternative with different timing. The app implements direct IMAP without FCM. The updated explanation and version-5 public video are submitted for the current update; future implementation changes must still match the declaration.
+**Saved type rationale:** the optional listener waits for future IMAP changes of unknown timing; it is not a finite transfer or device-to-device messaging-continuity service. Scheduled polling remains an alternative with different timing. The app implements direct IMAP without FCM. The explanation and version-5 public video accompanied the approved version-5 update and remain applicable to the unchanged service; future implementation changes must still match the declaration.
 
 - [x] Review the final manifest subtype against the verified local TLS listener behavior; the submitted explanation and exact video are recorded in `release-output/optimized-release-5/foreground-service-console.txt` and `foreground-service-saved.txt`.
 - [x] Verify the ongoing notification explains the active connection and how to stop it in the exact-release video.
@@ -246,7 +274,7 @@ The release no longer declares `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` or launche
 ## Testing, review and launch
 
 1. Completed validation is recorded in `RELEASE_STATUS.md`: 673 automated tests, 15 exact-version-5 sample/guardian checks and nine local TLS checks, including the foreground-service demonstration. Live UPM login and external-provider delivery remain unverified. Broader device, locale and power-condition checks above are additional coverage, not incomplete Console declarations.
-2. Version 3 (1.0.1) is approved/live in closed Alpha. The optimized version-5 replacement passed automated and emulator checks and is available internally. Its closed update was submitted; Console shows Changes in review while automated pre-review checks complete. Preserve the earlier release evidence.
+2. Version 5 (1.0.2) remains approved/live in closed Alpha. Version 6 passed signed-artifact validation and 11 focused UI checks and is available internally; Console reload confirms Changes in review for its closed full-rollout update, with Google approval pending. Preserve the earlier release evidence.
 3. Eligible testers can join the live [closed test](https://play.google.com/apps/testing/io.github.pportilla.upmmail). Existing internal participants must first leave the internal test, then opt into the closed test. Address any later review or pre-launch findings on the optimized update. [Google's track-switching guidance](https://support.google.com/googleplay/android-developer/answer/9845334?hl=en-en)
 4. Production access remains locked until at least **12 genuine testers have opted into the closed test continuously for 14 days**. Gather feedback and apply for production access afterward. Three configured addresses and internal participation do not satisfy this requirement. [Testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465)
 5. Preserve the uploaded AAB, version, signing fingerprint, recorded declarations, evidence and actual track state. The private owner handoff contains those records. Production is not published; successful submission does not establish Google approval.

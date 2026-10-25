@@ -2,16 +2,62 @@
 
 Updated **25 October 2026 (Europe/Madrid)** for **zango**. Support/privacy: **p.portilla89@gmail.com**.
 
-**Version 3 (1.0.1) is approved and available in the closed Alpha test**, with its policy
-declarations approved. The Console dashboard currently reports **zero qualifying closed-test
-opt-ins**. Version **5 (1.0.2)** has passed automated build/artifact validation and the exact-APK
-sample, guardian and real-TLS runtime checks and is **available to internal testers**. Its closed
-update was submitted: Console shows **Changes in review**, with automated pre-review checks
-still running at the last observation. It is not approved. Production is not published and requires
-the qualifying closed test and production-access approval.
+**Version 6 (1.0.3) is available to internal testers**, after signed-artifact validation and 11
+focused UI checks for a clearer distinction between read and unread mail. The closed update was
+submitted; Console reload confirms **Changes in review**, awaiting Google approval. Version **5 (1.0.2)** remains the approved release in closed
+Alpha; its completed artifact, optimization and runtime evidence is retained below. The last recorded Console dashboard
+count was **zero qualifying closed-test opt-ins**; this is not a new enrollment check. Production
+is not published and requires the qualifying closed test and production-access approval.
 See [the release checklist](PLAY_STORE_RELEASE.md).
 
-## Version 5 optimized release
+## Version 6 unread-mail visibility update
+
+Unread messages now have a theme-aware tinted row background and a **4 dp accent at the logical
+start edge** in the shared mailbox and search-result row. The existing bold sender/subject,
+unread dot and accessibility state remain. Selection keeps its own background while retaining
+the unread accent, and the accent follows right-to-left layout direction. Read messages retain
+the normal surface background. This changes presentation, with no mail, guardian, service or
+data-handling behavior change.
+
+The source is committed at `a4090d492a88b3066215326d008bbdc0f5313373`. The exact signed bundle
+passed **673 release tests** with zero failures/errors/skips, lint with **zero errors, 41 warnings
+and 2 hints**, bundle/signature validation and 16 KB ELF/ZIP structural checks. All **264** frozen
+source inputs remained unchanged; their tree SHA-256 is
+`a367d52bf67e1b02785f2328102667245298e2e406eb2aa01d2e9c36d0c5beb4`.
+The package remains `io.github.pportilla.upmmail`, minimum API 26 and target/compile API 36;
+the release is non-debuggable, backup is disabled and both languages are retained.
+
+| Frozen version-6 artifact | SHA-256 |
+| --- | --- |
+| `release-output/unread-release-6/upm-mail-1.0.3-v6.aab` | `c5d9e16340c61859eca4e441630ce97f6db68813297973d9f7e9136e525383c2` |
+| `release-output/unread-release-6/universal.apk`, generated from that exact AAB | `ccefd630c1eb8ec50ca9f70fa615881e1b1a5dd01bc16c39e4deb59ad7deabb2` |
+
+Validation is recorded in `release-output/unread-release-6/validation.json`. Embedded R8
+**8.11.26** still enables optimization, obfuscation and shrinking; uncompressed DEX is **4,405,176
+bytes**. These local artifact observations are separate from the Console scores below.
+
+Google Play independently reports **High** DEX optimization for version 6: **98% optimization,
+98% obfuscation and 98% shrinking**, a **2.42 MB** new-install estimate and **235 KB** update.
+All **18,029** supported devices are retained. These values were observed at **12:39 Europe/Madrid
+on 25 October 2026**, with evidence in `release-output/unread-release-6/play-optimization.json`
+and `play-bundle-details.txt`. The internal release was published at **12:41:02 Europe/Madrid**
+and its availability was verified after reload. The full-rollout closed update was submitted at
+**12:42:52 Europe/Madrid on 25 October 2026**. Console reload confirms **Changes in review**,
+with managed publishing off; Google approval remains pending. Evidence is in
+`release-output/unread-release-6/publishing-after-submission.txt` and its screenshot.
+
+The exact derived APK passed **11 focused visual/interaction checks** on Android 16/API 36:
+upgrade preserved the sample account and read state; light/dark read-versus-unread appearance,
+mixed selection, marking unread and opening to mark read, previews disabled, actual sample
+search results with separate query highlighting, and dynamic colors in light/dark modes.
+No fatal, verifier or missing-class app exception appeared. Evidence, screenshot hashes and scope
+are in `release-output/unread-runtime-6/qa-summary.json`; this used one emulator and the fictional
+adult sample through normal UI, without database injection. Dynamic colors used the current
+wallpaper palette. TalkBack and a right-to-left locale were not exercised; semantics and logical
+start positioning were reviewed in source. Mail/guardian/TLS regression scenarios were not
+repeated for this visual change; the version-5 runtime evidence below remains historical.
+
+## Version 5 optimized release — approved
 
 Release builds now enable R8 code optimization/obfuscation and resource shrinking. The mail
 rules retain only required provider interfaces, reflective constructors, MIME handlers and
@@ -35,7 +81,7 @@ this checks optimization evidence only, without rebuilding or claiming a Play sc
 | Signatures / packaging | Bundletool, AAB signature and release/exact-universal APK signature checks passed. Non-debuggable, backup disabled and both languages retained. |
 | 16 KB structure | `PAGE_ALIGNMENT_16K`, four native ABI libraries with 16,384-byte ELF load alignment, and release/universal APK ZIP alignment passed. No 16 KB runtime-device test is claimed. |
 | Runtime | The exact derived APK completed retained sample and real-TLS queued messages after upgrade. Independent IMAP inspection verified the real message's UTF-8 body and both attachments byte-for-byte. Fresh TLS MIME forwarding passed; a same-CA certificate with the wrong hostname was rejected. All nine local TLS/foreground-service checks and the fresh sample/guardian walkthrough passed. Sample arrival notifications were not retested in version 5. |
-| Play delivery and DEX metrics | **Version 5 is available to internal testers**; the closed update was submitted and Console shows **Changes in review**, with automated pre-review checks still running at the last observation. Google Play reports **High** DEX optimization: **98% optimization, 98% obfuscation and 98% shrinking**. Release preview has zero errors and only the prebuilt native-debug-symbol advisory. |
+| Play delivery and DEX metrics | **Version 5 was available to internal testers and approved/live in closed Alpha** at the start of the version-6 update. Version 6 now supersedes it internally; version 5 remains the approved closed release. Google Play reports **High** DEX optimization: **98% optimization, 98% obfuscation and 98% shrinking**. Its release preview had zero errors and only the prebuilt native-debug-symbol advisory. |
 
 | Frozen version-5 artifact | SHA-256 |
 | --- | --- |
@@ -88,7 +134,7 @@ the app UID log.
 
 Version 4 and the intermediate version-5 build are rejected candidates, preserved separately.
 Device tests found a renamed hostname-verifier alias and an invalid optimized coroutine
-register assignment. Neither candidate is a validated replacement for the available version 3.
+register assignment. Neither candidate was published; the final version-5 artifact above is the validated replacement.
 Their size reductions and R8 metadata must not be presented as final release validation.
 
 ## Version 3 source and artifact identity
@@ -192,14 +238,20 @@ built-in sample. Real UPM login and external-provider delivery remain unverified
 
 | Area | Last confirmed state |
 | --- | --- |
-| Internal track | **Version 5 (1.0.2) active/latest and available to internal testers**, published at **11:56:26 Europe/Madrid on 25 October 2026**. Three tester addresses are selected. [Internal opt-in](https://play.google.com/apps/internaltest/4701581542823930298) requires an eligible tester account. |
-| Closed track | **Alpha version 3 remains the approved available release** across 178 countries/regions with three configured tester addresses. The **version-5 full-rollout update was submitted at 11:58:26 Europe/Madrid on 25 October**; Console reload shows **Changes in review**. Automated pre-review checks were still running and must pass before automatic routing to review. Managed publishing is off; approval is not yet confirmed. The dashboard last reported **zero qualifying opt-ins**; configured addresses are not enrollment. |
+| Internal track | **Version 6 (1.0.3) is available to internal testers**, published at **12:41:02 Europe/Madrid on 25 October 2026** and verified after reload. Three tester addresses remain selected. [Internal opt-in](https://play.google.com/apps/internaltest/4701581542823930298) requires an eligible tester account. |
+| Closed track | **Alpha version 5 (1.0.2) remains approved and available**. The **version-6 full-rollout update was submitted at 12:42:52 Europe/Madrid on 25 October 2026** and Console reload confirms **Changes in review**. Managed publishing is off; approval is pending. The configured scope remains 178 countries/regions with three tester addresses. The dashboard last reported **zero qualifying opt-ins**; configured addresses are not enrollment. |
 | Production | Not published; the verified personal account requires **12 closed testers continuously opted in for 14 days**, followed by a production-access application. |
-| App access | Restricted-access answer **Yes** and five instruction entries saved/reloaded, using the tested public sample route and reviewer-created guardian PIN. The first entry now identifies version 5 (1.0.2); the other four are retained. The public guide is deployed and verified. The owner declined external reviewer credentials; none were provisioned. |
+| App access | Restricted-access answer **Yes** and five instruction entries saved/reloaded, using the tested public sample route and reviewer-created guardian PIN. The first entry now identifies version 6 (1.0.3), saved and verified after reload; the other four are retained. The public guide is deployed and verified. The owner declined external reviewer credentials; none were provisioned. |
 | Audience/Families | All six age bands, including **5 and under**, are saved; the version-3 release and declarations are approved. Required owner-authorized declarations are recorded privately. Local DOB/PIN controls are not independent legal-consent verification. |
 | Data safety | Approved with version 3. All **13** type dialogs were rechecked: **4 required / 9 optional**, App functionality, non-ephemeral. Required types are Email address, User IDs, Emails and App interactions; automatic read-state sync makes the last required. No sharing is declared under documented transfer exceptions; encrypted transit, existing external accounts, no app-account creation and no deletion-request mechanism remain declared. |
-| Store/policies | Category Communication, developer/support details, existing assets and revised v3 EN/ES descriptions are saved. Privacy/terms remain public. The version-5 reviewer guide and FGS guide/video are deployed and HTTP/hash verified, with version-3 FGS evidence archived separately. |
-| Foreground service | Version-3 `specialUse` declaration was approved. The version-5 description and public exact-release video were saved/reloaded and submitted with the closed update. New approval is pending. Built-in sample arrivals are not real IMAP IDLE evidence. |
+| Store/policies | Category Communication, developer/support details, existing assets and revised v3 EN/ES descriptions are saved. Privacy/terms remain public. The version-6 reviewer guide is deployed and HTTP/hash verified. FGS guide/video remain explicitly version-5 evidence, with version-3 FGS evidence archived separately. |
+| Foreground service | The saved `specialUse` description and public exact-release video identify **version 5**, whose closed update is now approved. The version-6 change does not modify the service; the retained video remains version-5 evidence. Built-in sample arrivals are not real IMAP IDLE evidence. |
+
+The version-6 reviewer guide was deployed at `gh-pages` commit
+`67a6843fae391c09a2b05b4c0abba074055726a6` and verified at **12:41:48 Europe/Madrid on 25 October
+2026**: HTTP 200 and SHA-256 `749cb2eb14923aec6a4c6b64884971e0b3b5d83b6521f3b89f0c7c1eb8cd9b88`
+matched the local guide. It distinguishes version-6 visual checks from the historical version-5
+mail/guardian walkthrough and service video. Privacy and acceptable-use terms were unchanged.
 
 Version-5 public evidence was deployed at `gh-pages` commit `6323e00` and verified at
 **11:57 Europe/Madrid on 25 October 2026**. All five checked URLs returned HTTP 200 with matching
@@ -226,8 +278,8 @@ The existing IARC Communication questionnaire declares blocking/reporting and do
 whole app is restricted to invited friends. Ratings are ESRB Everyone, PEGI Parental guidance,
 Brazil/Germany all ages, and IARC Generic/Russia/South Korea 12+. Ratings do not establish target
 audience or independent legal-consent verification. The version-3 release and policy declarations
-have since been approved. Version 5 is available internally; its closed update is submitted with
-automated checks/review pending, not approved.
+have since been approved. Version 5 remains approved/live in closed Alpha while version 6 is
+available internally and its closed update awaits approval.
 
 Eligible testers can now use the
 [closed-test opt-in](https://play.google.com/apps/testing/io.github.pportilla.upmmail). Anyone enrolled internally must first
@@ -267,8 +319,8 @@ Keep owner kits private because Console records may include tester addresses. Do
 
 ## Remaining work
 
-1. Monitor the submitted version-5 update through automated checks and Google review; address
-   any specific findings. Internal publication, public evidence and automated/runtime validation are complete.
+1. Monitor the submitted version-6 closed update and address any specific Google findings.
+   Its internal release is available; preserve the version-5 validation and service evidence separately.
 2. Recruit and maintain at least 12 closed-test participants for 14 continuous days, gather
    feedback and apply for production access. Internal participation and three configured addresses
    do not fulfill this gate; existing internal testers must switch tracks as described above.
