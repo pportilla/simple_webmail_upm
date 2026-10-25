@@ -3,10 +3,10 @@
   "android_api": 36,
   "foreground_service_type": "specialUse",
   "version_name": "1.1.0",
-  "version_code": 7,
-  "aab_sha256": "feaccc8004771ecac57c66b1a684e617b1e2bdb040e183726060f272b9cadf72",
-  "installed_universal_apk_sha256": "40ba30ec869b1b5d84e8ba2550793e3ecf39186b87d3a1d583f3ebd45efea4af",
-  "source_input_tree_sha256": "68473e73ec3db4bad5e688b68e331ac4c16168cce257931d43ec13311c32d9e4",
+  "version_code": 8,
+  "aab_sha256": "6c6acc9e4a1ee84e1ad977858ab0da68a0cd91f24b6e35ba0585ae0bf3456892",
+  "installed_universal_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
+  "source_input_tree_sha256": "9b6dd769fe354a02a71cd7fc36789bced09adf845a6b88570926ec0f203363ab",
   "fixture": "Disposable loopback-only GreenMail IMAP/SMTP behind verified TLS; synthetic mailbox demo@example.invalid. Emulator-only localhost port mappings and temporary emulator system CA.",
   "app_changes_for_demo": "None. Exact signed universal APK from final AAB; production TLS, authentication and eligibility checks unchanged.",
   "scope_limits": [
@@ -16,65 +16,63 @@
     "All mailbox credentials and test private keys disposable and excluded from public evidence."
   ],
   "built_in_sample_account_used": false,
-  "upgrade_path": "Existing version5 adult synthetic TLS-mail profile upgraded to final version7 general13+ client.",
-  "time_utc": "2026-10-25T12:43:18.898227+00:00",
-  "video_sha256": "a6b0c91570e7db57d021d17529d2fcc0e258e0c5bfee192af199df511e12e8cc",
-  "video_bytes": 3516591,
-  "duration_seconds": 109.905333,
+  "upgrade_path": "Fresh app data on API36 synthetic QA emulator; final version8 general13+ client and explicit authorized local TLS account configuration.",
+  "time_utc": "2026-10-25T13:14:05.636972+00:00",
+  "source_commit": "02b67de977ed3dd8156a8cac9d38bbe40ef5a65e",
+  "emulator": "API36 Google APIs x86_64, headless KVM; SwiftShader renderer with Vulkan disabled",
+  "video_sha256": "513ec46214e806d45a02bcb93642962a2d449b40d0e4a7451a0517f35a9bc66b",
+  "video_bytes": 3357006,
+  "duration_seconds": 98.998256,
   "recording": "One continuous screen recording of the exact release APK; English captions and padding added outside the captured app screen. No setup or credential entry recorded.",
   "validation": {
     "authenticated_tls_login": true,
     "tls_version": "TLSv1.3",
     "foreground_type_hex": "0x40000000",
     "new_mail_arrived_while_backgrounded": true,
-    "arrival_seconds_after_injection": 2.21,
+    "arrival_seconds_after_injection": 2.19,
     "service_absent_after_manual_selection": true,
     "ongoing_notification_absent_after_manual_selection": true
   },
   "timeline": [
     {
       "seconds": 0.0,
-      "event": "Exact release 1.1.0 (code 7). Local synthetic TLS mailbox; no UPM connection."
+      "event": "Exact release 1.1.0 (code 8). Local synthetic TLS mailbox; no UPM connection."
     },
     {
-      "seconds": 9.37,
+      "seconds": 9.14,
       "event": "Open Settings and choose Check for new mail."
     },
     {
-      "seconds": 27.09,
+      "seconds": 25.69,
       "event": "User selects Instantly (push)."
     },
     {
-      "seconds": 31.48,
+      "seconds": 29.81,
       "event": "The app is now in the background; IMAP IDLE stays connected."
     },
     {
-      "seconds": 44.55,
+      "seconds": 42.86,
       "event": "Ongoing notification shows the active mail connection."
     },
     {
-      "seconds": 50.69,
+      "seconds": 48.98,
       "event": "Inject one synthetic message through authenticated TLS SMTP."
     },
     {
-      "seconds": 52.9,
+      "seconds": 51.17,
       "event": "Real new-mail notification arrived while app remained in background."
     },
     {
-      "seconds": 64.19,
+      "seconds": 62.28,
       "event": "Open the notification to read the delivered message."
     },
     {
-      "seconds": 78.53,
+      "seconds": 75.87,
       "event": "Return to Settings to stop instant mail."
     },
     {
-      "seconds": 98.21,
+      "seconds": 94.64,
       "event": "Manual checking selected. Foreground service and ongoing notification stopped."
-    },
-    {
-      "seconds": 108.29,
-      "event": "Verified no active PushService and no ongoing mail notification."
     }
   ]
 }

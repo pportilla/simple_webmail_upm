@@ -1,0 +1,80 @@
+{
+  "package": "io.github.pportilla.upmmail",
+  "android_api": 36,
+  "foreground_service_type": "specialUse",
+  "version_name": "1.1.0",
+  "version_code": 7,
+  "aab_sha256": "feaccc8004771ecac57c66b1a684e617b1e2bdb040e183726060f272b9cadf72",
+  "installed_universal_apk_sha256": "40ba30ec869b1b5d84e8ba2550793e3ecf39186b87d3a1d583f3ebd45efea4af",
+  "source_input_tree_sha256": "68473e73ec3db4bad5e688b68e331ac4c16168cce257931d43ec13311c32d9e4",
+  "fixture": "Disposable loopback-only GreenMail IMAP/SMTP behind verified TLS; synthetic mailbox demo@example.invalid. Emulator-only localhost port mappings and temporary emulator system CA.",
+  "app_changes_for_demo": "None. Exact signed universal APK from final AAB; production TLS, authentication and eligibility checks unchanged.",
+  "scope_limits": [
+    "No UPM sign-in or external-provider delivery tested.",
+    "Rootable Google APIs emulator lacks Play Store; real Play age-account decisions not exercised.",
+    "No Google policy approval or general device compatibility implied.",
+    "All mailbox credentials and test private keys disposable and excluded from public evidence."
+  ],
+  "built_in_sample_account_used": false,
+  "upgrade_path": "Existing version5 adult synthetic TLS-mail profile upgraded to final version7 general13+ client.",
+  "time_utc": "2026-10-25T12:43:18.898227+00:00",
+  "video_sha256": "a6b0c91570e7db57d021d17529d2fcc0e258e0c5bfee192af199df511e12e8cc",
+  "video_bytes": 3516591,
+  "duration_seconds": 109.905333,
+  "recording": "One continuous screen recording of the exact release APK; English captions and padding added outside the captured app screen. No setup or credential entry recorded.",
+  "validation": {
+    "authenticated_tls_login": true,
+    "tls_version": "TLSv1.3",
+    "foreground_type_hex": "0x40000000",
+    "new_mail_arrived_while_backgrounded": true,
+    "arrival_seconds_after_injection": 2.21,
+    "service_absent_after_manual_selection": true,
+    "ongoing_notification_absent_after_manual_selection": true
+  },
+  "timeline": [
+    {
+      "seconds": 0.0,
+      "event": "Exact release 1.1.0 (code 7). Local synthetic TLS mailbox; no UPM connection."
+    },
+    {
+      "seconds": 9.37,
+      "event": "Open Settings and choose Check for new mail."
+    },
+    {
+      "seconds": 27.09,
+      "event": "User selects Instantly (push)."
+    },
+    {
+      "seconds": 31.48,
+      "event": "The app is now in the background; IMAP IDLE stays connected."
+    },
+    {
+      "seconds": 44.55,
+      "event": "Ongoing notification shows the active mail connection."
+    },
+    {
+      "seconds": 50.69,
+      "event": "Inject one synthetic message through authenticated TLS SMTP."
+    },
+    {
+      "seconds": 52.9,
+      "event": "Real new-mail notification arrived while app remained in background."
+    },
+    {
+      "seconds": 64.19,
+      "event": "Open the notification to read the delivered message."
+    },
+    {
+      "seconds": 78.53,
+      "event": "Return to Settings to stop instant mail."
+    },
+    {
+      "seconds": 98.21,
+      "event": "Manual checking selected. Foreground service and ongoing notification stopped."
+    },
+    {
+      "seconds": 108.29,
+      "event": "Verified no active PushService and no ongoing mail notification."
+    }
+  ]
+}
