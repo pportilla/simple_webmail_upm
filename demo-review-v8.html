@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How to review UPM Mail with its public offline sample mailbox for general users aged 13 and over.">
+  <title>UPM Mail — interactive demo and reviewer guide</title>
+  <style>
+    :root { color-scheme: light dark; font: 17px/1.65 system-ui, sans-serif; }
+    body { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { font-size: 2rem; } h2 { margin-top: 2rem; }
+    a { color: #1767b5; } code { overflow-wrap: anywhere; }
+    .notice { padding: 16px 20px; border: 2px solid #a77c16; border-radius: 12px; }
+    .meta { color: #646b77; } li { margin: .65em 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; vertical-align: top; padding: 12px; border: 1px solid #aab1bb; }
+    @media (prefers-color-scheme: dark) { a { color: #a8caff; } .meta { color: #b7bec9; } }
+  </style>
+</head>
+<body>
+  <p class="meta">For version 1.1.0 (code 8), prepared 25 October 2026. For versions 1.0.x (up to code 6), see the <a href="demo-review-v6.html">previous document</a>.</p>
+  <nav aria-label="Related documents"><a href="privacy.html">Privacy policy</a> · <a href="acceptable-use.html">Acceptable-use rules</a></nav>
+  <h1>UPM Mail: interactive demo and reviewer guide</h1>
+  <p class="meta">Developer: zango · Package: <code>io.github.pportilla.upmmail</code> · Version 1.1.0 (code 8) · 25 October 2026</p>
+  <p class="notice">UPM Mail is a general email client for people aged 13 and over. This version removes the previous family interface, date-of-birth form, guardian PIN, contact approvals and per-message approvals. Eligible teenagers and adults use the same complete mailbox. Google Play checks may apply where the platform requires verification or approval.</p>
+
+  <h2>Open the sample mailbox without credentials</h2>
+  <p>Normal use connects to the user's own authorized UPM or compatible TLS IMAP/SMTP account. The app is independent and unofficial; it does not create university accounts. The public sample mailbox provides an interactive review route without mailbox credentials, one-time codes or contacting support.</p>
+  <ol>
+    <li>On the welcome screen, read the eligibility and acceptable-use notice, check the acknowledgment and select <strong>Continue</strong>. There is no birth-date entry or app PIN. If Google Play presents its age-sharing choice, optional sharing can be declined; an explicit existing Play restriction cannot be cleared by declining.</li>
+    <li>On account setup, select <strong>Try sample mail</strong> (<strong>Probar correo de ejemplo</strong> in Spanish). Leave real mailbox fields empty.</li>
+    <li>The account is labeled <strong>Sample · review@example.invalid</strong>. Read its notice and use fictional content. Sending, replies and provider reports for this account are local simulations; nothing reaches a real recipient or provider.</li>
+  </ol>
+
+  <h2>Try ordinary email features</h2>
+  <ul>
+    <li>Compare read and unread messages. Unread rows have a tinted background, leading accent, bold text and dot. Open a message and return to see the read appearance. Search results use the same styling.</li>
+    <li>Read, star, archive or move messages, delete and undo. Explore Drafts, Archive and Projects, conversation view and search. The fictional attachment is <code>sample-notes.txt</code>.</li>
+    <li>Compose or reply to <code>tutor@example.invalid</code> or <code>alex@example.invalid</code> and choose <strong>Simulate send</strong>. The sample backend creates a local Sent copy and fictional reply.</li>
+    <li>To try failed-outbox recovery, send a new fictional message to <code>fail-once@example.invalid</code>. It fails once, then retry succeeds locally. Use a new subject or body when repeating this exercise.</li>
+    <li>Open Settings to change theme, language, preview and notification preferences, manage accounts and read the offline privacy policy. English and Spanish are included.</li>
+  </ul>
+
+  <h2>Blocking and provider reports</h2>
+  <p>The message menu offers sender blocking and reporting. Settings also contains <strong>Blocked senders</strong> and <strong>Report to provider</strong>. These are ordinary user controls; there is no parent or guardian session.</p>
+  <ol>
+    <li>Block a fictional sender and confirm the notice. Its messages are hidden locally, and the app prevents sending to the blocked address. This does not alter the provider's server-side rules. Unblock it in Settings to restore access.</li>
+    <li>For a report, choose the sending account, type a provider destination and write the concern. Preview the recipient and exact text before explicitly sending. Original messages and attachments are never copied into the report automatically.</li>
+    <li>With the sample account selected, use a fictional destination such as <code>abuse@example.invalid</code>. The report is simulated locally and does not reach a provider.</li>
+  </ol>
+
+  <h2>Local arrivals and notifications</h2>
+  <ol>
+    <li>Enable New mail notifications in Settings and Android, select <strong>Instantly (push)</strong> for mail checking, and enable the sample account's notifications.</li>
+    <li>In the sample account settings, select <strong>Receive sample mail in 5 seconds</strong>. Return to the inbox or Android Home while the process remains running. The sample backend creates fictional mail after a local delay; normal Android notification restrictions apply.</li>
+    <li>With <strong>Only when I open the app</strong> selected, refresh after the delay. If Android ended the process during the delay, reopen the app and request another arrival.</li>
+  </ol>
+  <p>Sample mail opens no mail-server connection and does not start the persistent foreground service. Other connected real accounts retain their normal network activity. Real instant delivery requires an authorized connected mailbox; the public sample is not a UPM authentication test.</p>
+
+  <h2>Real-mail foreground service</h2>
+  <p>The <a href="foreground-service/">version 1.1.0 (code 8) recording and artifact identity</a> show a user enabling instant checking, its ongoing notification, a background IMAP arrival, opening the delivered message, and stopping the service. The unchanged signed release used a disposable, local TLS mailbox with fictional mail. The <a href="foreground-service/upm-mail-v8-foreground-service-demo.mp4">continuous video</a> contains no mailbox setup or credentials.</p>
+  <p>Separate exact-release checks verified TLS mail and attachment integrity, safe retry after a foreground interruption, foreground refresh and rejection of a wrong-hostname certificate. This does not establish UPM sign-in, external-provider delivery or real Google Play regional age decisions. Test credentials and temporary emulator trust were removed after recording.</p>
+
+  <h2>Updates from earlier versions</h2>
+  <p>Existing eligible profiles receive the short updated acknowledgment. Earlier teen profiles gain the normal interface, with accounts, drafts and blocked senders preserved. Old queued supervised messages are held for deliberate review and retry; an interrupted send is marked as potentially already delivered. Obsolete PIN and message-approval data is removed. A previously declared under-13 profile remains unsupported and is not silently relabeled as older.</p>
+  <p>If Google Play explicitly requires age verification or approval of an app change, the app shows a short notice with access to Play and a retry action. There is no separate app identity-verification or parental-control system. A temporary API error does not remove a restriction already received from Play.</p>
+
+  <h2>Scope and reset</h2>
+  <ul>
+    <li>Sample actions are local. Explicit browser, export, sharing and printing actions retain their normal behavior; review destinations and use fictional content.</li>
+    <li>For the sample account, results labeled <strong>From server</strong> come from the local simulation. A sample account has no mailbox on a UPM server.</li>
+    <li>Remove the sample account in Settings to delete its local mailbox data. Adding it again recreates the samples without removing other accounts. Clear app storage only on an isolated test installation if a complete reset is needed; this deletes local accounts, drafts and queued mail.</li>
+    <li>The demo does not establish external-provider delivery or Google approval. The separate foreground-service recording identifies the actual build and synthetic TLS fixture used.</li>
+  </ul>
+  <p>Support: <a href="mailto:p.portilla89@gmail.com">p.portilla89@gmail.com</a>. Contacting support is not an access step.</p>
+  <p class="meta">See Google's <a href="https://support.google.com/googleplay/android-developer/answer/15748846">review-access requirements</a>. These instructions describe the implemented sample route.</p>
+</body>
+</html>
