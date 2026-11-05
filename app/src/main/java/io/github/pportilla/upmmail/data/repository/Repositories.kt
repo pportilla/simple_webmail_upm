@@ -107,7 +107,7 @@ interface MailRepository {
     /** Pushes pending local changes, then fetches new mail and flag changes for one folder. */
     suspend fun refreshFolder(folderId: Long): Result<Unit>
 
-    /** Refreshes the folder list, sends the outbox and refreshes the INBOX of the account. */
+    /** Refreshes the folder list and INBOX. Outbox delivery is scheduled separately. */
     suspend fun refreshAccount(accountId: Long): Result<Unit>
 
     /**

@@ -60,6 +60,7 @@
     <string name="settings_sync_interval">Buscar correo nuevo</string>
     <string name="settings_sync_push">Al instante (push)</string>
     <string name="settings_sync_manual">Solo al abrir la app</string>
+    <string name="settings_sync_timing_hint">Los intervalos son aproximados. Android puede retrasar las comprobaciones en segundo plano para ahorrar batería. Elige push al instante para recibir avisos antes.</string>
     <plurals name="settings_sync_every_minutes">
         <item quantity="one">Cada minuto</item>
         <item quantity="many">Cada %1$d minutos</item>

@@ -461,11 +461,19 @@ private fun LazyListScope.notificationsSection(
             ChoicePreference(
                 title = stringResource(R.string.settings_sync_interval),
                 icon = if (mailCheck == MailCheck.Push) Icons.Outlined.Bolt else Icons.Outlined.Schedule,
-                options = SettingsOptions.withCurrent(SettingsOptions.mailChecks, mailCheck),
+                options = SettingsOptions.mailChecks,
                 selected = mailCheck,
                 optionLabel = { check -> mailCheckLabel(check) },
                 onSelect = viewModel::setMailCheck,
             )
+            if (mailCheck is MailCheck.Every && mailCheck.minutes > 0) {
+                Text(
+                    stringResource(R.string.settings_sync_timing_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             // Without the exemption, Doze can hold push back for long stretches.
             if (settings.pushEnabled && !demoOnly && !backgroundAllowed) {
                 ClickablePreference(

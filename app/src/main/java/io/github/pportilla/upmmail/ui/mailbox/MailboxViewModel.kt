@@ -19,9 +19,12 @@ import io.github.pportilla.upmmail.model.SwipeAction
 import io.github.pportilla.upmmail.ui.navigation.ComposeArgs
 import io.github.pportilla.upmmail.ui.navigation.DeepLinks
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -157,6 +160,8 @@ class MailboxViewModel(private val container: AppContainer) : ViewModel() {
     private val paging = MutableStateFlow(PagingState())
     private val snapshot = MutableStateFlow<ListSnapshot?>(null)
     private val setupRequested = HashSet<Long>()
+    private var refreshJob: Job? = null
+    private var refreshingFolderId: Long? = null
 
     private val accounts: StateFlow<List<Account>?> = container.accountRepository.accounts
         .catch { error ->
@@ -280,6 +285,12 @@ class MailboxViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private suspend fun observeFolder(folderId: Long?) {
+        if (refreshingFolderId != folderId) {
+            refreshJob?.cancel()
+            refreshJob = null
+            refreshingFolderId = null
+            local.update { it.copy(refreshing = false) }
+        }
         paging.value = PagingState(folderId = folderId)
         snapshot.value = null
         // Selection and dialogs belong to the previous folder (it may change under them, e.g. when a
@@ -365,23 +376,38 @@ class MailboxViewModel(private val container: AppContainer) : ViewModel() {
         settingsRepository.update { it.copy(lastAccountId = account.id, lastFolderId = -1) }
     }
 
-    /** Pull to refresh: the INBOX refreshes the whole account (folder list, outbox, INBOX). */
+    /** Pull to refresh checks headers; the outbox runs independently of its progress indicator. */
     fun refresh() {
         when (val view = core.value.resolution.view) {
             is MailboxView.FolderView -> {
                 if (local.value.refreshing) return
                 local.update { it.copy(refreshing = true) }
                 paging.update { if (it.folderId == view.folder.id) it.copy(failed = false) else it }
-                viewModelScope.launch {
-                    val folder = view.folder
-                    val result = if (folder.role == FolderRole.INBOX) {
-                        mail.refreshAccount(folder.accountId)
-                    } else {
-                        mail.refreshFolder(folder.id)
+                refreshingFolderId = view.folder.id
+                refreshJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+                    try {
+                        val folder = view.folder
+                        val result = if (folder.role == FolderRole.INBOX) {
+                            container.syncController.requestOutboxSend()
+                            mail.refreshAccount(folder.accountId)
+                        } else {
+                            mail.refreshFolder(folder.id)
+                        }
+                        result.exceptionOrNull()?.let { eventChannel.send(MailboxEvent.Error(it, retry = ::refresh)) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        eventChannel.send(MailboxEvent.Error(e, retry = ::refresh))
+                    } finally {
+                        // A cancelled request from a previous folder must not clear a newer pull.
+                        if (refreshJob === currentCoroutineContext()[Job]) {
+                            refreshJob = null
+                            refreshingFolderId = null
+                            local.update { it.copy(refreshing = false) }
+                        }
                     }
-                    local.update { it.copy(refreshing = false) }
-                    result.exceptionOrNull()?.let { eventChannel.send(MailboxEvent.Error(it, retry = ::refresh)) }
                 }
+                refreshJob?.start()
             }
             is MailboxView.Outbox -> container.syncController.requestOutboxSend()
             MailboxView.Loading -> retryAccountSetup()

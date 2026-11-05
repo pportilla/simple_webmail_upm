@@ -96,6 +96,11 @@
             android:name=".sync.PushAlarmReceiver"
             android:exported="false" />
 
+        <!-- Best-effort 5/10-minute checks; no exact-alarm permission or polling service. -->
+        <receiver
+            android:name=".sync.MailCheckAlarmReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".notifications.NotificationActionReceiver"
             android:exported="false" />

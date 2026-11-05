@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.pportilla.upmmail.data.repository.AppContainer
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.AppSettings
+import io.github.pportilla.upmmail.model.MailCheckIntervals
 import io.github.pportilla.upmmail.model.SwipeAction
 import io.github.pportilla.upmmail.model.ThemeMode
 import kotlinx.coroutines.flow.SharingStarted
@@ -32,9 +33,9 @@ object SettingsOptions {
     /** Instant push first, then the background check intervals (0 = only when the app is opened). */
     val mailChecks: List<MailCheck> = listOf(
         MailCheck.Push,
+        MailCheck.Every(5),
+        MailCheck.Every(10),
         MailCheck.Every(15),
-        MailCheck.Every(30),
-        MailCheck.Every(60),
         MailCheck.Every(0),
     )
 
@@ -63,7 +64,7 @@ sealed interface MailCheck {
         /** The periodic check that stays on behind push. */
         const val PUSH_SAFETY_NET_MINUTES = 15
 
-        fun of(settings: AppSettings): MailCheck = if (settings.pushEnabled) Push else Every(settings.syncIntervalMinutes)
+        fun of(settings: AppSettings): MailCheck = if (settings.pushEnabled) Push else Every(MailCheckIntervals.normalize(settings.syncIntervalMinutes))
     }
 }
 
@@ -94,7 +95,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         settingsRepository.update {
             when (check) {
                 MailCheck.Push -> it.copy(pushEnabled = true, syncIntervalMinutes = MailCheck.PUSH_SAFETY_NET_MINUTES)
-                is MailCheck.Every -> it.copy(pushEnabled = false, syncIntervalMinutes = check.minutes)
+                is MailCheck.Every -> it.copy(pushEnabled = false, syncIntervalMinutes = MailCheckIntervals.normalize(check.minutes))
             }
         }
         container.syncController.schedulePeriodicSync()

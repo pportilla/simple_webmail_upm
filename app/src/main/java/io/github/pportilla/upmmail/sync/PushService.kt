@@ -45,7 +45,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Connections pause while offline and restart at once on a new network, and restart when
  * accounts, server settings or passwords change. The service stops itself when push is turned
- * off, the last account is removed, or the active profile stops authorizing adult push.
+ * off, the last account is removed, or the active profile no longer authorizes push.
  * Its ongoing notification reports generic connection status on a silent channel.
  */
 class PushService : Service() {
@@ -186,7 +186,7 @@ class PushService : Service() {
         // The application's texts follow the language chosen in the app; on Android 12 and
         // older the service's own resources stay in the system's language.
         val texts = applicationContext
-        // Keep this notification free of account identifiers even while an adult profile is
+        // Keep this notification free of account identifiers even while an eligible profile is
         // active: a profile transition can happen between building and posting it.
         val title = when (status) {
             Status.Connecting -> texts.getString(R.string.notif_push_connecting)

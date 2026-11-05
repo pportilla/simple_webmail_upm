@@ -115,6 +115,7 @@ class SyncEngine(
     private val clock: () -> Long = System::currentTimeMillis,
     indexOptions: ImapOptions = ImapOptions.INDEX,
     searchOptions: ImapOptions = ImapOptions.SEARCH,
+    private val prefetchBudgetMillis: Long = 5_000,
 ) {
     private val accountLocks = ConcurrentHashMap<Long, Mutex>()
     private val outboxLock = Mutex()
@@ -214,6 +215,13 @@ class SyncEngine(
     suspend fun syncAccount(accountId: Long): List<MessageSummary> =
         withContext(io) { syncAccountOnIo(accountId) }
 
+    /** A visible refresh checks mail without waiting for SMTP uploads or optional body downloads. */
+    suspend fun refreshAccount(accountId: Long): List<MessageSummary> = withContext(io) {
+        store.safety.requireNetwork()
+        syncFolderList(accountId)
+        syncFolder(inboxOf(accountId).id, prefetch = false)
+    }
+
     private suspend fun syncAccountOnIo(accountId: Long): List<MessageSummary> {
         store.safety.requireNetwork()
         syncFolderList(accountId)
@@ -240,9 +248,10 @@ class SyncEngine(
      * prefetches the newest bodies. Returns the new unread messages when the folder is an INBOX
      * (the listener has been told about them as well).
      */
-    suspend fun syncFolder(folderId: Long): List<MessageSummary> = withContext(io) { syncFolderOnIo(folderId) }
+    suspend fun syncFolder(folderId: Long, prefetch: Boolean = true): List<MessageSummary> =
+        withContext(io) { syncFolderOnIo(folderId, prefetch) }
 
-    private suspend fun syncFolderOnIo(folderId: Long): List<MessageSummary> {
+    private suspend fun syncFolderOnIo(folderId: Long, prefetch: Boolean): List<MessageSummary> {
         store.safety.requireNetwork()
         val folder = db { store.folders.get(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         if (!folder.selectable) return emptyList()
@@ -257,7 +266,7 @@ class SyncEngine(
                     syncHeadersLocked(folderId, newIds)
                 }
             }
-            prefetchBodies(folder)
+            if (prefetch) prefetchBodies(folder)
             synced = true
         } finally {
             if (!synced && folder.role == FolderRole.INBOX && newIds.isNotEmpty()) {
@@ -513,6 +522,13 @@ class SyncEngine(
     }
 
     private suspend fun prefetchBodies(folder: Folder) {
+        // A fresh mailbox can need twenty bodies. Do not occupy the shared IMAP connection for
+        // minutes: cancellation aborts its socket and releases its command lock. The next sync
+        // continues warming the cache; opening a message still downloads its body on demand.
+        withTimeoutOrNull(prefetchBudgetMillis) { prefetchBodiesWithinBudget(folder) }
+    }
+
+    private suspend fun prefetchBodiesWithinBudget(folder: Folder) {
         if (!store.safety.state.value.mailboxAccessAllowed) return
         val candidates = try {
             db { store.messages.needingBody(folder.id, PREFETCH_COUNT, PREFETCH_MAX_SIZE) }

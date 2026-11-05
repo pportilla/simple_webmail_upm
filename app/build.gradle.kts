@@ -12,11 +12,11 @@ plugins {
 // Release numbering is independent of debug CI runs. Increase this for each Play upload.
 val releaseVersionCode = providers.gradleProperty("releaseVersionCode")
     .orElse(providers.environmentVariable("UPM_RELEASE_VERSION_CODE"))
-    .orElse("8").get().toIntOrNull()?.takeIf { it in 1..2_100_000_000 }
+    .orElse("9").get().toIntOrNull()?.takeIf { it in 1..2_100_000_000 }
     ?: throw GradleException("releaseVersionCode must be an integer between 1 and 2100000000.")
 val releaseVersionName = providers.gradleProperty("releaseVersionName")
     .orElse(providers.environmentVariable("UPM_RELEASE_VERSION_NAME"))
-    .orElse("1.1.0").get().also {
+    .orElse("1.1.1").get().also {
         require(it.isNotBlank() && it.length <= 100) { "releaseVersionName must contain 1–100 characters." }
     }
 val debugVersionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
@@ -196,6 +196,13 @@ dependencies {
     implementation(libs.angus.mail)
     implementation(libs.jsoup)
     implementation(libs.play.age.signals)
+
+    // The Compose app only needs Fragment transitively through Play services.
+    constraints {
+        implementation(libs.androidx.fragment) {
+            because("Play Age Signals pulls in Fragment 1.1.0 via Play services; use the current stable release.")
+        }
+    }
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

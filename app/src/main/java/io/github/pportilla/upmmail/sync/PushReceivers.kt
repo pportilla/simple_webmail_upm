@@ -19,7 +19,23 @@ class PushBootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         container.applicationScope.launch(Dispatchers.IO) {
             try {
+                container.androidSyncController.reconcileChecks()
                 container.pushController.startIfWanted()
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+}
+
+/** Short intervals use inexact alarms solely to enqueue coalesced, network-constrained jobs. */
+class MailCheckAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val container = context.pushContainer() ?: return
+        val pending = goAsync()
+        container.applicationScope.launch(Dispatchers.IO) {
+            try {
+                container.androidSyncController.onPollingAlarm()
             } finally {
                 pending.finish()
             }

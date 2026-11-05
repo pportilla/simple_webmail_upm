@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /**
@@ -68,6 +69,7 @@ class MailRepositoryImpl(
     private val clock: () -> Long = System::currentTimeMillis,
     /** How often an open conversation marks its rows downloaded from search results as used. */
     private val detachedKeepAlive: Long = DETACHED_KEEP_ALIVE,
+    private val refreshTimeoutMillis: Long = 60_000,
 ) : MailRepository {
 
     /** The "Index now" run, while it lasts. */
@@ -124,14 +126,23 @@ class MailRepositoryImpl(
 
     override val syncingFolders: StateFlow<Set<Long>> get() = engine.syncingFolders
 
-    override suspend fun refreshFolder(folderId: Long): Result<Unit> = mailResult {
-        engine.syncFolder(folderId)
-        Unit
+    override suspend fun refreshFolder(folderId: Long): Result<Unit> = refreshResult {
+        engine.syncFolder(folderId, prefetch = false)
     }
 
-    override suspend fun refreshAccount(accountId: Long): Result<Unit> = mailResult {
-        engine.syncAccount(accountId)
-        Unit
+    override suspend fun refreshAccount(accountId: Long): Result<Unit> = refreshResult {
+        engine.refreshAccount(accountId)
+    }
+
+    private suspend fun refreshResult(block: suspend () -> Unit): Result<Unit> = mailResult {
+        val finished = withTimeoutOrNull(refreshTimeoutMillis) {
+            // Keep a pull alive across the short foreground check, while preserving real blocks.
+            store.safety.state.first { !it.platformCheckPending || !it.mailboxAccessAllowed }
+            store.safety.requireNetwork()
+            block()
+            true
+        }
+        if (finished == null) throw MailException(MailErrorKind.NETWORK, "Mail refresh timed out")
     }
 
     override suspend fun loadOlder(folderId: Long, count: Int): Result<Boolean> = mailResult {
