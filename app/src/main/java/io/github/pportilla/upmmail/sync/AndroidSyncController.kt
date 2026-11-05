@@ -21,13 +21,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -210,18 +206,13 @@ class AndroidSyncController(
                 else MailCheckIntervals.foregroundDelayMillis(settings.settings.value) ?: RECENT_SYNC
             if (age > threshold) quietly { engine.syncFolder(engine.inboxOf(account.id).id) }
         }
-        settings.settings.map(MailCheckIntervals::foregroundDelayMillis).distinctUntilChanged().collectLatest { interval ->
-            if (interval == null) return@collectLatest
-            while (currentCoroutineContext().isActive) {
-                delay(interval)
-                val current = selectedAccount(safely(emptyList()) { store.accounts.getAll() }) ?: continue
-                if (!current.isDemo && !isOnline()) continue
-                // Push (or a pull-to-refresh) may have synced it moments ago.
-                val inbox = safely(null) { store.folders.findByRole(current.id, FolderRole.INBOX) }
-                val age = inbox?.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
-                if (age < RECENT_SYNC) continue
-                quietly { engine.syncFolder(engine.inboxOf(current.id).id) }
-            }
+        pollAtIntervals(settings.settings.map(MailCheckIntervals::foregroundDelayMillis)) {
+            val current = selectedAccount(safely(emptyList()) { store.accounts.getAll() }) ?: return@pollAtIntervals
+            if (!current.isDemo && !isOnline()) return@pollAtIntervals
+            // Push (or a pull-to-refresh) may have synced it moments ago.
+            val inbox = safely(null) { store.folders.findByRole(current.id, FolderRole.INBOX) }
+            val age = inbox?.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
+            if (age >= RECENT_SYNC) quietly { engine.syncFolder(engine.inboxOf(current.id).id) }
         }
     }
 
