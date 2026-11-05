@@ -8,9 +8,9 @@ explicitly marked otherwise.
 It improves refresh completion, adds shorter mail-check choices and replaces the outdated
 transitive AndroidX Fragment dependency. The exact signed build passed **729 tests**, lint,
 artifact checks and the scoped runtime walkthrough. Closed Alpha still serves version 8 while
-the version-9 update and EN/ES listing changes, submitted at **11:53:16 UTC**, undergo automated
-pre-review checks. They are not yet confirmed in human review. Managed publishing is **off**,
-so approved changes can publish automatically.
+the version-9 update and EN/ES listing changes are **In review**, confirmed at **11:58:50 UTC**
+after automated checks completed. Managed publishing is **off**, so the update will publish
+automatically after Google approval.
 
 The earlier significant-change hold expired on **28 October 2026 at 00:00 UTC**.
 It is not a current release blocker. Version 9 does not change the existing 13+ audience or age
@@ -66,7 +66,7 @@ Its single advisory concerns missing symbols for a prebuilt native library.
 | Tests/lint | **729 tests passed; zero failures/errors/skips. Lint: 0 errors / 45 warnings / 2 hints.** The three additional warnings versus v8 are style suggestions. Bundle/signatures, R8/dependency metadata and 16 KB structure passed. |
 | Runtime | **10 scoped checks passed** on the exact final APK, covering stalled-body pull recovery, draft safety, settings/scheduler registrations, instant service/arrival/stop, network recovery, wrong-host TLS rejection, clean logs, both settings captures and fixture cleanup. See the scope below; earlier candidate SMTP/export results are separate. |
 | Play warnings/metrics | Uploaded release preview: **0 errors**, one prebuilt-native debug-symbol advisory, **no obsolete-SDK or DEX-optimization warning**. Play DEX status **High**, optimization/obfuscation/shrinking **98% / 98% / 98%**; **16 KB supported**, **18,232 supported devices**. New-install estimate **2.39 MB** (14.5 KB smaller), update **1.42 MB**; device coverage unchanged across listed form factors. |
-| Closed test | Version **8** remains active. Final version **9**, closed Alpha release **7**, and EN/ES listing changes were submitted at **11:53:16 UTC**. Automated pre-review checks are running; human review is not yet confirmed. |
+| Closed test | Version **8** remains active. Final version **9**, closed Alpha release **7**, and EN/ES listing changes are **In review**, confirmed at **11:58:50 UTC** after automated checks completed. Submitted at **11:53:16 UTC**; approval is pending. |
 | Internal test | Version **9 (1.1.1)** is **Available to internal testers**, released at **11:52 UTC** as internal release **8**. The old unpublished version-8 draft was discarded. |
 | Publishing controls | Managed publishing is now **off**. Only the intended five update/listing changes were pending before submission; approved changes can publish automatically. |
 | Audience/declarations | Existing **13–15, 16–17 and 18+** scope retained. App content reports **all caught up**, with **11 actioned declarations** and no new action required. Audience/FGS/Data safety are unchanged; updated sign-in instructions are recorded in review. Listings are finalized and verified. |
@@ -76,8 +76,9 @@ Its single advisory concerns missing symbols for a prebuilt native library.
 Initial Console evidence is in `release-output/refresh-release-9/console-initial-dashboard.txt`
 and `console-initial-bundles.txt`. Review submission, approval and availability are separate
 states; none is inferred from a successful local build or upload. The owner has authorized
-publishing the update. Internal availability is verified in `internal-published.txt`; closed review
-and closed availability are recorded separately. `app-content-final.txt` and
+publishing the update. Internal availability is verified in `internal-published.txt`;
+`play-final-observation.json` and `publishing-after-submission.txt` confirm closed review.
+Review and closed availability are separate states. `app-content-final.txt` and
 `app-content-actioned-final.txt` confirm no outstanding declaration action.
 
 ## Frozen version-9 build and public evidence
@@ -173,7 +174,7 @@ Exclude passwords, browser sessions, test keys/CA material and raw fixture stagi
 
 ## Remaining work
 
-1. Confirm completion of automated pre-review checks, then closed-update review, approval and
-   availability. Internal version 9 is already available; these are separate states.
+1. Await Google approval of the closed update and verify its automatic publication. Internal
+   version 9 is already available; closed approval and availability remain separate states.
 2. Recruit and retain enough closed testers to meet 12 participants continuously for 14 days,
    collect feedback and apply for production access. Production is not yet published.

@@ -2,10 +2,10 @@
 
 Updated **5 November 2026 (UTC)** for `io.github.pportilla.upmmail`.
 **Version 9 (1.1.1) is available to internal testers** from **11:52 UTC on 5 November**.
-Closed Alpha still serves version 8 while the version-9 update is submitted for review. Final signed
+Closed Alpha still serves version 8 while the version-9 update is **In review**. Final signed
 validation passed **729 tests**, zero failures/errors/skips, lint, artifact checks and **10 scoped
 runtime checks**. Managed publishing is **off**; approved changes can publish automatically.
-The closed submission is running automated pre-review checks; human review is not yet confirmed. See [release status](RELEASE_STATUS.md).
+Automated checks completed; **In review** was confirmed at **11:58:50 UTC**. See [release status](RELEASE_STATUS.md).
 
 The **28 October 2026** significant-change date has elapsed. It is not a current publication
 hold, and this update does not change the 13+ audience or age policy. The owner has authorized
@@ -18,7 +18,7 @@ do not infer approval or availability from an upload.
 | --- | --- |
 | Publisher | **zango**, **p.portilla89@gmail.com**, [repository/support website](https://github.com/pportilla/simple_webmail_upm). Independent, unofficial UPM Mail. |
 | Distribution | Existing personal developer account; free, Communication category, no ads/billing. Existing 178-region scope and 13–15 / 16–17 / 18+ audience retained. |
-| Candidate | Code **9**, name **1.1.1**, minimum API 26, target/compile API 36 configured. Exact signed artifact and scoped runtime validated; internal release available and closed update submitted with zero validation errors. |
+| Candidate | Code **9**, name **1.1.1**, minimum API 26, target/compile API 36 configured. Exact signed artifact and scoped runtime validated; internal release available and closed update **In review** with zero validation errors. |
 | Dependency warning | Resolved release graph replaces transitive Fragment **1.1.0** with **1.9.1**. The exact uploaded release preview has no obsolete-SDK warning. |
 | Refresh | Manual refresh executes neither queued mutations nor SMTP; independent mutation flush continues. Five-second optional warming budget, 60-second manual deadline including shared-connection lock waits, cancellation/selection cleanup. Original phone ANR is not independently proven fixed. |
 | Check intervals | Instantly, **5 / 10 / 15 minutes**, with manual mode retained. Old 30/60 values normalize to 15. Short periods use inexact alarms/network jobs; they are approximate. |
@@ -68,10 +68,11 @@ do not infer approval or availability from an upload.
       Existing 13+ audience, FGS and Data safety remain unchanged; updated sign-in instructions
       are saved and recorded in review.
 - [x] Publish version 9 to internal testing and verify **Available to internal testers**.
-- [ ] Confirm the submitted closed update finishes automated checks, then enters review and receives
-      approval/availability.
-      Managed publishing is off. The old October hold does not block this update; current Google
-      review and production qualification still apply.
+- [x] Confirm automated checks completed and the closed version-9 update is **In review** at
+      **11:58:50 UTC**.
+- [ ] Await Google approval and verify automatic closed publication. Managed publishing is off.
+      The old October hold does not block this update; Google approval and production qualification
+      remain external requirements.
 
 The existing target/compile API 36 already meets the identified target-API requirement; the
 Fragment constraint does not require a new platform level. The resolved graph also changes
@@ -198,9 +199,9 @@ Avoid concurrent Console/API edits. [API setup](https://developers.google.com/an
 ## Publication and production access
 
 1. Signed validation and upload are complete. Version 9 is live for internal testers. The closed
-   update and EN/ES listing changes were submitted at **11:53:16 UTC** and are running automated
-   pre-review checks. Confirm review, approval and availability separately; preserve the frozen
-   artifact and signing identity.
+   update and EN/ES listing changes were submitted at **11:53:16 UTC** and confirmed **In review**
+   at **11:58:50 UTC**, with automated checks complete. Await approval and verify automatic
+   publication; preserve the frozen artifact and signing identity.
 2. Managed publishing is **off**, allowing approved changes to publish automatically. The October 28
    significant-change hold has expired; no new age-policy change or date hold was introduced.
 3. Eligible testers can join the existing [closed test](https://play.google.com/apps/testing/io.github.pportilla.upmmail).
