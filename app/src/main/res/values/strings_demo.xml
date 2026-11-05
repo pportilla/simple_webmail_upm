@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="demo_try">Try sample mail</string>
+    <string name="demo_intro">Explore a fictional mailbox without credentials. Messages stay on this device and sending is simulated.</string>
+    <string name="demo_loading">Preparing sample mail…</string>
+    <string name="demo_opened">Sample mailbox opened. This sample mailbox uses no real mail connection.</string>
+    <string name="demo_error">Could not open sample mail</string>
+    <string name="demo_account_label">Sample · %1$s</string>
+    <string name="demo_notice">Sample mail: fictional and stored on this device. Sending is simulated; nothing is delivered to a real address.</string>
+    <string name="demo_send">Simulate send</string>
+    <string name="demo_sending">Simulating send locally…</string>
+    <string name="demo_queued">Simulation queued locally. No message will be delivered to a real address.</string>
+    <string name="demo_already_sent">The local send simulation has already finished.</string>
+    <string name="demo_outbox_queued">Waiting to simulate locally</string>
+    <string name="demo_outbox_failed">Local simulation could not finish</string>
+    <string name="demo_no_connection">This sample mailbox has no server connection or password. Its connection settings cannot be changed into a real account. Add a separate account to connect a mailbox.</string>
+    <string name="demo_remove_notice">Remove this sample account to erase its local sample mail and drafts. Add sample mail again to start over. Other accounts are not removed.</string>
+    <string name="demo_report_notice">A report from this sample account is only simulated locally. It does not reach a provider or request real action.</string>
+    <string name="demo_push_notice">Sample arrivals are simulated locally while the app is running; real instant mail uses a server connection. Sample mail does not start a persistent connection.</string>
+    <string name="demo_receive">Receive sample mail in 5 seconds</string>
+    <string name="demo_receive_queued">Sample arrival scheduled. With instant push enabled, new sample mail is refreshed locally; notifications also need permission and enabled account notifications. In manual mode, refresh the inbox after 5 seconds.</string>
+    <string name="demo_receive_error">Could not schedule sample mail. Please try again.</string>
+</resources>

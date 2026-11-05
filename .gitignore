@@ -19,6 +19,20 @@ Thumbs.db
 # Kotlin
 .kotlin/
 
+# Python release and screenshot tooling
+__pycache__/
+*.py[cod]
+
 # Release keystores (the committed debug.keystore is intentionally public)
 *.jks
-release.keystore
+*.keystore
+!app/debug.keystore
+*.p12
+*.pfx
+signing.properties
+keystore.properties
+.env
+.env.*
+!.env.example
+# Local release exports
+release-output/

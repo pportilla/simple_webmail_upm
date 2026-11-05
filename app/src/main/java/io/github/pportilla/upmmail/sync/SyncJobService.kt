@@ -39,6 +39,7 @@ class SyncJobService : JobService() {
                     }
                     AndroidSyncController.JOB_OUTBOX -> controller.runOutboxJob()
                     AndroidSyncController.JOB_PENDING_OPS -> controller.runPendingOpsJob()
+                    AndroidSyncController.JOB_ALARM_CHECK -> controller.runAlarmCheck()
                     else -> false
                 }
             } catch (e: CancellationException) {
@@ -64,7 +65,7 @@ class SyncJobService : JobService() {
         running.remove(params.jobId)?.cancel()
         val container = (applicationContext as? UpmMailApp)?.container as? DefaultAppContainer
         container?.androidSyncController?.jobStopped(params.jobId)
-        return true
+        return container?.androidSyncController?.rescheduleStoppedJob(params.jobId) ?: true
     }
 
     private companion object {

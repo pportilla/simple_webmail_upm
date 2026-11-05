@@ -1,0 +1,1 @@
+Optimized the app to reduce download and storage size. Email, offline sample mail and family controls retain the same features.

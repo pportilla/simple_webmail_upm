@@ -1,41 +1,43 @@
 package io.github.pportilla.upmmail.sync
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.SystemClock
 import android.util.Log
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.repository.SettingsRepository
 import io.github.pportilla.upmmail.data.repository.SyncController
 import io.github.pportilla.upmmail.model.Account
 import io.github.pportilla.upmmail.model.FolderRole
+import io.github.pportilla.upmmail.model.MailCheckIntervals
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
  * [SyncController] on JobScheduler:
  *
- * - periodic background check (job [JOB_PERIODIC], interval from the settings, at least 15
- *   minutes, any network, survives reboots; cancelled when the interval is 0 or there are no
- *   accounts),
+ * - 15-minute background checks ([JOB_PERIODIC]), also the safety net for instant push,
+ * - best-effort 5/10-minute inexact alarms, each coalesced into one network-constrained
+ *   [JOB_ALARM_CHECK]; Android may batch or delay these, particularly in Doze,
  * - outbox job ([JOB_OUTBOX]): sends queued messages once due and online, even if the app died,
  * - pending-operations job ([JOB_PENDING_OPS]): pushes local changes that failed for lack of
  *   network once it is back,
- * - in-app timers that send due outbox messages immediately, and INBOX polling every two minutes
- *   while the app is visible.
+ * - in-app timers that send due outbox messages immediately, and visible INBOX polling at the
+ *   chosen interval (two minutes for push, no repeating timer for manual mode).
  *
  * [onForeground] runs whenever the app becomes visible (it starts instant push, see
  * [PushController]).
@@ -54,6 +56,8 @@ class AndroidSyncController(
     private val outboxRunner = DelayedRunner(scope)
     private val lock = Any()
     private val planLock = Any()
+    private val checkLock = Any()
+    private val checkPlanner = MailCheckPlanner(AndroidMailCheckScheduler())
     private var pollJob: Job? = null
     private var scheduledOutboxAt: Long? = null
 
@@ -68,49 +72,109 @@ class AndroidSyncController(
     var isForeground: Boolean = false
         private set
 
-    /** Starts following the settings and account list to keep the periodic job up to date. */
+    /** Follows preferences, accounts and eligibility to keep both kinds of checks up to date. */
     fun start() {
         scope.launch(Dispatchers.IO) {
             combine(
-                settings.settings.map { it.syncIntervalMinutes }.distinctUntilChanged(),
+                settings.settings.map { it.pushEnabled to it.syncIntervalMinutes }.distinctUntilChanged(),
                 store.accounts.observeAll().map { it.isNotEmpty() }.distinctUntilChanged(),
-            ) { interval, hasAccounts -> interval to hasAccounts }
-                .distinctUntilChanged()
-                .collect { (interval, hasAccounts) -> applyPeriodic(interval, hasAccounts) }
+                store.safety.state.map { it.mailboxAccessAllowed }.distinctUntilChanged(),
+            ) { _, _, _ -> Unit }.collect { reconcileChecks() }
         }
     }
 
     override fun schedulePeriodicSync() {
-        scope.launch(Dispatchers.IO) {
-            applyPeriodic(settings.settings.value.syncIntervalMinutes, safely(false) { store.accounts.count() > 0 })
+        scope.launch(Dispatchers.IO) { reconcileChecks() }
+    }
+
+    /** Recreate alarms after process death, boot or package replacement; never touch outbox jobs. */
+    internal fun reconcileChecks() {
+        try {
+            synchronized(checkLock) {
+                val plan = MailCheckPlan.of(
+                    settings.settings.value,
+                    hasAccounts = safely(false) { store.accounts.count() > 0 },
+                    authorized = store.safety.state.value.mailboxAccessAllowed,
+                )
+                checkPlanner.update(plan)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not schedule mail checks", e)
         }
     }
 
-    private fun applyPeriodic(intervalMinutes: Int, hasAccounts: Boolean) {
+    /** An inexact alarm only queues work; no network access or foreground service in the receiver. */
+    internal fun onPollingAlarm() {
+        reconcileChecks()
+        if (runCatching { store.safety.requireNetwork() }.isFailure) return
         try {
-            if (intervalMinutes <= 0 || !hasAccounts) {
-                jobScheduler.cancel(JOB_PERIODIC)
-                return
-            }
-            val interval = TimeUnit.MINUTES.toMillis(intervalMinutes.coerceAtLeast(MIN_INTERVAL_MINUTES).toLong())
-            val existing = jobScheduler.getPendingJob(JOB_PERIODIC)
-            if (existing != null && existing.isPeriodic && existing.intervalMillis == interval) return
+            synchronized(checkLock) { checkPlanner.onAlarm() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not queue the mail check", e)
+        }
+    }
+
+    private inner class AndroidMailCheckScheduler : MailCheckScheduler {
+        override fun periodicMinutes(): Int? = jobScheduler.getPendingJob(JOB_PERIODIC)
+            ?.takeIf { it.isPeriodic }?.intervalMillis?.let { TimeUnit.MILLISECONDS.toMinutes(it).toInt() }
+
+        override fun schedulePeriodic(minutes: Int) {
             val job = JobInfo.Builder(JOB_PERIODIC, ComponentName(context, SyncJobService::class.java))
-                .setPeriodic(interval)
+                .setPeriodic(TimeUnit.MINUTES.toMillis(minutes.toLong()))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                 .setPersisted(true)
                 .build()
             jobScheduler.schedule(job)
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not schedule the periodic sync", e)
         }
+
+        override fun cancelPeriodic() { jobScheduler.cancel(JOB_PERIODIC) }
+
+        override fun scheduleAlarm(minutes: Int) {
+            val interval = TimeUnit.MINUTES.toMillis(minutes.toLong())
+            checkNotNull(context.getSystemService(AlarmManager::class.java)).setInexactRepeating(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + interval,
+                interval,
+                pollingAlarmIntent(),
+            )
+        }
+
+        override fun cancelAlarm() {
+            context.getSystemService(AlarmManager::class.java)?.cancel(pollingAlarmIntent())
+        }
+
+        override fun hasPendingAlarmJob(): Boolean = jobScheduler.getPendingJob(JOB_ALARM_CHECK) != null
+
+        override fun scheduleAlarmJob() {
+            jobScheduler.schedule(
+                JobInfo.Builder(JOB_ALARM_CHECK, ComponentName(context, SyncJobService::class.java))
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setBackoffCriteria(BACKOFF, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
+                    .setPersisted(true)
+                    .build(),
+            )
+        }
+
+        override fun cancelAlarmJob() { jobScheduler.cancel(JOB_ALARM_CHECK) }
     }
+
+    private fun pollingAlarmIntent(): PendingIntent = PendingIntent.getBroadcast(
+        context, 0, Intent(context, MailCheckAlarmReceiver::class.java),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     // ------------------------------------------------------------------ foreground
 
     override fun onAppForeground() {
         isForeground = true
+        schedulePeriodicSync()
+        refreshIfForeground()
+    }
+
+    /** May be called from IO after a platform check; never revives a backgrounded activity. */
+    fun refreshIfForeground() {
         synchronized(lock) {
+            if (!isForeground) return
             pollJob?.cancel()
             pollJob = scope.launch(Dispatchers.IO) { pollWhileVisible() }
         }
@@ -138,18 +202,17 @@ class AndroidSyncController(
             val age = inbox?.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
             // The visible account is refreshed unless it just was (quick app switches); the
             // others only when their INBOX is older than one polling interval.
-            val threshold = if (account.id == selected?.id) RECENT_SYNC else POLL_INTERVAL
+            val threshold = if (account.id == selected?.id) RECENT_SYNC
+                else MailCheckIntervals.foregroundDelayMillis(settings.settings.value) ?: RECENT_SYNC
             if (age > threshold) quietly { engine.syncFolder(engine.inboxOf(account.id).id) }
         }
-        while (currentCoroutineContext().isActive) {
-            delay(POLL_INTERVAL)
-            if (!isOnline()) continue
-            val current = selectedAccount(safely(emptyList()) { store.accounts.getAll() }) ?: continue
+        pollAtIntervals(settings.settings.map(MailCheckIntervals::foregroundDelayMillis)) {
+            val current = selectedAccount(safely(emptyList()) { store.accounts.getAll() }) ?: return@pollAtIntervals
+            if (!current.isDemo && !isOnline()) return@pollAtIntervals
             // Push (or a pull-to-refresh) may have synced it moments ago.
             val inbox = safely(null) { store.folders.findByRole(current.id, FolderRole.INBOX) }
             val age = inbox?.lastSyncedAt?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
-            if (age < RECENT_POLL) continue
-            quietly { engine.syncFolder(engine.inboxOf(current.id).id) }
+            if (age >= RECENT_SYNC) quietly { engine.syncFolder(engine.inboxOf(current.id).id) }
         }
     }
 
@@ -170,7 +233,8 @@ class AndroidSyncController(
      */
     private fun planOutbox(minDelay: Long) {
         synchronized(planLock) {
-            val next = safely(null) { store.outbox.nextSendAt() }
+            val next = if (store.safety.state.value.awaitingTermsAcknowledgement) null
+                else safely(null) { store.outbox.nextSendAt() }
             if (next == null) {
                 outboxRunner.cancel(OUTBOX_KEY)
                 synchronized(lock) {
@@ -193,6 +257,17 @@ class AndroidSyncController(
                     quietly { engine.sendOutbox(null) }
                     // A short pause before re-planning, so a message that keeps failing cannot spin.
                     planOutbox(minDelay = REPLAN_DELAY)
+                } else {
+                    // Sample sends are wholly local; do not make them depend on connectivity
+                    // or spend real accounts' retry attempts while the device is offline.
+                    val demoAccounts = safely(emptyList()) { store.accounts.getAll().filter { it.isDemo } }
+                    val hasSampleQueued = demoAccounts.any { account ->
+                        safely(false) { store.outbox.list(account.id).any { it.state == io.github.pportilla.upmmail.model.OutboxState.QUEUED } }
+                    }
+                    if (hasSampleQueued) {
+                        demoAccounts.forEach { quietly { engine.sendOutbox(it.id) } }
+                        planOutbox(minDelay = REPLAN_DELAY)
+                    }
                 }
             }
         }
@@ -241,8 +316,20 @@ class AndroidSyncController(
      * through the engine's listener). Returns true if the job should be retried with backoff.
      */
     suspend fun runPeriodicSync(): Boolean {
+        reconcileChecks()
+        if (!synchronized(checkLock) { checkPlanner.wanted(MailCheckJob.PERIODIC) }) return false
         engine.failStaleSending()
         quietly { engine.sendOutbox(null) }
+        for (account in safely(emptyList()) { store.accounts.getAll() }) {
+            quietly { engine.syncFolder(engine.inboxOf(account.id).id) }
+        }
+        return false
+    }
+
+    /** A short-interval check only reads mail. Outbox delivery has its own durable schedule. */
+    suspend fun runAlarmCheck(): Boolean {
+        reconcileChecks()
+        if (!synchronized(checkLock) { checkPlanner.wanted(MailCheckJob.ALARM) }) return false
         for (account in safely(emptyList()) { store.accounts.getAll() }) {
             quietly { engine.syncFolder(engine.inboxOf(account.id).id) }
         }
@@ -275,10 +362,12 @@ class AndroidSyncController(
     /** Called by [SyncJobService] when JobScheduler starts a job. */
     fun jobStarted(jobId: Int) {
         if (jobId == JOB_OUTBOX) synchronized(lock) { outboxJobRunning = true }
+        checkJob(jobId)?.let { synchronized(checkLock) { checkPlanner.started(it) } }
     }
 
     /** Called when JobScheduler stopped a job (it reschedules it itself). */
     fun jobStopped(jobId: Int) {
+        finishCheck(jobId)
         if (jobId == JOB_OUTBOX) {
             synchronized(lock) {
                 outboxJobRunning = false
@@ -289,6 +378,7 @@ class AndroidSyncController(
 
     /** Called after a job finished, when rescheduling the same job id is safe again. */
     fun afterJob(jobId: Int) {
+        finishCheck(jobId)
         if (jobId == JOB_OUTBOX) {
             synchronized(lock) {
                 outboxJobRunning = false
@@ -296,6 +386,24 @@ class AndroidSyncController(
             }
             requestOutboxSend()
         }
+    }
+
+    /** Do not resurrect an old checking mode after Android stopped its execution. */
+    fun rescheduleStoppedJob(jobId: Int): Boolean = checkJob(jobId)?.let {
+        synchronized(checkLock) { checkPlanner.wanted(it) }
+    } ?: true
+
+    private fun finishCheck(jobId: Int) {
+        checkJob(jobId)?.let { kind ->
+            try { synchronized(checkLock) { checkPlanner.finished(kind) } }
+            catch (e: Exception) { Log.w(TAG, "Could not update completed mail check", e) }
+        }
+    }
+
+    private fun checkJob(jobId: Int): MailCheckJob? = when (jobId) {
+        JOB_PERIODIC -> MailCheckJob.PERIODIC
+        JOB_ALARM_CHECK -> MailCheckJob.ALARM
+        else -> null
     }
 
     // ------------------------------------------------------------------ helpers
@@ -337,13 +445,11 @@ class AndroidSyncController(
         const val JOB_PERIODIC = 1001
         const val JOB_OUTBOX = 1002
         const val JOB_PENDING_OPS = 1003
+        const val JOB_ALARM_CHECK = 1004
 
         private const val TAG = "SyncController"
         private const val OUTBOX_KEY = "outbox"
-        private const val MIN_INTERVAL_MINUTES = 15
-        private const val POLL_INTERVAL = 2 * 60_000L
         private const val RECENT_SYNC = 30_000L
-        private const val RECENT_POLL = POLL_INTERVAL / 2
         private const val REPLAN_DELAY = 2_000L
         private const val BACKOFF = 30_000L
     }

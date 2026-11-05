@@ -1,0 +1,1 @@
+Aplicación optimizada para reducir el tamaño de descarga y el espacio ocupado. El correo, el correo de ejemplo sin conexión y los controles familiares mantienen las mismas funciones.

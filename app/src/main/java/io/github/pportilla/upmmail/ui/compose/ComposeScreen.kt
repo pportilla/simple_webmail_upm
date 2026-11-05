@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.ui.compose
 
+import io.github.pportilla.upmmail.ui.components.SampleMailNotice
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -86,6 +87,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.data.repository.AppContainer
+import io.github.pportilla.upmmail.data.safety.hasAdultExternalAccess
 import io.github.pportilla.upmmail.model.Draft
 import io.github.pportilla.upmmail.ui.components.AppSnackbarController
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
@@ -116,6 +118,7 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     val snackbar = LocalAppSnackbar.current
     val keyboard = LocalSoftwareKeyboardController.current
     val currentNavigator by rememberUpdatedState(navigator)
+    val currentIsDemo by rememberUpdatedState(state.account?.isDemo == true)
 
     val requesters = remember { FocusTarget.entries.associateWith { FocusRequester() } }
 
@@ -167,14 +170,14 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     }
 
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        viewModel.addAttachments(uris.map { it.toString() })
+        if (context.hasAdultExternalAccess()) viewModel.addAttachments(uris.map { it.toString() })
     }
     val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        viewModel.onContactsPermissionResult(granted)
+        viewModel.onContactsPermissionResult(granted && context.hasAdultExternalAccess())
     }
     val onRecipientFocused = remember(context) {
         {
-            if (shouldAskForContacts(context)) {
+            if (!currentIsDemo && shouldAskForContacts(context)) {
                 markContactsAsked(context)
                 try {
                     contactsPermission.launch(Manifest.permission.READ_CONTACTS)
@@ -186,7 +189,8 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
     }
     val pickFiles = {
         try {
-            attachmentPicker.launch(arrayOf("*/*"))
+            if (context.hasAdultExternalAccess()) attachmentPicker.launch(arrayOf("*/*"))
+            else snackbar.show(context.getString(R.string.mail_action_blocked))
         } catch (_: ActivityNotFoundException) {
             snackbar.show(context.getString(R.string.compose_no_file_picker))
         }
@@ -209,6 +213,7 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
                 title = stringResource(state.title.res),
                 showActions = ready,
                 canSend = canSend,
+                isDemo = state.account?.isDemo == true,
                 showAddCcBcc = !state.ccBccExpanded,
                 scrollBehavior = scrollBehavior,
                 onClose = viewModel::close,
@@ -264,7 +269,7 @@ fun ComposeScreen(args: ComposeArgs, navigator: AppNavigator) {
             title = { Text(stringResource(R.string.compose_no_subject_title)) },
             text = { Text(stringResource(R.string.compose_no_subject_body)) },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmSendWithoutSubject) { Text(stringResource(R.string.action_send)) }
+                TextButton(onClick = viewModel::confirmSendWithoutSubject) { Text(stringResource(if (state.account?.isDemo == true) R.string.demo_send else R.string.action_send)) }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissDialog) { Text(stringResource(R.string.action_cancel)) }
@@ -289,6 +294,7 @@ private fun ComposeTopBar(
     title: String,
     showActions: Boolean,
     canSend: Boolean,
+    isDemo: Boolean,
     showAddCcBcc: Boolean,
     scrollBehavior: TopAppBarScrollBehavior,
     onClose: () -> Unit,
@@ -311,12 +317,16 @@ private fun ComposeTopBar(
                 IconButton(onClick = onAttach) {
                     Icon(Icons.Outlined.AttachFile, contentDescription = stringResource(R.string.compose_attach))
                 }
+                if (isDemo) {
+                    TextButton(onClick = onSend, enabled = canSend) { Text(stringResource(R.string.demo_send)) }
+                } else {
                 IconButton(
                     onClick = onSend,
                     enabled = canSend,
                     colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.action_send))
+                }
                 }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -377,6 +387,7 @@ private fun ComposeForm(
                 .verticalScroll(scrollState),
         ) {
             Column(Modifier.onSizeChanged { headerHeight = it.height }) {
+                SampleMailNotice(state.account)
                 FromRow(
                     accounts = state.accounts,
                     selected = state.account,
@@ -566,6 +577,8 @@ private class ExitReporter(
 ) {
     private val online = context.isOnline()
     private val sending = context.getString(if (online) R.string.compose_sending else R.string.compose_queued_offline)
+    private val demoSending = context.getString(R.string.demo_queued)
+    private val demoAlreadySent = context.getString(R.string.demo_already_sent)
     private val undo = context.getString(R.string.action_undo)
     private val discard = context.getString(R.string.action_discard)
     private val open = context.getString(R.string.compose_open_draft)
@@ -608,6 +621,7 @@ private class ExitReporter(
     }
 
     private fun reportSending(exit: ComposeExit.Sending) {
+        val sending = if (exit.isDemo) demoSending else sending
         if (exit.undoSeconds > 0) {
             // Undo stays available for the whole undo window, which may exceed SnackbarDuration.Long.
             snackbar.show(
@@ -658,7 +672,7 @@ private class ExitReporter(
             onMain {
                 when (outcome) {
                     is UndoOutcome.Restored -> navigator.openCompose(ComposeArgs(accountId = outcome.accountId, draftId = outcome.draftId))
-                    UndoOutcome.AlreadySent -> snackbar.show(alreadySent)
+                    UndoOutcome.AlreadySent -> snackbar.show(if (exit.isDemo) demoAlreadySent else alreadySent)
                     UndoOutcome.Failed -> snackbar.show(undoFailed)
                 }
             }
@@ -681,6 +695,7 @@ private const val KEY_CONTACTS_ASKED = "contacts_permission_asked"
 
 /** True the first time a recipient field is focused without the contacts permission. */
 private fun shouldAskForContacts(context: Context): Boolean {
+    if (!context.hasAdultExternalAccess()) return false
     if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) return false
     return !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CONTACTS_ASKED, false)
 }

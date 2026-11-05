@@ -36,7 +36,7 @@ class FakeSettings(initial: AppSettings = AppSettings()) : SettingsRepository {
 }
 
 fun newStore(clock: () -> Long = System::currentTimeMillis): MailStore =
-    MailStore(JdbcSqlDatabase.inMemory(), TableObserver(), clock)
+    MailStore(JdbcSqlDatabase.inMemory(), TableObserver(), adultSafety(), clock)
 
 fun MailStore.addTestAccount(
     email: String = "ana@upm.es",
@@ -100,3 +100,9 @@ fun remoteMessage(
     hasAttachments = hasAttachments,
     listUnsubscribe = null,
 )
+
+/** Tests opt in explicitly; production defaults remain fail closed. */
+fun adultSafety() = io.github.pportilla.upmmail.data.safety.LocalSafetyRepository().apply {
+    chooseAgeBand(io.github.pportilla.upmmail.data.safety.AgeBand.ADULT)
+    acceptTerms()
+}

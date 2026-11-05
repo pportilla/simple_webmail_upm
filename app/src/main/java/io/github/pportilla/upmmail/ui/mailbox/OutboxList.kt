@@ -53,6 +53,7 @@ internal class OutboxActions(
 internal fun OutboxContent(
     items: List<OutboxItem>,
     ownAddress: String?,
+    isDemo: Boolean = false,
     listState: LazyListState,
     contentPadding: PaddingValues,
     actions: OutboxActions,
@@ -79,14 +80,14 @@ internal fun OutboxContent(
         modifier = modifier.fillMaxSize(),
     ) {
         items(items, key = { it.id }) { item ->
-            OutboxRow(item, ownAddress, actions, Modifier.animateItem())
+            OutboxRow(item, ownAddress, actions, isDemo, Modifier.animateItem())
             HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
         }
     }
 }
 
 @Composable
-private fun OutboxRow(item: OutboxItem, ownAddress: String?, actions: OutboxActions, modifier: Modifier = Modifier) {
+private fun OutboxRow(item: OutboxItem, ownAddress: String?, actions: OutboxActions, isDemo: Boolean, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val draft = item.draft
     val recipients = draft.to + draft.cc + draft.bcc
@@ -121,7 +122,7 @@ private fun OutboxRow(item: OutboxItem, ownAddress: String?, actions: OutboxActi
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                OutboxStatus(item)
+                OutboxStatus(item, isDemo)
                 if (item.attachmentsCount() > 0) {
                     Text(
                         text = pluralStringResource(R.plurals.mailbox_outbox_attachments, item.attachmentsCount(), item.attachmentsCount()),
@@ -159,7 +160,7 @@ private fun OutboxRow(item: OutboxItem, ownAddress: String?, actions: OutboxActi
 private fun OutboxItem.attachmentsCount(): Int = draft.attachments.size
 
 @Composable
-private fun OutboxStatus(item: OutboxItem) {
+private fun OutboxStatus(item: OutboxItem, isDemo: Boolean) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.padding(top = 4.dp),
@@ -172,13 +173,15 @@ private fun OutboxStatus(item: OutboxItem) {
         }
         Spacer(Modifier.width(6.dp))
         val text = when (item.state) {
-            OutboxState.SENDING -> stringResource(R.string.mailbox_outbox_sending)
-            OutboxState.QUEUED -> if (item.sendAt > System.currentTimeMillis()) {
+            OutboxState.SENDING -> stringResource(if (isDemo) R.string.demo_sending else R.string.mailbox_outbox_sending)
+            OutboxState.QUEUED -> if (isDemo) {
+                stringResource(R.string.demo_outbox_queued)
+            } else if (item.sendAt > System.currentTimeMillis()) {
                 stringResource(R.string.mailbox_outbox_scheduled, formatListDate(item.sendAt))
             } else {
                 stringResource(R.string.mailbox_outbox_queued)
             }
-            OutboxState.FAILED -> stringResource(R.string.mailbox_outbox_failed)
+            OutboxState.FAILED -> stringResource(if (isDemo) R.string.demo_outbox_failed else R.string.mailbox_outbox_failed)
         }
         Text(
             text = text,

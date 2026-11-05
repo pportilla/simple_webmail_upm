@@ -1,14 +1,16 @@
 [versions]
-agp = "8.11.1"
+agp = "8.11.2"
 kotlin = "2.2.21"
 composeBom = "2025.06.01"
 activityCompose = "1.10.1"
+fragment = "1.9.1"
 lifecycle = "2.9.1"
 navigationCompose = "2.9.0"
 coroutines = "1.10.2"
 jakartaMail = "2.1.5"
 angusMail = "2.0.5"
 jsoup = "1.21.2"
+playAgeSignals = "0.0.4"
 junit = "4.13.2"
 greenmail = "2.1.5"
 sqliteJdbc = "3.50.3.0"
@@ -17,6 +19,7 @@ sqliteJdbcAndroid8 = "3.18.0"
 
 [libraries]
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
@@ -33,6 +36,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 jakarta-mail-api = { group = "jakarta.mail", name = "jakarta.mail-api", version.ref = "jakartaMail" }
 angus-mail = { group = "org.eclipse.angus", name = "angus-mail", version.ref = "angusMail" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+play-age-signals = { group = "com.google.android.play", name = "age-signals", version.ref = "playAgeSignals" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 greenmail = { group = "com.icegreen", name = "greenmail", version.ref = "greenmail" }
 sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqliteJdbc" }

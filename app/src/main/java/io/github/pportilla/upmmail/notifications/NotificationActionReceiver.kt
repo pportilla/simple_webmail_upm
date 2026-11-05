@@ -27,10 +27,15 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val messageId = intent.getLongExtra(DeepLinks.EXTRA_MESSAGE_ID, -1L)
         if (messageId < 0) return
         val container = (context.applicationContext as? UpmMailApp)?.container as? DefaultAppContainer ?: return
+        if (!container.safetyRepository.state.value.mailboxAccessAllowed) return
         val pending = goAsync()
         container.applicationScope.launch(Dispatchers.IO) {
             try {
                 container.notifier.cancelForMessages(listOf(messageId))
+                if (!container.safetyRepository.state.value.mailboxAccessAllowed) return@launch
+                container.safetyRepository.requireNetwork()
+                val message = container.store.messages.detail(messageId) ?: return@launch
+                if (container.safetyRepository.isSenderBlocked(message.summary.from?.address)) return@launch
                 val accountId = intent.getLongExtra(DeepLinks.EXTRA_ACCOUNT_ID, -1L).takeIf { it >= 0 }
                     ?: container.store.messages.ref(messageId)?.accountId
                 val repository = container.mailRepositoryImpl

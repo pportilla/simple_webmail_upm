@@ -29,7 +29,7 @@
     <string name="notif_push_reconnecting">Reconnecting…</string>
     <string name="notif_push_offline">Offline</string>
     <string name="notif_push_login_failed">Couldn\'t sign in to %1$s</string>
-    <string name="notif_push_hint">To hide this notification, touch and hold it and turn it off. New mail will still arrive instantly.</string>
+    <string name="notif_push_hint">Keeps a connection to your mail server for instant alerts. To stop it, change Settings → Check for new mail from Instantly (push) to another option.</string>
     <string name="notif_push_login_failed_hint">Tap to open UPM Mail and check the password in the account settings.</string>
 
     <!-- Texts inserted in replies and forwards -->

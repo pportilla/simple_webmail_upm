@@ -29,7 +29,7 @@
     <string name="notif_push_reconnecting">Reconectando…</string>
     <string name="notif_push_offline">Sin conexión</string>
     <string name="notif_push_login_failed">No se ha podido iniciar sesión en %1$s</string>
-    <string name="notif_push_hint">Para ocultar esta notificación, mantenla pulsada y desactívala. El correo nuevo seguirá llegando al instante.</string>
+    <string name="notif_push_hint">Mantiene una conexión con tu servidor para avisarte al instante. Para detenerla, cambia Ajustes → Buscar correo nuevo de Al instante (push) a otra opción.</string>
     <string name="notif_push_login_failed_hint">Toca para abrir UPM Mail y revisa la contraseña en los ajustes de la cuenta.</string>
 
     <!-- Textos que se insertan en respuestas y reenvíos -->

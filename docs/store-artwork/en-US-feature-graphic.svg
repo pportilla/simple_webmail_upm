@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#00244d"/><stop offset="1" stop-color="#004b9c"/></linearGradient></defs>
+<rect width="1024" height="500" fill="url(#background)"/>
+<circle cx="900" cy="50" r="320" fill="#ffffff" opacity="0.035"/>
+<circle cx="890" cy="460" r="230" fill="#ffffff" opacity="0.035"/>
+<rect x="68" y="70" width="178" height="178" rx="35" fill="#003f87" stroke="#ffffff" stroke-opacity="0.16"/>
+<g transform="translate(68 70) scale(1.648148)"><path fill="#FFFFFF" d="M34,38h40a4,4 0,0 1,4 4v24a4,4 0,0 1,-4 4h-40a4,4 0,0 1,-4 -4v-24a4,4 0,0 1,4 -4z"/><path fill="#003F87" d="M34.6,41.5L54,55.2 73.4,41.5 74.9,43.6 54,58.4 33.1,43.6z"/><path fill="#F6B000" d="M70,62m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0"/></g>
+<g font-family="DejaVu Sans, sans-serif" fill="#ffffff">
+<text x="282" y="158" font-size="58" font-weight="700">UPM Mail</text>
+<text x="286" y="206" font-size="23" fill="#d3e4ff">An unofficial Android email client</text>
+<text x="74" y="337" font-size="45" font-weight="700">Your UPM mail, with you.</text>
+<path d="M76 370h66" stroke="#f6b000" stroke-width="5" stroke-linecap="round"/>
+<text x="76" y="422" font-size="20" fill="#d3e4ff">zango</text>
+</g></svg>

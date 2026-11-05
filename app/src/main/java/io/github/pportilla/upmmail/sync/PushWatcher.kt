@@ -1,6 +1,7 @@
 package io.github.pportilla.upmmail.sync
 
 import io.github.pportilla.upmmail.mail.ImapIdler
+import io.github.pportilla.upmmail.mail.IdleTransport
 import io.github.pportilla.upmmail.mail.MailErrors
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
@@ -46,7 +47,7 @@ interface PushConnection {
     suspend fun refresh(): Boolean
 }
 
-fun ImapIdler.asPushConnection(): PushConnection {
+fun IdleTransport.asPushConnection(): PushConnection {
     val idler = this
     return object : PushConnection {
         override suspend fun run(onIdle: () -> Unit, onChange: (ImapIdler.Change) -> Unit) = idler.run(onIdle, onChange)

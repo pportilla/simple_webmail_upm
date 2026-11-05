@@ -1,0 +1,4 @@
+Try the app without mailbox credentials using a clearly labeled local sample mailbox.
+Read, search, edit drafts and simulate sending with fictional messages and attachments.
+Explore guardian approval and supervised mail with a PIN you choose.
+Real email continues to use your own authorized mailbox account.

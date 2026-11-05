@@ -30,8 +30,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK and run unit tests
-        run: ./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest
+      - name: Build debug APK, check release bundle and run unit tests
+        run: ./gradlew --no-daemon --stacktrace -PunsignedRelease=true assembleDebug testDebugUnitTest lintRelease bundleRelease
 
       - name: Unit test summary
         if: always()
@@ -62,7 +62,7 @@ jobs:
       # A rolling pre-release so the newest APK always has the same direct download link:
       # https://github.com/<owner>/<repo>/releases/download/latest-debug/upm-mail-debug.apk
       - name: Publish APK to the latest-debug pre-release
-        if: success() && github.event_name != 'pull_request'
+        if: success() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

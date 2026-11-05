@@ -3,7 +3,6 @@ package io.github.pportilla.upmmail.ui.settings
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 
@@ -19,20 +18,19 @@ fun Context.isIgnoringBatteryOptimizations(): Boolean =
     }
 
 /**
- * Asks Android to exempt the app from battery optimisation: the system dialog if available,
- * otherwise the list of optimised apps. Returns false if neither could be opened.
+ * Opens Android's battery settings, where the user can manage optimisation themselves.
+ * This does not request the restricted direct battery-exemption permission.
  */
 fun Context.requestIgnoreBatteryOptimizations(): Boolean {
-    val dialog = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
     val list = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-    for (intent in listOf(dialog, list)) {
+    for (intent in listOf(list, Intent(Settings.ACTION_SETTINGS))) {
         try {
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return true
         } catch (_: ActivityNotFoundException) {
             // Try the next one.
         } catch (_: SecurityException) {
-            // Some vendors protect the dialog; try the next one.
+            // Some vendors protect battery settings; try general settings.
         }
     }
     return false

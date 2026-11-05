@@ -30,6 +30,12 @@ import java.io.File
  */
 
 interface AccountRepository {
+    /** Opens a fictional, local-only account; normal eligibility and app setup still apply. */
+    suspend fun addDemoAccount(): Result<Account> = Result.failure(UnsupportedOperationException("Sample mail is unavailable"))
+
+    /** Schedules one fictional local arrival, for trying notification and refresh controls. */
+    suspend fun scheduleDemoArrival(accountId: Long): Result<Unit> = Result.failure(UnsupportedOperationException("Sample mail is unavailable"))
+
     /** All accounts ordered by sortOrder. */
     val accounts: Flow<List<Account>>
 
@@ -98,10 +104,10 @@ interface MailRepository {
     /** Folder ids currently being synchronised, for progress indicators. */
     val syncingFolders: StateFlow<Set<Long>>
 
-    /** Pushes pending local changes, then fetches new mail and flag changes for one folder. */
+    /** Fetches new mail and flags, preserving pending local changes for their independent flush. */
     suspend fun refreshFolder(folderId: Long): Result<Unit>
 
-    /** Refreshes the folder list, sends the outbox and refreshes the INBOX of the account. */
+    /** Refreshes the folder list and INBOX. Queued mutations and outbox delivery run independently. */
     suspend fun refreshAccount(accountId: Long): Result<Unit>
 
     /**
@@ -225,6 +231,10 @@ interface ComposeRepository {
 }
 
 interface ContactRepository {
+    /** Account-aware suggestions keep fictional sample recipients out of real mail history. */
+    suspend fun suggestForAccount(accountId: Long, query: String, exclude: Set<String> = emptySet(), limit: Int = 8): List<ContactSuggestion> =
+        suggest(query, exclude, limit)
+
     /**
      * Address suggestions for [query] (matched against names and addresses, by word prefix),
      * ranked by how often and how recently they were used. Device contacts are included when the
@@ -254,6 +264,8 @@ interface SyncController {
 
 /** Manual dependency container, created once by the Application. */
 interface AppContainer {
+    val safetyRepository: io.github.pportilla.upmmail.data.safety.SafetyRepository
+
     val accountRepository: AccountRepository
     val mailRepository: MailRepository
     val composeRepository: ComposeRepository

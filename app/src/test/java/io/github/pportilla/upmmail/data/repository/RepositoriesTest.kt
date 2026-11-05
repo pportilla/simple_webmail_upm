@@ -15,10 +15,24 @@ import io.github.pportilla.upmmail.model.EmailAddress
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
+import io.github.pportilla.upmmail.model.SecurityMode
 import io.github.pportilla.upmmail.model.ServerSettings
 import io.github.pportilla.upmmail.sync.FlushScheduler
 import io.github.pportilla.upmmail.sync.MailClientProvider
 import io.github.pportilla.upmmail.sync.SyncEngine
+import io.github.pportilla.upmmail.data.safety.LocalSafetyRepository
+import io.github.pportilla.upmmail.data.safety.PlatformRestriction
+import io.github.pportilla.upmmail.mail.ImapTransport
+import io.github.pportilla.upmmail.mail.demo.DemoMailBackend
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeout
+import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertArrayEquals
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
@@ -47,7 +61,7 @@ class RepositoriesTest {
     fun setUp() {
         store = newStore()
         files = LocalFiles(temp.newFolder("files"))
-        val clients = MailClientProvider({ store.accounts.get(it) }, passwords)
+        val clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety)
         engine = SyncEngine(store, clients, files, FileAttachmentOpener)
     }
 
@@ -73,13 +87,93 @@ class RepositoriesTest {
     private fun accounts(checker: CredentialChecker) = AccountRepositoryImpl(
         store = store,
         passwords = passwords,
-        clients = MailClientProvider({ store.accounts.get(it) }, passwords),
+        clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety),
         engine = engine,
         settings = settings,
         files = files,
         scope = inertScope,
         checker = checker,
     )
+
+    @Test
+    fun sampleAccountRequiresNoCredentialsAndCannotBeConvertedIntoRealMail() = runBlocking {
+        val checker = FakeChecker("never", "never")
+        val repository = accounts(checker)
+        val sample = repository.addDemoAccount().getOrThrow()
+        assertTrue(sample.isDemo)
+        assertNull(passwords.get(sample.id))
+        assertTrue(checker.tried.isEmpty())
+        assertEquals(sample.id, repository.addDemoAccount().getOrThrow().id)
+        assertTrue(repository.updateAccount(sample.copy(isDemo = false), verify = false).isFailure)
+        assertTrue(repository.updateAccount(sample.copy(smtp = sample.smtp.copy(host = "smtp.upm.es")), verify = false).isFailure)
+        assertTrue(repository.updateAccount(sample, newPassword = "never-store-this").isFailure)
+        val renamed = repository.updateAccount(sample.copy(displayName = "Practice"), verify = true).getOrThrow()
+        assertEquals("Practice", renamed.displayName)
+        assertNull(passwords.get(sample.id))
+        assertTrue(checker.tried.isEmpty())
+    }
+
+    @Test
+    fun aRealAccountCannotOptIntoSampleTransportThroughUpdate() = runBlocking {
+        val repository = accounts(FakeChecker("ana", "ana@upm.es"))
+        val real = repository.addAccount("ana@upm.es", "pw", "Ana").getOrThrow()
+        assertTrue(repository.updateAccount(real.copy(isDemo = true), verify = false).isFailure)
+        assertEquals(real, store.accounts.get(real.id))
+        assertEquals("pw", passwords.get(real.id))
+    }
+
+    @Test
+    fun sampleSetupCannotUnlockKnownUnder13Policy() = runBlocking {
+        val safety = io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(
+            io.github.pportilla.upmmail.data.safety.legacySafetyStorage(io.github.pportilla.upmmail.data.safety.AgeBand.UNDER_13))
+        store = MailStore(store.sql, safety = safety)
+        val before = safety.state.value
+        val repository = accounts(FakeChecker("never", "never"))
+        assertTrue(repository.addDemoAccount().isFailure)
+        assertEquals(before, safety.state.value)
+        assertTrue(store.accounts.getAll().isEmpty())
+        assertTrue(runCatching { safety.completeGeneralSetup() }.isFailure)
+        assertTrue(repository.addDemoAccount().isFailure)
+    }
+
+    @Test
+    fun sampleSuggestionsDoNotUseDeviceContactsOrRealHistory() = runBlocking {
+        val sample = accounts(FakeChecker("never", "never")).addDemoAccount().getOrThrow()
+        store.contacts.recordContacted(listOf(EmailAddress("alex@real.example", "Alex Private")), System.currentTimeMillis())
+        var deviceReads = 0
+        val suggestions = ContactRepositoryImpl(store, DeviceContactsSource { _, _ ->
+            deviceReads++
+            listOf(EmailAddress("alex@device.example", "Alex Device"))
+        })
+        val results = suggestions.suggestForAccount(sample.id, "alex")
+        assertEquals(listOf("alex@example.invalid"), results.map { it.address.address })
+        assertEquals(0, deviceReads)
+        val inbox = store.addTestFolder(sample.id, "INBOX", FolderRole.INBOX)
+        store.messages.upsertHeaders(sample.id, inbox.id, listOf(remoteMessage(1, from = EmailAddress("tutor@example.invalid"))))
+        assertTrue(store.contacts.candidates("tutor", 10).isEmpty())
+    }
+
+    @Test
+    fun plaintextServersAreRejectedBeforeEitherCredentialCheckOrPersistence() = runBlocking {
+        val checker = FakeChecker("ana", "ana@upm.es")
+        val repository = accounts(checker)
+        val insecure = ServerSettings("mail.example.org", 143, SecurityMode.NONE, "ana")
+        for ((imap, smtp) in listOf(insecure to null, null to insecure)) {
+            val error = repository.addAccount("ana@upm.es", "pw", "Ana", imap, smtp).exceptionOrNull() as MailException
+            assertEquals(MailErrorKind.INSECURE_CONNECTION, error.kind)
+            assertTrue(checker.tried.isEmpty())
+            assertTrue(store.accounts.getAll().isEmpty())
+        }
+
+        val account = repository.addAccount("ana@upm.es", "pw", "Ana").getOrThrow()
+        checker.tried.clear()
+        val error = repository.updateAccount(account.copy(smtp = insecure), "replacement", verify = false)
+            .exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.INSECURE_CONNECTION, error.kind)
+        assertTrue(checker.tried.isEmpty())
+        assertEquals(account, store.accounts.get(account.id))
+        assertEquals("pw", passwords.get(account.id))
+    }
 
     @Test
     fun addAccountDetectsTheLoginNameAndStoresThePassword() = runBlocking {
@@ -205,4 +299,111 @@ class RepositoriesTest {
         val fresh = repository.createDraft(account.id, ComposeMode.NEW, null).getOrThrow()
         assertEquals("\n\n-- \nAna Pérez\nETSI Informáticos", fresh.body)
     }
+    private data class AttachmentFixture(
+        val mail: MailRepositoryImpl,
+        val id: Long,
+        val policy: LocalSafetyRepository,
+    )
+
+    /** Real sample MIME/data with the normal repository/cache; a test-only wrapper can interrupt reads. */
+    private suspend fun attachmentFixture(onDownload: (suspend (Int) -> Unit)? = null): AttachmentFixture {
+        val sample = accounts(FakeChecker("never", "never")).addDemoAccount().getOrThrow()
+        val backend = DemoMailBackend(temp.newFolder("attachment-sample"), sample)
+        val attempts = AtomicInteger()
+        val source = backend.imap()
+        if (onDownload != null) store.accounts.update(sample.copy(isDemo = false))
+        val clients = MailClientProvider({ store.accounts.get(it) }, passwords, safety = store.safety,
+            demoFactory = { backend },
+            imapFactory = { _, _ -> object : ImapTransport by source {
+                override suspend fun downloadPart(folder: String, uid: Long, partPath: String, destination: File) {
+                    onDownload!!(attempts.incrementAndGet())
+                    source.downloadPart(folder, uid, partPath, destination)
+                }
+            } })
+        // Unconfined makes the pre-network policy boundary deterministic in these coroutine tests.
+        engine = SyncEngine(store, clients, files, FileAttachmentOpener, io = Dispatchers.Unconfined)
+        engine.syncAccount(sample.id)
+        val inbox = store.folders.findByRole(sample.id, FolderRole.INBOX)!!
+        val message = store.messages.list(inbox.id, 50, false).single { it.hasAttachments }
+        engine.loadBody(message.id, inlineImages = false)
+        val attachment = store.messages.detail(message.id)!!.attachments.single()
+        assertNull(attachment.localPath)
+        val scheduler = FlushScheduler(inertScope, engine::flushPendingOps)
+        val mail = MailRepositoryImpl(store, engine, scheduler, settings, inertScope, io = Dispatchers.Unconfined)
+        return AttachmentFixture(mail, attachment.id, store.safety as LocalSafetyRepository)
+    }
+
+    private val sampleAttachmentBytes =
+        "SAMPLE FILE / ARCHIVO DE EJEMPLO\nRead, write and learn together. / Leed, escribid y aprended juntos.\n".toByteArray(Charsets.UTF_8)
+
+    @Test fun uncachedAttachmentRequestWaitsForForegroundCheckAndReturnsOriginalBytes() = runBlocking {
+        val fixture = attachmentFixture()
+        fixture.policy.setPlatformCheckPending(true)
+        val download = async(start = CoroutineStart.UNDISPATCHED) { fixture.mail.downloadAttachment(fixture.id) }
+        assertFalse("The export request must wait, not return an error and delete its destination", download.isCompleted)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+        fixture.policy.setPlatformCheckPending(false)
+        val file = withTimeout(3_000) { download.await() }.getOrThrow()
+        assertArrayEquals(sampleAttachmentBytes, file.readBytes())
+    }
+
+    @Test fun explicitRestrictionWhileAttachmentWaitsStillFailsWithoutDownloading() = runBlocking {
+        val fixture = attachmentFixture()
+        fixture.policy.setPlatformCheckPending(true)
+        val download = async(start = CoroutineStart.UNDISPATCHED) { fixture.mail.downloadAttachment(fixture.id) }
+        assertFalse(download.isCompleted)
+        fixture.policy.updatePlatformRestriction(PlatformRestriction.APPROVAL_DECLINED)
+        val error = withTimeout(3_000) { download.await() }.exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.SAFETY_BLOCKED, error.kind)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+    }
+
+    @Test fun cancellingWaitingAttachmentRequestPropagatesAndDoesNotDownloadLater() = runBlocking {
+        val fixture = attachmentFixture()
+        fixture.policy.setPlatformCheckPending(true)
+        val download = async(start = CoroutineStart.UNDISPATCHED) { fixture.mail.downloadAttachment(fixture.id) }
+        assertFalse(download.isCompleted)
+        download.cancelAndJoin()
+        fixture.policy.setPlatformCheckPending(false)
+        assertTrue(download.isCancelled)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+    }
+
+    @Test fun cachedAttachmentDoesNotWaitForAnUnrelatedPlatformCheck() = runBlocking {
+        val fixture = attachmentFixture()
+        val cached = fixture.mail.downloadAttachment(fixture.id).getOrThrow()
+        fixture.policy.setPlatformCheckPending(true)
+        val file = withTimeout(1_000) { fixture.mail.downloadAttachment(fixture.id) }.getOrThrow()
+        assertEquals(cached, file)
+        assertArrayEquals(sampleAttachmentBytes, file.readBytes())
+    }
+
+    @Test fun attachmentReadInterruptedByACompletedPlatformCheckRetriesTheReadOnly() = runBlocking {
+        val policy = store.safety as LocalSafetyRepository
+        var reads = 0
+        val fixture = attachmentFixture { attempt ->
+            reads = attempt
+            if (attempt == 1) {
+                policy.setPlatformCheckPending(true)
+                policy.setPlatformCheckPending(false)
+                throw MailException(MailErrorKind.NETWORK, "Socket closed during foreground lookup")
+            }
+        }
+        val file = fixture.mail.downloadAttachment(fixture.id).getOrThrow()
+        assertEquals(2, reads)
+        assertArrayEquals(sampleAttachmentBytes, file.readBytes())
+    }
+
+    @Test fun ordinaryAttachmentNetworkFailureIsNotHiddenOrRetried() = runBlocking {
+        var reads = 0
+        val fixture = attachmentFixture { attempt ->
+            reads = attempt
+            throw MailException(MailErrorKind.NETWORK, "Ordinary disconnected network")
+        }
+        val error = fixture.mail.downloadAttachment(fixture.id).exceptionOrNull() as MailException
+        assertEquals(MailErrorKind.NETWORK, error.kind)
+        assertEquals(1, reads)
+        assertNull(store.messages.attachment(fixture.id)!!.attachment.localPath)
+    }
+
 }

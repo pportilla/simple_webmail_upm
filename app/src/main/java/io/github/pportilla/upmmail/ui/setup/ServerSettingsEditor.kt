@@ -214,7 +214,7 @@ private fun SecurityField(
             expanded = expanded && enabled,
             onDismissRequest = { expanded = false },
         ) {
-            SecurityMode.entries.forEach { mode ->
+            listOf(SecurityMode.SSL_TLS, SecurityMode.STARTTLS).forEach { mode ->
                 DropdownMenuItem(
                     text = { Text(securityLabel(mode)) },
                     onClick = {

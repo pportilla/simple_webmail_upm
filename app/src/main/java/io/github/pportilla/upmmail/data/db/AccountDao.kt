@@ -65,6 +65,7 @@ class AccountDao internal constructor(private val store: MailStore) {
         "signature" to account.signature,
         "color" to account.color,
         "notifications_enabled" to account.notificationsEnabled,
+        "is_demo" to account.isDemo,
     )
 
     private fun map(row: SqlRow): Account = Account(
@@ -87,6 +88,7 @@ class AccountDao internal constructor(private val store: MailStore) {
         color = row.intOr("color"),
         notificationsEnabled = row.bool("notifications_enabled"),
         sortOrder = row.intOr("sort_order"),
+        isDemo = row.bool("is_demo"),
     )
 
     private fun securityOf(value: String?): SecurityMode =

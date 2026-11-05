@@ -148,7 +148,7 @@ sealed interface ComposeExit {
     data object Discarded : ComposeExit
 
     /** Queued for sending after [undoSeconds]; the result arrives in [result]. */
-    data class Sending(val result: Deferred<SendResult>, val undoSeconds: Int) : ComposeExit
+    data class Sending(val result: Deferred<SendResult>, val undoSeconds: Int, val isDemo: Boolean = false) : ComposeExit
 }
 
 /** One-shot messages for the screen. */
@@ -231,7 +231,7 @@ class ComposeViewModel(
     /** Files picked while the draft was still loading (a picker result after process death). */
     private val pendingPicked = mutableListOf<String>()
 
-    private data class SuggestionRequest(val kind: RecipientKind, val query: String, val exclude: Set<String>, val generation: Int)
+    private data class SuggestionRequest(val kind: RecipientKind, val query: String, val exclude: Set<String>, val generation: Int, val accountId: Long)
 
     private val suggestionRequests = MutableStateFlow<SuggestionRequest?>(null)
     private var suggestionGeneration = 0
@@ -250,10 +250,12 @@ class ComposeViewModel(
         scope.launch {
             suggestionRequests
                 .debounce { if (it == null) 0L else SUGGESTION_DEBOUNCE_MILLIS }
-                .mapLatest { request -> request?.let { SuggestionList(it.kind, it.query, fetchSuggestions(it)) } }
-                .collect { list ->
+                .mapLatest { request -> request?.let { it to SuggestionList(it.kind, it.query, fetchSuggestions(it)) } }
+                .collect { result ->
                     state.update { s ->
-                        val current = list?.takeIf { it.items.isNotEmpty() && s.focusedField == it.kind }
+                        val current = result?.takeIf { (request, _) ->
+                            request == suggestionRequests.value && request.accountId == s.accountId
+                        }?.second?.takeIf { it.items.isNotEmpty() && s.focusedField == it.kind }
                         s.copy(suggestions = current)
                     }
                 }
@@ -558,7 +560,7 @@ class ComposeViewModel(
             if (s.suggestions?.kind == kind || s.focusedField == kind) clearSuggestions()
             return
         }
-        suggestionRequests.value = SuggestionRequest(kind, query, s.recipientKeys, suggestionGeneration)
+        suggestionRequests.value = SuggestionRequest(kind, query, s.recipientKeys, suggestionGeneration, s.accountId)
     }
 
     private fun clearSuggestions() {
@@ -567,7 +569,9 @@ class ComposeViewModel(
     }
 
     private suspend fun fetchSuggestions(request: SuggestionRequest): List<ContactSuggestion> = try {
-        container.contactRepository.suggest(request.query, request.exclude, MAX_SUGGESTIONS)
+        if (request.accountId > 0) {
+            container.contactRepository.suggestForAccount(request.accountId, request.query, request.exclude, MAX_SUGGESTIONS)
+        } else emptyList()
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
@@ -612,6 +616,8 @@ class ComposeViewModel(
             body = TextFieldValue(swapped, newSelection)
         }
         state.update { it.copy(accountId = accountId) }
+        clearSuggestions()
+        state.value.focusedField?.let(::requestSuggestions)
         onContentChanged()
     }
 
@@ -703,6 +709,7 @@ class ComposeViewModel(
     private fun queueForSending() {
         autosaveJob?.cancel()
         val content = currentContent()
+        val isDemo = state.value.account?.isDemo == true
         val delaySeconds = container.settingsRepository.settings.value.undoSendSeconds.coerceAtLeast(0)
         val result = container.applicationScope.async {
             saveMutex.withLock {
@@ -720,7 +727,7 @@ class ComposeViewModel(
                 }
             }
         }
-        finish(ComposeExit.Sending(result, delaySeconds))
+        finish(ComposeExit.Sending(result, delaySeconds, isDemo))
     }
 
     /** Close button / Back: keeps what the user wrote as a draft, drops untouched messages. */

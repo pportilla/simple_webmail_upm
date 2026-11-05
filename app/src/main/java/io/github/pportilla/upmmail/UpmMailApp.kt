@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.LocaleList
 import android.util.Log
 import androidx.annotation.RequiresApi
+import io.github.pportilla.upmmail.data.eligibility.PlayAgeSignalsController
 import io.github.pportilla.upmmail.data.DefaultAppContainer
 import io.github.pportilla.upmmail.data.repository.AppContainer
 import io.github.pportilla.upmmail.data.settings.AppLanguage
@@ -30,6 +31,9 @@ import java.util.Locale
 class UpmMailApp : Application() {
     lateinit var container: AppContainer
         private set
+
+    /** Shared across activity recreation so Play consent cannot create duplicate requests. */
+    val ageSignals by lazy { PlayAgeSignalsController(this, container.safetyRepository) }
 
     /** The language the app applies itself (Android 12 and older); null follows the system. */
     @Volatile

@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -76,6 +78,7 @@ import io.github.pportilla.upmmail.ui.components.SenderAvatar
 import io.github.pportilla.upmmail.ui.components.errorMessage
 import io.github.pportilla.upmmail.ui.components.formatFullDate
 import io.github.pportilla.upmmail.ui.components.formatListDate
+import io.github.pportilla.upmmail.ui.safety.isSingleSafetyAddress
 
 /** Callbacks of the message cards, grouped so the cards take one stable parameter. */
 @Immutable
@@ -102,6 +105,8 @@ internal class MessageCardActions(
     val onOpenAttachment: (Attachment) -> Unit,
     val onShareAttachment: (Attachment) -> Unit,
     val onSaveAttachment: (Attachment) -> Unit,
+    val onBlockSender: (String) -> Unit,
+    val onReportToProvider: () -> Unit,
 )
 
 /** Gold used for stars, readable on light and dark surfaces. */
@@ -378,6 +383,21 @@ private fun MessageMenu(item: MessageItemUi, actions: MessageCardActions) {
                     text = { Text(stringResource(R.string.message_mark_unread_from_here)) },
                     leadingIcon = { Icon(Icons.Outlined.MarkEmailUnread, contentDescription = null) },
                     onClick = { select { actions.onMarkUnreadFrom(item.id) } },
+                )
+            }
+            if (!item.isDraft && !item.fromSelf) {
+                val sender = item.detail.summary.from?.address
+                if (sender != null && isSingleSafetyAddress(sender)) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.mail_block_sender)) },
+                        leadingIcon = { Icon(Icons.Outlined.Block, contentDescription = null) },
+                        onClick = { select { actions.onBlockSender(sender) } },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.mail_report_provider)) },
+                    leadingIcon = { Icon(Icons.Outlined.Report, contentDescription = null) },
+                    onClick = { select(actions.onReportToProvider) },
                 )
             }
             if (item.canDeleteSingly) {

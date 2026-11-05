@@ -1,5 +1,6 @@
 package io.github.pportilla.upmmail.ui.mailbox
 
+import io.github.pportilla.upmmail.ui.components.accountAddressLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -300,7 +301,7 @@ private fun AccountHeader(account: Account?, expanded: Boolean, onToggle: () -> 
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = account.email,
+                    text = accountAddressLabel(account),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -321,7 +322,7 @@ private fun AccountLabel(account: Account) {
     Column {
         Text(accountName(account), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            text = account.email,
+            text = accountAddressLabel(account),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -394,7 +395,7 @@ internal fun AccountSwitcherSheet(
                     colors = itemColors,
                     leadingContent = { AccountAvatar(account) },
                     headlineContent = { Text(accountName(account), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = { Text(account.email, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = { Text(accountAddressLabel(account), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     trailingContent = if (current) {
                         { Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.mailbox_current_account)) }
                     } else {

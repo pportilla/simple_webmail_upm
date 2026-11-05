@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import io.github.pportilla.upmmail.data.repository.SettingsRepository
 import io.github.pportilla.upmmail.model.AppSettings
+import io.github.pportilla.upmmail.model.MailCheckIntervals
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,10 +23,18 @@ class PrefsSettingsRepository(context: Context) : SettingsRepository {
 
     override val settings: StateFlow<AppSettings> = state.asStateFlow()
 
+    init {
+        val normalized = state.value.syncIntervalMinutes
+        if (prefs.getInt(SYNC_INTERVAL, normalized) != normalized) {
+            prefs.edit().putInt(SYNC_INTERVAL, normalized).apply()
+        }
+    }
+
     override fun update(transform: (AppSettings) -> AppSettings) {
         synchronized(lock) {
             val old = state.value
-            val new = transform(old)
+            val proposed = transform(old)
+            val new = proposed.copy(syncIntervalMinutes = MailCheckIntervals.normalize(proposed.syncIntervalMinutes))
             if (new == old) return
             state.value = new
             write(prefs.edit(), new).apply()
@@ -77,14 +86,9 @@ class PrefsSettingsRepository(context: Context) : SettingsRepository {
             return AppSettings(
                 themeMode = enumOf(prefs.getString(THEME, null), defaults.themeMode),
                 dynamicColor = prefs.getBoolean(DYNAMIC_COLOR, defaults.dynamicColor),
-                pushEnabled = if (prefs.contains(PUSH)) {
-                    prefs.getBoolean(PUSH, defaults.pushEnabled)
-                } else {
-                    // Saved before push existed: on only with the default check interval, which push
-                    // keeps as its safety net; "Manually only" or a longer interval stays as chosen.
-                    prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes) == defaults.syncIntervalMinutes
-                },
-                syncIntervalMinutes = prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes).coerceAtLeast(0),
+                // Persistent foreground work starts only after the user selects instant push.
+                pushEnabled = prefs.getBoolean(PUSH, defaults.pushEnabled),
+                syncIntervalMinutes = MailCheckIntervals.normalize(prefs.getInt(SYNC_INTERVAL, defaults.syncIntervalMinutes)),
                 language = AppLanguage.normalize(prefs.getString(LANGUAGE, null)),
                 notificationsEnabled = prefs.getBoolean(NOTIFICATIONS, defaults.notificationsEnabled),
                 swipeStartToEnd = enumOf(prefs.getString(SWIPE_START, null), defaults.swipeStartToEnd),

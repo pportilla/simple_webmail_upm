@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.ui.setup
 
+import io.github.pportilla.upmmail.data.safety.hasAdultExternalAccess
+
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -178,6 +180,7 @@ fun SignInErrorCard(
 
 /** Opens [url] in the browser; false if no app can show web pages. */
 fun Context.openWebPage(url: String): Boolean {
+    if (!hasAdultExternalAccess()) return false
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
     if (findActivity() == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return try {

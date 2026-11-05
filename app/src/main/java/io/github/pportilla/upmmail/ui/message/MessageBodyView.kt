@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -44,10 +45,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.pportilla.upmmail.R
+import io.github.pportilla.upmmail.data.safety.hasAdultExternalAccess
 import io.github.pportilla.upmmail.mail.HtmlText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.io.ByteArrayInputStream
 import kotlin.math.roundToInt
 
 /** What a message WebView currently shows; reloading happens only when this changes. */
@@ -258,7 +261,7 @@ private fun MessageWebView.bind(content: WebContent, fontScale: Float, paper: Bo
     this.content = content
     setBackgroundColor(if (paper) android.graphics.Color.WHITE else android.graphics.Color.TRANSPARENT)
     applyDarkening(content.darken)
-    settings.blockNetworkLoads = content.blockNetworkLoads
+    settings.blockNetworkLoads = content.blockNetworkLoads || !context.hasAdultExternalAccess()
     loadDataWithBaseURL(null, content.html, "text/html", "utf-8", null)
 }
 
@@ -272,9 +275,14 @@ private class MessageWebViewClient(
     private val onRendererGone: (crashed: Boolean) -> Unit,
 ) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-        if (request.isForMainFrame) onLinkClick(request.url)
+        if (request.isForMainFrame && view.context.hasAdultExternalAccess()) onLinkClick(request.url)
         return true
     }
+
+    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+        if (!view.context.hasAdultExternalAccess()) {
+            WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(byteArrayOf()))
+        } else null
 
     override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
         // The renderer is shared by every WebView of the app; returning true keeps the app alive.
@@ -294,6 +302,10 @@ internal class MessagePrinter(private val context: Context) {
 
     fun print(request: PrintRequest, onFailure: () -> Unit) {
         release()
+        if (!context.hasAdultExternalAccess()) {
+            onFailure()
+            return
+        }
         val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
         if (printManager == null) {
             onFailure()
@@ -316,6 +328,11 @@ internal class MessagePrinter(private val context: Context) {
             override fun onPageFinished(view: WebView, url: String?) {
                 if (started || webView !== view) return
                 started = true
+                if (!context.hasAdultExternalAccess()) {
+                    release()
+                    onFailure()
+                    return
+                }
                 try {
                     val adapter = view.createPrintDocumentAdapter(request.jobName)
                     printManager.print(request.jobName, adapter, PrintAttributes.Builder().build())

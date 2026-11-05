@@ -415,11 +415,13 @@ class MessageViewModel(
     // ------------------------------------------------------------------ remote images
 
     fun showImages(id: Long) {
+        if (runCatching { container.safetyRepository.requireAttachments() }.isFailure) return
         local.update { it.copy(imagesShown = it.imagesShown + id) }
     }
 
     /** Always loads remote images from [address] from now on. */
     fun trustSender(address: String) {
+        if (runCatching { container.safetyRepository.requireAttachments() }.isFailure) return
         val key = address.trim().lowercase(Locale.ROOT)
         if (key.isEmpty()) return
         settingsRepository.update { it.copy(trustedImageSenders = it.trustedImageSenders + key) }
@@ -560,6 +562,7 @@ class MessageViewModel(
         ) { file ->
             val saved = withContext(Dispatchers.IO) {
                 try {
+                    container.safetyRepository.requireAttachments()
                     resolver.openOutputStream(target)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } } != null
                 } catch (e: Exception) {
                     false
@@ -625,6 +628,7 @@ class MessageViewModel(
         }
 
     private suspend fun buildPrintRequest(labels: PrintLabels): Result<PrintRequest> {
+        container.safetyRepository.requireAttachments()
         val messages = loadedMessages()
         var target = messages.lastOrNull { !it.isDraftMessage() } ?: messages.lastOrNull()
             ?: return Result.failure(MailException(MailErrorKind.NOT_FOUND))

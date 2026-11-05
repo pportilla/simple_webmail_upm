@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 class MailStore(
     val sql: SqlDatabase,
     val observer: TableObserver = TableObserver(),
+    val safety: io.github.pportilla.upmmail.data.safety.SafetyPolicy = io.github.pportilla.upmmail.data.safety.LocalSafetyRepository(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val pendingTables = ThreadLocal<MutableSet<String>?>()

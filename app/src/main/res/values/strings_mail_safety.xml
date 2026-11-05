@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mail_welcome_title">Welcome to UPM Mail</string>
+    <string name="mail_welcome_notice">An independent email client for people aged 13 and older. Use a mailbox you are authorized to access and meet your provider\'s account requirements.</string>
+    <string name="mail_acceptable_use">Use email respectfully. Do not send harassment, threats, hate, scams, spam, malware, illegal material, sexual exploitation or private information without permission. Do not send sexual content to minors. You can block senders locally and report abuse to your mail provider.</string>
+    <string name="mail_accept_terms">I am 13 or older, I am authorized to use my mailbox, and I accept these rules.</string>
+    <string name="mail_continue">Continue</string>
+    <string name="mail_setup_updating">Updating your mailbox</string>
+    <string name="mail_setup_updating_notice">Keeping existing unsent mail for you to review.</string>
+    <string name="mail_unsupported_title">UPM Mail is for ages 13 and older</string>
+    <string name="mail_unsupported_notice">This device was previously set up for someone under 13. This version no longer provides supervised mail, so mailbox access remains unavailable here. Your provider account has not been deleted.</string>
+    <string name="mail_unsupported_help">Ask a trusted adult to help you use an email service that supports your age and your provider\'s account rules. For help with existing local app data, contact zango at p.portilla89@gmail.com.</string>
+    <string name="mail_action_failed">Could not complete this action. Check the details and connection, then try again.</string>
+    <string name="mail_action_blocked">This action is unavailable. Check that setup is complete and that the address is not in Settings → Blocked senders.</string>
+    <string name="mail_review_required">This message was saved before the app update. Review it before trying again.</string>
+    <string name="mail_privacy_controls">Privacy and reporting</string>
+    <string name="mail_blocked_senders">Blocked senders</string>
+    <string name="mail_block_sender">Block sender</string>
+    <string name="mail_block_notice">Blocking hides mail from this exact address and prevents communication with it in this app on this device. It does not block delivery at the mail server or in other apps. A sender can use a different address. You can undo this in Settings → Blocked senders.</string>
+    <string name="mail_sender_address">Email address</string>
+    <string name="mail_no_blocked_senders">No blocked senders.</string>
+    <string name="mail_unblock">Unblock</string>
+    <string name="mail_sender_blocked">Sender blocked on this device</string>
+    <string name="mail_report_provider">Report to my mail provider</string>
+    <string name="mail_report_subject">Mail safety concern</string>
+    <string name="mail_provider_report_notice">Use the official abuse or safety address published by your mail provider. Enter that address and describe only what is necessary. No original messages, headers or attachments are included automatically. If your provider uses a web form, use its official website instead. The app developer does not operate a mail moderation service.</string>
+    <string name="mail_report_needs_account">Add an authorized mailbox to send a report to your provider.</string>
+    <string name="mail_provider_report_address">Official provider abuse or safety email</string>
+    <string name="mail_report_description">Describe the concern</string>
+    <string name="mail_preview_report">Preview report</string>
+    <string name="mail_report_exact_notice">This sends the text below with your sender identity and normal email headers through your mailbox. Confirm the official destination and remove unnecessary personal information before sending.</string>
+    <string name="mail_send_report">Send report</string>
+    <string name="mail_report_queued">Report queued. Check Outbox or Sent before assuming delivery.</string>
+    <string name="mail_play_check_title">Checking Google Play</string>
+    <string name="mail_play_check_notice">Checking whether an account verification requirement applies.</string>
+    <string name="mail_play_requirement_title">Google Play requires a check</string>
+    <string name="mail_play_under13_notice">Google Play reports that this account is for someone under 13. UPM Mail is for ages 13 and older. If the account information is incorrect, check it in Google Play and then retry here.</string>
+    <string name="mail_play_verification_notice">Google Play requires age verification before mail is available. Complete the verification in Google Play, then retry here.</string>
+    <string name="mail_play_pending_notice">Google Play is waiting for approval of a significant app change. Check the pending request in Google Play, then retry here.</string>
+    <string name="mail_play_declined_notice">Google Play reports that approval of a significant app change was declined. Mail remains unavailable until Play allows access. Check the account in Google Play, then retry here.</string>
+    <string name="mail_open_google_play">Open Google Play</string>
+    <string name="mail_retry_play_check">Check again</string>
+    <string name="mail_play_open_failed">Could not open Google Play. Open the Play Store on this device, check your account and try again.</string>
+</resources>

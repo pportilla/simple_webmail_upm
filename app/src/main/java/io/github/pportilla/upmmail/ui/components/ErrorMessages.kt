@@ -8,9 +8,13 @@ import io.github.pportilla.upmmail.model.MailException
 
 @StringRes
 fun MailErrorKind.messageRes(): Int = when (this) {
+    MailErrorKind.ACCESS_CHECK_PENDING -> R.string.mail_play_check_notice
     MailErrorKind.AUTHENTICATION -> R.string.error_authentication
     MailErrorKind.NETWORK -> R.string.error_network
     MailErrorKind.CERTIFICATE -> R.string.error_certificate
+    MailErrorKind.INSECURE_CONNECTION -> R.string.error_insecure_connection
+    MailErrorKind.SAFETY_BLOCKED -> R.string.mail_action_blocked
+    MailErrorKind.REVIEW_REQUIRED -> R.string.mail_review_required
     MailErrorKind.SERVER -> R.string.error_server
     MailErrorKind.NOT_FOUND -> R.string.error_not_found
     MailErrorKind.INVALID_RECIPIENT -> R.string.error_invalid_recipient

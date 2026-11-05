@@ -1,0 +1,1 @@
+Los correos no leídos destacan con un fondo de color y una barra lateral en el buzón y los resultados de búsqueda, tanto en el tema claro como en el oscuro.

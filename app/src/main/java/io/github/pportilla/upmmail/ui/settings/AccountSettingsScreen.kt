@@ -1,5 +1,7 @@
 package io.github.pportilla.upmmail.ui.settings
 
+import io.github.pportilla.upmmail.ui.components.SampleMailNotice
+import io.github.pportilla.upmmail.ui.components.accountAddressLabel
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -142,7 +144,7 @@ fun AccountSettingsScreen(accountId: Long, navigator: AppNavigator) {
                         )
                         state.account?.let { account ->
                             Text(
-                                text = account.email,
+                                text = accountAddressLabel(account),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -246,10 +248,11 @@ private fun AccountForm(
         ) {
             ListItem(
                 headlineContent = { Text(account.displayName.ifBlank { account.email }) },
-                supportingContent = { Text(account.email) },
+                supportingContent = { Text(accountAddressLabel(account)) },
                 leadingContent = { AccountAvatar(account, size = 48.dp) },
             )
 
+            SampleMailNotice(account)
             PreferenceSectionHeader(stringResource(R.string.settings_account_identity))
             OutlinedTextField(
                 value = viewModel.displayName,
@@ -293,6 +296,21 @@ private fun AccountForm(
                 onCheckedChange = { viewModel.notificationsEnabled = it },
             )
 
+            if (account.isDemo) {
+                Text(stringResource(R.string.demo_push_notice), modifier = fieldModifier)
+                OutlinedButton(
+                    onClick = viewModel::scheduleSampleArrival,
+                    enabled = !busy && state.demoArrivalStatus != DemoArrivalStatus.SCHEDULING,
+                    modifier = fieldModifier.padding(vertical = 8.dp),
+                ) { Text(stringResource(R.string.demo_receive)) }
+                when (state.demoArrivalStatus) {
+                    DemoArrivalStatus.QUEUED -> Text(stringResource(R.string.demo_receive_queued), modifier = fieldModifier)
+                    DemoArrivalStatus.FAILED -> Text(stringResource(R.string.demo_receive_error), color = MaterialTheme.colorScheme.error, modifier = fieldModifier)
+                    else -> Unit
+                }
+                PreferenceSectionHeader(stringResource(R.string.settings_account_servers))
+                Text(stringResource(R.string.demo_no_connection), modifier = fieldModifier)
+            } else {
             PreferenceSectionHeader(stringResource(R.string.settings_account_password))
             PasswordTextField(
                 value = viewModel.newPassword,
@@ -312,6 +330,8 @@ private fun AccountForm(
             PreferenceSectionHeader(stringResource(R.string.settings_account_servers))
             ServersSection(viewModel = viewModel, enabled = !busy, onSave = onSave)
 
+            }
+
             state.error?.let { error ->
                 SignInErrorCard(
                     error = error,
@@ -324,7 +344,7 @@ private fun AccountForm(
 
             PreferenceSectionHeader(stringResource(R.string.settings_account_remove_section))
             Text(
-                text = stringResource(R.string.settings_account_remove_summary),
+                text = stringResource(if (account.isDemo) R.string.demo_remove_notice else R.string.settings_account_remove_summary),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = fieldModifier,

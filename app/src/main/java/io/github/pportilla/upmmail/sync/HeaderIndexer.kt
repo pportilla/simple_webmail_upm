@@ -4,7 +4,7 @@ import io.github.pportilla.upmmail.data.db.HeaderIndexDao
 import io.github.pportilla.upmmail.data.db.IndexFolderState
 import io.github.pportilla.upmmail.data.db.MailStore
 import io.github.pportilla.upmmail.data.db.MessageDao
-import io.github.pportilla.upmmail.mail.ImapClient
+import io.github.pportilla.upmmail.mail.ImapTransport
 import io.github.pportilla.upmmail.mail.ImapOptions
 import io.github.pportilla.upmmail.mail.RemoteFolderStatus
 import io.github.pportilla.upmmail.model.Folder
@@ -183,6 +183,8 @@ class HeaderIndexer internal constructor(
      * others are skipped then. Never throws but for cancellation: problems are in the result.
      */
     suspend fun run(budget: IndexBudget, accountIds: List<Long>? = null): IndexRunResult = withContext(io) {
+        store.safety.requireAttachments()
+        store.safety.requireNetwork()
         if (budget.dedicatedConnection) {
             runMutex.withLock { runLocked(budget, accountIds) }
         } else {
@@ -375,7 +377,7 @@ class HeaderIndexer internal constructor(
 
     private inner class AccountRun(
         private val accountId: Long,
-        private val imap: ImapClient,
+        private val imap: ImapTransport,
         private val budget: IndexBudget,
         private val deadline: Long,
         private val totals: Totals,

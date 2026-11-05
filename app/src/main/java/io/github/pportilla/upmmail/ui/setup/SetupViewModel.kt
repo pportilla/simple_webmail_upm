@@ -26,6 +26,7 @@ sealed interface SetupError {
 
 data class SetupUiState(
     val signingIn: Boolean = false,
+    val demoAttempt: Boolean = false,
     val error: SetupError? = null,
     /** Set once the account has been added; the screen then opens the mailbox. */
     val signedInAccountId: Long? = null,
@@ -51,7 +52,7 @@ class SetupViewModel(private val container: AppContainer) : ViewModel() {
         if (_uiState.value.signingIn || _uiState.value.signedInAccountId != null) return
         val address = email.trim()
         val secret = password
-        _uiState.update { it.copy(signingIn = true, error = null) }
+        _uiState.update { it.copy(signingIn = true, demoAttempt = false, error = null) }
         viewModelScope.launch {
             if (isAlreadyAdded(address)) {
                 _uiState.update { it.copy(signingIn = false, error = SetupError.Duplicate) }
@@ -67,6 +68,21 @@ class SetupViewModel(private val container: AppContainer) : ViewModel() {
                 .onFailure { error ->
                     _uiState.update { it.copy(signingIn = false, error = SetupError.Failed(error)) }
                 }
+        }
+    }
+
+    /** Public sample mode uses the same account and safety boundaries as ordinary setup. */
+    fun trySampleMail() {
+        if (_uiState.value.signingIn || _uiState.value.signedInAccountId != null) return
+        _uiState.update { it.copy(signingIn = true, demoAttempt = true, error = null) }
+        viewModelScope.launch {
+            container.accountRepository.addDemoAccount()
+                .onSuccess { account ->
+                    container.settingsRepository.update { it.copy(lastAccountId = account.id, lastFolderId = -1) }
+                    password = ""
+                    _uiState.update { it.copy(signingIn = false, signedInAccountId = account.id) }
+                }
+                .onFailure { error -> _uiState.update { it.copy(signingIn = false, error = SetupError.Failed(error)) } }
         }
     }
 

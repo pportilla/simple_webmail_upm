@@ -37,6 +37,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -48,6 +52,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.model.EmailAddress
@@ -99,11 +104,27 @@ fun MessageListItem(
     val unreadState = stringResource(R.string.mailbox_state_unread)
     val selectedState = stringResource(R.string.mailbox_state_selected)
     val isSelected = selected
+    val background = when {
+        selected -> colors.secondaryContainer
+        unread -> colors.primaryContainer.copy(alpha = 0.5f).compositeOver(colors.surface)
+        else -> colors.surface
+    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(if (selected) colors.secondaryContainer else colors.surface)
+            .background(background)
+            .drawBehind {
+                // Keep unread visible during selection and without relying on font weight.
+                if (unread) {
+                    val railWidth = 4.dp.toPx()
+                    drawRect(
+                        color = colors.primary,
+                        topLeft = Offset(if (layoutDirection == LayoutDirection.Rtl) size.width - railWidth else 0f, 0f),
+                        size = Size(railWidth, size.height),
+                    )
+                }
+            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,

@@ -94,6 +94,7 @@ import io.github.pportilla.upmmail.R
 import io.github.pportilla.upmmail.mail.UpmPresets
 import io.github.pportilla.upmmail.ui.components.AppSnackbarHost
 import io.github.pportilla.upmmail.ui.components.LocalAppSnackbar
+import io.github.pportilla.upmmail.ui.components.PrivacyPolicyButton
 import io.github.pportilla.upmmail.ui.components.appContainer
 import io.github.pportilla.upmmail.ui.navigation.AppNavigator
 import io.github.pportilla.upmmail.ui.theme.UpmBlue
@@ -125,7 +126,7 @@ fun SetupScreen(navigator: AppNavigator, isAddingAccount: Boolean) {
 
     LaunchedEffect(state.signedInAccountId) {
         if (state.signedInAccountId != null) {
-            snackbar.show(context.getString(R.string.setup_signed_in, form.email.trim()))
+            snackbar.show(if (state.demoAttempt) context.getString(R.string.demo_opened) else context.getString(R.string.setup_signed_in, form.email.trim()))
             currentNavigator.openMailbox(clearBackStack = true)
         }
     }
@@ -184,6 +185,13 @@ fun SetupScreen(navigator: AppNavigator, isAddingAccount: Boolean) {
                     .padding(horizontal = 16.dp, vertical = 24.dp),
             ) {
                 BrandHeader(isAddingAccount)
+                Button(
+                    onClick = { keyboard?.hide(); focusManager.clearFocus(); viewModel.trySampleMail() },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) { Text(stringResource(if (busy && state.demoAttempt) R.string.demo_loading else R.string.demo_try)) }
+                Text(stringResource(R.string.demo_intro), style = MaterialTheme.typography.bodyMedium)
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Spacer(Modifier.size(4.dp))
 
                 EmailField(
@@ -248,7 +256,7 @@ fun SetupScreen(navigator: AppNavigator, isAddingAccount: Boolean) {
                         )
                         is SetupError.Failed -> SignInErrorCard(
                             error = error.error,
-                            title = stringResource(R.string.setup_error_title),
+                            title = stringResource(if (state.demoAttempt) R.string.demo_error else R.string.setup_error_title),
                         )
                     }
                 }
@@ -267,12 +275,12 @@ fun SetupScreen(navigator: AppNavigator, isAddingAccount: Boolean) {
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(12.dp))
-                        Text(stringResource(R.string.setup_signing_in))
+                        Text(stringResource(if (state.demoAttempt) R.string.demo_loading else R.string.setup_signing_in))
                     } else {
                         Text(stringResource(R.string.setup_sign_in))
                     }
                 }
-                AnimatedVisibility(visible = state.signingIn) {
+                AnimatedVisibility(visible = state.signingIn && !state.demoAttempt) {
                     Text(
                         text = stringResource(R.string.setup_signing_in_hint),
                         style = MaterialTheme.typography.bodySmall,
@@ -470,6 +478,7 @@ private fun Footer(email: String, onOpenWebmail: (String) -> Unit) {
             icon = { Icon(Icons.Outlined.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             text = stringResource(R.string.setup_privacy_note),
         )
+        PrivacyPolicyButton(onOpenUrl = onOpenWebmail, modifier = Modifier.align(Alignment.CenterHorizontally))
         Text(
             text = stringResource(R.string.setup_unofficial_note),
             style = MaterialTheme.typography.bodySmall,
