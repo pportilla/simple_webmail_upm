@@ -41,7 +41,7 @@
     <li>To try failed-outbox recovery, send a new fictional message to <code>fail-once@example.invalid</code>. It fails once, then retry succeeds locally. Use a new subject or body when repeating this exercise.</li>
     <li>Open Settings to change theme, language, preview and notification preferences, manage accounts and read the offline privacy policy. English and Spanish are included.</li>
     <li>Mail checking offers <strong>5, 10 or 15 minutes</strong>, <strong>Instantly (push)</strong>, and <strong>Only when I open the app</strong>. Interval checks are approximate: Android may delay them to save battery. The 5- and 10-minute modes do not start the persistent push service. Earlier 30- or 60-minute preferences migrate to 15 minutes.</li>
-    <li>Pull down to check the mailbox. Optional body caching and sending queued mail do not keep the manual refresh indicator active. A slow or interrupted check ends with retry available; changing folders cancels its progress indicator.</li>
+    <li>Pull down to check the mailbox. A refresh fetches message headers; body caching and queued mail changes run separately. Refresh may wait for the mailbox connection, but a slow or interrupted check ends with retry available; changing folders cancels its progress indicator.</li>
   </ul>
 
   <h2>Blocking and provider reports</h2>
