@@ -1,4 +1,1 @@
-General email for ages 13 and older, with the same features for teens and adults.
-Removed guardian PINs, contact approvals and message-by-message supervision.
-Kept sender blocking, provider reporting, secure mail connections and clear unread highlights.
-Fixed saving attachments after choosing a destination.
+Fixed pull-to-refresh getting stuck during startup and slow mail downloads. Added 5- and 10-minute checking alongside 15 minutes and instant push; removed 30- and 60-minute options. Background timing may vary with Android battery management. Updated the outdated AndroidX Fragment dependency.

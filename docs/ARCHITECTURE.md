@@ -60,8 +60,17 @@ then the full address.
   (`AppSettings.undoSendSeconds`), either by the in-app scope or, if the app dies, by a
   `JobScheduler` job with a network constraint. After a successful SMTP send, the message is
   appended to the Sent folder.
-- Background checks run as a periodic `JobScheduler` job (interval from settings). While the app
-  is visible, the INBOX is polled every 2 minutes.
+- Manual refresh fetches folder headers without executing queued mutations, SMTP sends or
+  optional body downloads. It may wait for another operation's shared account connection,
+  but has a 60 second deadline and always clears its indicator on completion or cancellation.
+  Queued changes keep their independent flush scheduling. Background body prefetch has a
+  5 second budget and aborts its socket when cancelled, releasing the connection for refresh.
+- Background checks offer approximate 5, 10 or 15 minute intervals. The 15 minute option uses
+  a periodic `JobScheduler` job; shorter options use an inexact repeating alarm to enqueue one
+  coalesced, network-constrained job. Android can delay these checks for battery saving; they
+  do not request exact alarms, bypass Doze or run a polling foreground service. Boot and app
+  updates restore scheduling. While the app is visible, INBOX polling follows the selected
+  interval, or uses a 2 minute fallback for instant push. Manual mode has no repeating checks.
 - Instant push (off by default, `AppSettings.pushEnabled`): after ordinary 13+ access setup,
   `PushService`, a foreground service of type `specialUse`, runs one `PushWatcher` per real
   account. Sample accounts are excluded. Each watcher keeps an IMAP IDLE connection
@@ -372,6 +381,7 @@ search screen (or a stopped index job) ends its network traffic at once.
 | 1001 | periodic mail check |
 | 1002 | outbox |
 | 1003 | pending operations |
+| 1004 | coalesced short-interval mail check |
 | 1101 | bulk index |
 | 1102 | light index |
 
@@ -385,7 +395,7 @@ fails on every start until a fixed build ships. A missing step, or a downgrade (
 recreates the database and loses the local data.
 
 **Debug `versionCode`** is `GITHUB_RUN_NUMBER + 100` on CI and 1 for a local build. Release
-numbering is independent: the current default is 3, overridden with `releaseVersionCode` or
+numbering is independent: the current default is 9, overridden with `releaseVersionCode` or
 `UPM_RELEASE_VERSION_CODE`, and must increase for every Play upload. Debug and release packages
 are separate. Android refuses to install an older build over a newer build of the same package
 (INSTALL_FAILED_VERSION_DOWNGRADE) instead of letting it wipe the database. A local debug build

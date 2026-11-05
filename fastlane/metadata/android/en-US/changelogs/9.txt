@@ -1,0 +1,1 @@
+Fixed pull-to-refresh getting stuck during startup and slow mail downloads. Added 5- and 10-minute checking alongside 15 minutes and instant push; removed 30- and 60-minute options. Background timing may vary with Android battery management. Updated the outdated AndroidX Fragment dependency.

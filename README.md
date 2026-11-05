@@ -53,8 +53,8 @@ over IMAP and SMTP with TLS, so the mailbox is the same one you see in the UPM w
   - Filters: unread, starred, attachments, this folder. Recent searches are remembered.
 - **Notifications** for new mail, with *Mark as read* and *Archive* actions. New mail arrives
   **instantly (push)**: the app keeps a connection to the server open with IMAP IDLE, shown by a
-  small silent notification that you can hide. You can also choose checks every 15/30/60 minutes,
-  or only when you open the app.
+  small silent notification that you can hide. You can also choose approximate checks every
+  5/10/15 minutes, or only when you open the app. Android may delay background checks to save battery.
 - `mailto:` links and **share-to-email** from other apps.
 - Light/dark theme in UPM blue, optional Material You colours, English and Spanish UI.
 - **Language**: the app follows your phone's language, or choose English or Español in
@@ -108,7 +108,7 @@ secret, and it must not be used to publish the app on a store.
 
 The release package is `io.github.pportilla.upmmail`; debug installs use the separate
 `io.github.pportilla.upmmail.debug` package. Release builds never use the public debug key.
-The release version defaults to `1.1.0` / code `7`, independently of the debug CI sequence.
+The release version defaults to `1.1.1` / code `9`, independently of the debug CI sequence.
 Choose a version code greater than **every** version already uploaded to this app in Play Console.
 If this app was published before, preserve its package ID and use its registered upload key.
 
@@ -141,7 +141,7 @@ the local upload key signs bundles submitted to Play.
 
 ```bash
 export UPM_SIGNING_PROPERTIES_FILE="$HOME/.config/upm-mail/signing.properties"
-python3 scripts/build-release.py --version-code 7 --version-name 1.1.0
+python3 scripts/build-release.py --version-code 9 --version-name 1.1.1
 ```
 
 The signed build fails if credentials are missing, checks the bundle signature, and rejects the

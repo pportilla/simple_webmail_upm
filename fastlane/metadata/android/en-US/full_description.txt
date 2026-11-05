@@ -21,7 +21,7 @@ FIND OLDER MESSAGES
 Search cached mail and indexed message headers across your folders. Search the mail server for additional results or message text, and narrow results by folder, unread status, stars or attachments.
 
 CHOOSE HOW MAIL ARRIVES
-For connected real mailboxes, choose push checking through a direct IMAP connection, periodic checks every 15, 30 or 60 minutes, or checking when you open the app. Push is off by default. Real push uses an ongoing connection-status notification and can be turned off in Settings. Sample arrivals refresh locally without a persistent service. Delivery timing depends on connectivity, server availability and Android background restrictions.
+For connected real mailboxes, choose push checking through a direct IMAP connection, approximate checks every 5, 10 or 15 minutes, or checking when you open the app. Push is off by default. Real push uses an ongoing connection-status notification and can be turned off in Settings. Sample arrivals refresh locally without a persistent service. Delivery timing depends on connectivity, server availability and Android background restrictions.
 
 READ YOUR WAY
 Remote images are blocked until you allow them. Choose light or dark appearance, optional system colours, and an English or Spanish interface. Open mailto links and print messages.

@@ -57,9 +57,9 @@
     "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
   },
   "04-settings.png": {
-    "captured_utc": "2026-10-25T13:19:27.869774+00:00",
+    "captured_utc": "2026-11-05T11:39:17.890725+00:00",
     "source": "Unmodified adb exec-out screencap -p output from running signed release app",
-    "device": "emulator-5556",
+    "device": "emulator-5554",
     "package": "io.github.pportilla.upmmail",
     "locale": "es-ES",
     "android_api": "36",
@@ -67,13 +67,20 @@
       1080,
       1920
     ],
-    "sha256": "25d45d2eff6fff4eb3dcf3bdcafb36545a6d734fe993951f53ddba077ecdbb99",
-    "installed_release_apk_sha256": "47ea2b13c84ecfdc87485bd7be60af1e98c414c6be3bd7f1e1b7d416cc084258",
-    "app_version_code": 8,
-    "app_version_name": "1.1.0",
-    "fixture": "Fresh local sample mailbox and fictional example.invalid addresses; no real mailbox data or credentials.",
+    "sha256": "766497b99301309fbea8ce7d50835b22cd75c640bfa41935536833febea7a741",
+    "installed_release_apk_sha256": "f87fed9175ca2d99ef4fa7e59cb9f247c93e312401df6e04a0a27b894ebed2d7",
+    "app_version_code": 9,
+    "app_version_name": "1.1.1",
+    "fixture": "Disposable local TLS fixture mailbox with fictional example.invalid addresses; no real mailbox data or credentials.",
     "audience_flow": "One general13+ eligibility and acceptable-use acknowledgement; ordinary mailbox without guardian setup.",
-    "visual_review": "Passed: readable ordinary mailbox UI, correct language, no keyboard, no blank frame, no real mailbox data."
+    "visible_options": [
+      "Al instante (push)",
+      "Cada 5 minutos",
+      "Cada 10 minutos",
+      "Cada 15 minutos",
+      "Solo al abrir la app"
+    ],
+    "visual_review": "Passed: all five choices readable in correct language, no keyboard or blank frame, synthetic fixture only; raw1080x1920 capture."
   },
   "05-blocking.png": {
     "captured_utc": "2026-10-25T13:19:41.021529+00:00",
