@@ -219,7 +219,7 @@ class SyncEngine(
     suspend fun refreshAccount(accountId: Long): List<MessageSummary> = withContext(io) {
         store.safety.requireNetwork()
         syncFolderList(accountId)
-        syncFolder(inboxOf(accountId).id, prefetch = false)
+        syncFolder(inboxOf(accountId).id, prefetch = false, flushPending = false)
     }
 
     private suspend fun syncAccountOnIo(accountId: Long): List<MessageSummary> {
@@ -245,13 +245,15 @@ class SyncEngine(
 
     /**
      * Pushes pending changes, then fetches new messages and flag changes of the folder and
-     * prefetches the newest bodies. Returns the new unread messages when the folder is an INBOX
+     * prefetches the newest bodies. Manual refresh disables pending changes and prefetching:
+     * its cancellation/deadline must not interrupt an upload after server acceptance.
+     * Returns the new unread messages when the folder is an INBOX
      * (the listener has been told about them as well).
      */
-    suspend fun syncFolder(folderId: Long, prefetch: Boolean = true): List<MessageSummary> =
-        withContext(io) { syncFolderOnIo(folderId, prefetch) }
+    suspend fun syncFolder(folderId: Long, prefetch: Boolean = true, flushPending: Boolean = true): List<MessageSummary> =
+        withContext(io) { syncFolderOnIo(folderId, prefetch, flushPending) }
 
-    private suspend fun syncFolderOnIo(folderId: Long, prefetch: Boolean): List<MessageSummary> {
+    private suspend fun syncFolderOnIo(folderId: Long, prefetch: Boolean, flushPending: Boolean): List<MessageSummary> {
         store.safety.requireNetwork()
         val folder = db { store.folders.get(folderId) } ?: throw MailException(MailErrorKind.NOT_FOUND, "Folder $folderId")
         if (!folder.selectable) return emptyList()
@@ -262,7 +264,7 @@ class SyncEngine(
         try {
             markSyncing(folderId) {
                 withAccountLock(folder.accountId) {
-                    flushLocked(folder.accountId)
+                    if (flushPending) flushLocked(folder.accountId)
                     syncHeadersLocked(folderId, newIds)
                 }
             }

@@ -127,7 +127,7 @@ class MailRepositoryImpl(
     override val syncingFolders: StateFlow<Set<Long>> get() = engine.syncingFolders
 
     override suspend fun refreshFolder(folderId: Long): Result<Unit> = refreshResult {
-        engine.syncFolder(folderId, prefetch = false)
+        engine.syncFolder(folderId, prefetch = false, flushPending = false)
     }
 
     override suspend fun refreshAccount(accountId: Long): Result<Unit> = refreshResult {

@@ -104,10 +104,10 @@ interface MailRepository {
     /** Folder ids currently being synchronised, for progress indicators. */
     val syncingFolders: StateFlow<Set<Long>>
 
-    /** Pushes pending local changes, then fetches new mail and flag changes for one folder. */
+    /** Fetches new mail and flags, preserving pending local changes for their independent flush. */
     suspend fun refreshFolder(folderId: Long): Result<Unit>
 
-    /** Refreshes the folder list and INBOX. Outbox delivery is scheduled separately. */
+    /** Refreshes the folder list and INBOX. Queued mutations and outbox delivery run independently. */
     suspend fun refreshAccount(accountId: Long): Result<Unit>
 
     /**

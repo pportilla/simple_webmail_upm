@@ -1,5 +1,8 @@
 package io.github.pportilla.upmmail.sync
 
+import io.github.pportilla.upmmail.data.db.LocalFlag
+import io.github.pportilla.upmmail.data.db.PendingOp
+import io.github.pportilla.upmmail.data.db.PendingOpType
 import io.github.pportilla.upmmail.data.db.addTestFolder
 import io.github.pportilla.upmmail.data.db.remoteMessage
 import io.github.pportilla.upmmail.data.files.FileAttachmentOpener
@@ -11,6 +14,7 @@ import io.github.pportilla.upmmail.mail.SmtpClient
 import io.github.pportilla.upmmail.model.FolderRole
 import io.github.pportilla.upmmail.model.MailErrorKind
 import io.github.pportilla.upmmail.model.MailException
+import jakarta.mail.Flags
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -128,4 +132,83 @@ class RefreshPipelineTest : SyncTestBase() {
         policy.updatePlatformRestriction(PlatformRestriction.APPROVAL_DECLINED)
         assertEquals(MailErrorKind.SAFETY_BLOCKED, (blocked.await().exceptionOrNull() as MailException).kind)
     }
+    @Test(timeout = 15_000)
+    fun manualAccountAndFolderRefreshLeaveDraftUploadForIndependentFlush() = runBlocking {
+        createFolder("Drafts")
+        appendMessages("INBOX", listOf(message("Mail to read")))
+        engine.syncFolderList(account.id)
+        val inbox = engine.inboxOf(account.id).id
+        val draftId = store.drafts.save(draftTo("bob@upm.es", "Upload independently"))
+        store.pendingOps.insert(PendingOp(accountId = account.id, type = PendingOpType.APPEND_DRAFT,
+            target = draftId.toString(), notBefore = 0))
+        val queued = store.pendingOps.forAccount(account.id)
+
+        assertTrue(repository().refreshAccount(account.id).isSuccess)
+        assertTrue(repository().refreshFolder(inbox).isSuccess)
+        assertEquals("Refresh does not claim or change the upload", queued, store.pendingOps.forAccount(account.id))
+        assertTrue(serverMessages("Drafts").isEmpty())
+        assertNull(store.drafts.serverCopy(draftId))
+        assertEquals("Mail to read", store.messages.list(inbox, 10, false).single().subject)
+
+        engine.flushPendingOps(account.id)
+        engine.flushPendingOps(account.id)
+        assertTrue(store.pendingOps.forAccount(account.id).isEmpty())
+        assertEquals(listOf("Upload independently"), serverMessages("Drafts").map { it.first })
+        assertNotNull(store.drafts.serverCopy(draftId))
+    }
+
+    @Test(timeout = 10_000)
+    fun timedOutManualRefreshNeverClaimsQueuedDraftUpload() = runBlocking {
+        FakeImapServer(handler = { /* Hold the header read until the refresh deadline. */ }).use { server ->
+            val inbox = scripted(server)
+            store.addTestFolder(account.id, "Drafts", FolderRole.DRAFTS)
+            val draftId = store.drafts.save(draftTo("bob@upm.es", "Must not be interrupted"))
+            store.pendingOps.insert(PendingOp(accountId = account.id, type = PendingOpType.APPEND_DRAFT,
+                target = draftId.toString(), notBefore = 0))
+            val queued = store.pendingOps.forAccount(account.id)
+            val result = repository(timeout = 500).refreshFolder(inbox)
+            assertEquals(MailErrorKind.NETWORK, (result.exceptionOrNull() as MailException).kind)
+            assertEquals(queued, store.pendingOps.forAccount(account.id))
+            assertNull(store.drafts.serverCopy(draftId))
+            assertEquals("Must not be interrupted", store.drafts.get(draftId)!!.subject)
+            assertEquals(0, server.count("APPEND"))
+            waitUntil { server.open.get() == 0 }
+        }
+    }
+
+    @Test(timeout = 15_000)
+    fun manualHeadersPreserveQueuedReadAndStarChangesUntilBackgroundFlush() = runBlocking {
+        appendMessages("INBOX", listOf(message("Local changes")))
+        engine.syncAccount(account.id)
+        val inbox = engine.inboxOf(account.id).id
+        val original = store.messages.list(inbox, 10, false).single()
+        store.tx {
+            store.messages.setFlag(listOf(original.id), LocalFlag.READ, true)
+            store.messages.setFlag(listOf(original.id), LocalFlag.STARRED, true)
+            store.folders.adjustCounts(inbox, -1, 0)
+            for (flag in listOf("SEEN", "FLAGGED")) {
+                store.pendingOps.insert(PendingOp(accountId = account.id, type = PendingOpType.FLAG,
+                    folder = "INBOX", uids = listOf(original.uid), messageIds = listOf(original.id),
+                    flag = flag, value = true, notBefore = 0))
+            }
+        }
+        val queued = store.pendingOps.forAccount(account.id)
+        appendMessages("INBOX", listOf(message("New arrival")))
+        assertTrue(repository().refreshAccount(account.id).isSuccess)
+        assertTrue(repository().refreshFolder(inbox).isSuccess)
+        val local = store.messages.list(inbox, 10, false)
+        assertEquals(setOf("Local changes", "New arrival"), local.map { it.subject }.toSet())
+        assertTrue(local.single { it.id == original.id }.isRead)
+        assertTrue(local.single { it.id == original.id }.isStarred)
+        assertEquals(1, store.folders.get(inbox)!!.unreadCount)
+        assertEquals(queued, store.pendingOps.forAccount(account.id))
+        val before = serverMessages("INBOX").single { it.first == "Local changes" }.second
+        assertFalse(before.contains(Flags.Flag.SEEN)); assertFalse(before.contains(Flags.Flag.FLAGGED))
+
+        engine.flushPendingOps(account.id)
+        val after = serverMessages("INBOX").single { it.first == "Local changes" }.second
+        assertTrue(after.contains(Flags.Flag.SEEN)); assertTrue(after.contains(Flags.Flag.FLAGGED))
+        assertTrue(store.pendingOps.forAccount(account.id).isEmpty())
+    }
+
 }
