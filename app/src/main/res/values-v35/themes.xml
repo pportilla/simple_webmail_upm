@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 15+ supplies the edge-to-edge window and cutout behavior. -->
+    <style name="Theme.UpmMail" parent="BaseTheme.UpmMail" />
+</resources>

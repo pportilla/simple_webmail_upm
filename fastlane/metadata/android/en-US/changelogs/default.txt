@@ -1,1 +1,1 @@
-Fixed pull-to-refresh getting stuck during startup and slow mail downloads. Added 5- and 10-minute checking alongside 15 minutes and instant push; removed 30- and 60-minute options. Background timing may vary with Android battery management. Updated the outdated AndroidX Fragment dependency.
+Improved the inbox and message layout on phones with camera cutouts and three-button navigation. Mail controls stay clear of the system bars when you rotate your phone.

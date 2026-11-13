@@ -3,21 +3,19 @@ package io.github.pportilla.upmmail
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.Build
 import android.view.WindowManager
 import android.util.Log
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.pportilla.upmmail.ui.safety.SafetyRoot
 import io.github.pportilla.upmmail.model.Account
@@ -42,10 +42,6 @@ import io.github.pportilla.upmmail.ui.settings.needsNotificationPermission
 import io.github.pportilla.upmmail.ui.settings.wasNotificationPermissionAsked
 import io.github.pportilla.upmmail.ui.theme.UpmMailTheme
 import io.github.pportilla.upmmail.ui.theme.isDark
-
-/** Scrims behind the 3-button navigation bar, the same as enableEdgeToEdge's defaults. */
-private val LightNavigationScrim = Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
-private val DarkNavigationScrim = Color.argb(0x80, 0x1B, 0x1B, 0x1B)
 
 private const val TAG = "MainActivity"
 
@@ -83,7 +79,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
-        enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+        }
         intent?.removeNavigationDeepLink()
         if (savedInstanceState == null) {
             if (!intent.isLaunchedFromHistory()) pendingRequest = LaunchRequest.fromIntent(intent, packageName)
@@ -113,16 +111,18 @@ class MainActivity : ComponentActivity() {
             val accounts by container.accountRepository.accounts.collectAsStateWithLifecycle<List<Account>?>(initialValue = null)
             val darkTheme = settings.themeMode.isDark()
 
-            // The app theme can differ from the system one: keep the bar icons readable.
-            DisposableEffect(darkTheme) {
-                enableEdgeToEdge(
-                    statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { darkTheme },
-                    navigationBarStyle = SystemBarStyle.auto(LightNavigationScrim, DarkNavigationScrim) { darkTheme },
-                )
-                onDispose {}
-            }
-
             UpmMailTheme(themeMode = settings.themeMode, dynamicColor = settings.dynamicColor) {
+                val windowColor = MaterialTheme.colorScheme.surface
+                LaunchedEffect(darkTheme, windowColor) {
+                    // Android 15+ derives the three-button navigation scrim from the window background.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                        window.setBackgroundDrawable(ColorDrawable(windowColor.toArgb()))
+                    }
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = !darkTheme
+                        isAppearanceLightNavigationBars = !darkTheme
+                    }
+                }
                 // Above the NavHost, so snackbars (e.g. "Sent - Undo") survive navigation.
                 val snackbarScope = rememberCoroutineScope()
                 val snackbarHostState = remember { SnackbarHostState() }

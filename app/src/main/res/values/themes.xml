@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.UpmMail" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="BaseTheme.UpmMail" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
+    </style>
+
+    <!-- Before Android 15 the window must supply transparent bars for edge-to-edge. -->
+    <style name="LegacyEdgeToEdgeTheme" parent="BaseTheme.UpmMail">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+    <style name="Theme.UpmMail" parent="LegacyEdgeToEdgeTheme" />
 </resources>

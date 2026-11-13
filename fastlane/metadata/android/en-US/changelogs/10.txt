@@ -1,0 +1,1 @@
+Improved the inbox and message layout on phones with camera cutouts and three-button navigation. Mail controls stay clear of the system bars when you rotate your phone.

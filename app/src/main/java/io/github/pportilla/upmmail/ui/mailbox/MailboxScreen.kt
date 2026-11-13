@@ -8,11 +8,16 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -131,14 +136,17 @@ fun MailboxScreen(navigator: AppNavigator) {
         Scaffold(
             topBar = {
                 Column {
-                MailboxTopBar(
-                    state = state,
-                    viewModel = viewModel,
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                    onSearch = { navigator.openSearch(state.account?.id, state.folder?.id) },
-                    onAccountClick = { showAccountSheet = true },
-                )
-                SampleMailNotice(state.account)
+                    MailboxTopBar(
+                        state = state,
+                        viewModel = viewModel,
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onSearch = { navigator.openSearch(state.account?.id, state.folder?.id) },
+                        onAccountClick = { showAccountSheet = true },
+                    )
+                    SampleMailNotice(
+                        state.account,
+                        Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+                    )
                 }
             },
             floatingActionButton = {

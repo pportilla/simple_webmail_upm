@@ -1,0 +1,1 @@
+Mejoramos la disposición de la bandeja de entrada y de los mensajes en móviles con un recorte para la cámara o con navegación de tres botones. Al girar el móvil, los controles del correo quedan fuera de las barras del sistema.

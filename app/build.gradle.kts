@@ -12,11 +12,11 @@ plugins {
 // Release numbering is independent of debug CI runs. Increase this for each Play upload.
 val releaseVersionCode = providers.gradleProperty("releaseVersionCode")
     .orElse(providers.environmentVariable("UPM_RELEASE_VERSION_CODE"))
-    .orElse("9").get().toIntOrNull()?.takeIf { it in 1..2_100_000_000 }
+    .orElse("10").get().toIntOrNull()?.takeIf { it in 1..2_100_000_000 }
     ?: throw GradleException("releaseVersionCode must be an integer between 1 and 2100000000.")
 val releaseVersionName = providers.gradleProperty("releaseVersionName")
     .orElse(providers.environmentVariable("UPM_RELEASE_VERSION_NAME"))
-    .orElse("1.1.1").get().also {
+    .orElse("1.1.2").get().also {
         require(it.isNotBlank() && it.length <= 100) { "releaseVersionName must contain 1–100 characters." }
     }
 val debugVersionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull

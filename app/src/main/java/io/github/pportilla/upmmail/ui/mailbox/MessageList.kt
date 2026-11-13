@@ -60,7 +60,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -281,37 +280,24 @@ private fun SwipeableMessageRow(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    // The state below remembers its first confirmValueChange lambda: read everything through
-    // updated state holders.
-    val currentMessage by rememberUpdatedState(message)
-    val currentStart by rememberUpdatedState(startToEnd)
-    val currentEnd by rememberUpdatedState(endToStart)
-    val currentOnSwipe by rememberUpdatedState(onSwipe)
-    val guard = remember { SwipeGuard() }
     // Not saveable on purpose: the list keeps saved item state under the message id, so a row
     // brought back by Undo would come back dismissed (blank) instead of settled.
-    val density = LocalDensity.current
     val dismissState = remember {
         SwipeToDismissBoxState(
             initialValue = SwipeToDismissBoxValue.Settled,
-            density = density,
-            confirmValueChange = { value ->
-                when (value) {
-                    SwipeToDismissBoxValue.Settled -> true
-                    SwipeToDismissBoxValue.StartToEnd -> guard.decide { currentOnSwipe(currentMessage, currentStart) }
-                    SwipeToDismissBoxValue.EndToStart -> guard.decide { currentOnSwipe(currentMessage, currentEnd) }
-                }
-            },
             positionalThreshold = { distance -> distance * SWIPE_THRESHOLD },
         )
     }
-    // A row still in the list a moment after being dismissed (the action failed, or the list has
-    // not dropped it) slides back instead of staying blank.
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
-            delay(DISMISSED_RESET_MILLIS)
-            dismissState.reset()
+    val settledValue = dismissState.settledValue
+    LaunchedEffect(settledValue) {
+        val action = when (settledValue) {
+            SwipeToDismissBoxValue.StartToEnd -> startToEnd
+            SwipeToDismissBoxValue.EndToStart -> endToStart
+            SwipeToDismissBoxValue.Settled -> return@LaunchedEffect
         }
+        // Give removals time to leave the list. Toggles and confirmation dialogs reset immediately.
+        if (onSwipe(message, action)) delay(DISMISSED_RESET_MILLIS)
+        dismissState.reset()
     }
     SwipeToDismissBox(
         state = dismissState,
@@ -327,23 +313,8 @@ private fun SwipeableMessageRow(
     }
 }
 
-/** Ignores repeated confirmations of the same gesture so a toggle never runs twice. */
-private class SwipeGuard {
-    private var lastAt = 0L
-    private var lastDecision = false
-
-    fun decide(action: () -> Boolean): Boolean {
-        val now = System.nanoTime()
-        if (lastAt != 0L && now - lastAt < GUARD_NANOS) return lastDecision
-        lastAt = now
-        lastDecision = action()
-        return lastDecision
-    }
-}
-
 private const val SWIPE_THRESHOLD = 0.35f
 private const val DISMISSED_RESET_MILLIS = 1_500L
-private const val GUARD_NANOS = 600_000_000L
 
 private class SwipeVisual(val color: Color, val icon: ImageVector, @param:StringRes val label: Int)
 
