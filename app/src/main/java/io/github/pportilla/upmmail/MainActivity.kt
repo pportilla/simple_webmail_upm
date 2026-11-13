@@ -12,6 +12,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.tappableElement
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -25,6 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.colorResource
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.pportilla.upmmail.ui.safety.SafetyRoot
@@ -112,15 +118,28 @@ class MainActivity : ComponentActivity() {
             val darkTheme = settings.themeMode.isDark()
 
             UpmMailTheme(themeMode = settings.themeMode, dynamicColor = settings.dynamicColor) {
-                val windowColor = MaterialTheme.colorScheme.surface
-                LaunchedEffect(darkTheme, windowColor) {
-                    // Android 15+ derives the three-button navigation scrim from the window background.
+                // Android 15's taskbar can draw its three buttons in the system theme. Keep its
+                // platform-provided scrim and button appearance together; gestures follow the app.
+                val density = LocalDensity.current
+                val direction = LocalLayoutDirection.current
+                val tappable = WindowInsets.tappableElement
+                val systemThemedButtons = Build.VERSION.SDK_INT == Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+                    (tappable.getBottom(density) > 0 || tappable.getLeft(density, direction) > 0 ||
+                        tappable.getRight(density, direction) > 0)
+                val darkNavigationBar = if (systemThemedButtons) isSystemInDarkTheme() else darkTheme
+                val windowColor = if (systemThemedButtons) {
+                    colorResource(R.color.window_background)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+                LaunchedEffect(darkTheme, darkNavigationBar, windowColor) {
+                    // The platform samples this color for the three-button navigation scrim.
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                         window.setBackgroundDrawable(ColorDrawable(windowColor.toArgb()))
                     }
                     WindowCompat.getInsetsController(window, window.decorView).apply {
                         isAppearanceLightStatusBars = !darkTheme
-                        isAppearanceLightNavigationBars = !darkTheme
+                        isAppearanceLightNavigationBars = !darkNavigationBar
                     }
                 }
                 // Above the NavHost, so snackbars (e.g. "Sent - Undo") survive navigation.
